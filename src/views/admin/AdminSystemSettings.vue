@@ -51,7 +51,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { getSystemSetting, setSystemSetting } from '@/api/system'
 import { useAuthStore } from '@/store/auth'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import type { RegistrationSetting, LoginRulesSetting } from '@/types'
 
 const authStore = useAuthStore()

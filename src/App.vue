@@ -166,34 +166,25 @@ body {
 }
 
 /* ============================================================
-   TDesign 组件库全局变量覆盖（全部对齐扁平纯色体系）
+   Arco Design 全局变量覆盖（全部对齐扁平纯色体系）
    ============================================================ */
 :root {
-  --td-brand-color: var(--color-brand-500);
-  --td-brand-color-hover: var(--color-brand-600);
-  --td-brand-color-focus: var(--color-brand-600);
-  --td-brand-color-active: var(--color-brand-700);
-  --td-brand-color-disabled: var(--color-brand-200);
-  --td-success-color: var(--color-success);
-  --td-warning-color: var(--color-warning);
-  --td-error-color: var(--color-danger);
-  --td-info-color: var(--color-info);
-  --td-gray-color-1: var(--color-gray-20);
-  --td-gray-color-2: var(--color-gray-50);
-  --td-gray-color-3: var(--color-gray-100);
-  --td-gray-color-4: var(--color-gray-200);
-  --td-gray-color-5: var(--color-gray-300);
-  --td-gray-color-6: var(--color-gray-400);
-  --td-gray-color-7: var(--color-gray-500);
-  --td-gray-color-8: var(--color-gray-600);
-  --td-gray-color-9: var(--color-gray-700);
-  --td-gray-color-10: var(--color-gray-800);
-  --td-border-radius: var(--radius-md);
-  --td-radius-large: var(--radius-lg);
-  --td-radius-extraLarge: var(--radius-xl);
-  --td-shadow-1: none;
-  --td-shadow-2: var(--shadow-elevated);
-  --td-shadow-3: var(--shadow-overlay);
+  --color-primary-1: var(--color-brand-50);
+  --color-primary-2: var(--color-brand-100);
+  --color-primary-3: var(--color-brand-200);
+  --color-primary-4: var(--color-brand-300);
+  --color-primary-5: var(--color-brand-400);
+  --color-primary-6: var(--color-brand-500);
+  --color-primary-7: var(--color-brand-600);
+  --color-primary-8: var(--color-brand-700);
+  --color-primary-9: var(--color-brand-800);
+  --color-primary-10: var(--color-brand-900);
+  --border-radius-small: var(--radius-sm);
+  --border-radius-medium: var(--radius-md);
+  --border-radius-large: var(--radius-lg);
+  --box-shadow1: none;
+  --box-shadow2: var(--shadow-elevated);
+  --box-shadow3: var(--shadow-overlay);
 }
 
 /* ============================================================

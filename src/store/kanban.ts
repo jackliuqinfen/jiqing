@@ -12,7 +12,7 @@ import type {
 } from '@/types'
 import { fetchAllItems, createItem, updateItem, deleteItem, dragMoveItem } from '@/api/kanban'
 import { isOverdue } from '@/utils/date'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 
 // ============================================================
 // 5 列标准造价审核流程定义

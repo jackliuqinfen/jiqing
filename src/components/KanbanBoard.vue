@@ -18,7 +18,7 @@ import { useKanbanStore } from '@/store/kanban'
 import { useAuthStore } from '@/store/auth'
 import { useKanbanDrag, validateStageMove } from '@/hooks/useKanbanDrag'
 import type { CostAuditItem, KanbanStage } from '@/types'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import KanbanColumn from './KanbanColumn.vue'
 
 const store = useKanbanStore()

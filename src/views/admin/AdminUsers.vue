@@ -105,9 +105,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import type { AdminUser, AdminRole, CreateAdminUserDto, UpdateAdminUserDto } from '@/types'
-import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
+import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 
 const tableColumns = [
   { colKey: 'username', title: '账号', width: 130 },

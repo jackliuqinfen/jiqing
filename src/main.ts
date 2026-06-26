@@ -1,7 +1,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import TDesign from 'tdesign-vue-next'
-import 'tdesign-vue-next/es/style/index.css'
+import '@arco-themes/vue-0000/css/arco.css'
+import { installTDesignCompat } from '@/ui/tdesignCompat'
+import '@/ui/tdesignCompat.css'
 import App from './App.vue'
 import router from './router'
 
@@ -13,7 +14,6 @@ app.use(createPinia())
 // Vue Router
 app.use(router)
 
-// TDesign 组件库
-app.use(TDesign)
+installTDesignCompat(app)
 
 app.mount('#app')

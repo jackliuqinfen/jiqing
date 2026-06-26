@@ -8,7 +8,7 @@ import {
   getAllSystemSettings,
   clearAuthSession,
 } from '@/api/system'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import type { UserProfile, AuthStatus, AdminRole, SystemSetting, RegistrationSetting, LoginRulesSetting } from '@/types'
 
 export const useAuthStore = defineStore('auth', () => {

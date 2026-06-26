@@ -131,8 +131,8 @@
 import { ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { MessagePlugin } from 'tdesign-vue-next'
-import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
+import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 
 const authStore = useAuthStore()
 const route = useRoute()

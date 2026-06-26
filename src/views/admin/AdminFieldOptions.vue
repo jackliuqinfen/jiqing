@@ -63,7 +63,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import { fetchFieldOptions, saveFieldOption } from '@/api/audit'
 import type { AuditFieldOption } from '@/types/audit'
 

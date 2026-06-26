@@ -153,7 +153,7 @@ import { useAuthStore } from '@/store/auth'
 import type { CostAuditItem } from '@/types'
 import { formatAmount, getInitials } from '@/utils/format'
 import { formatDate, isOverdue } from '@/utils/date'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 
 const props = defineProps<{
   item: CostAuditItem

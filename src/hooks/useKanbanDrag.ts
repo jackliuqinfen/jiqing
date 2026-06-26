@@ -1,7 +1,7 @@
 import { onMounted, onUnmounted, nextTick } from 'vue'
 import Sortable from 'sortablejs'
 import type { KanbanStage, CostAuditItem } from '@/types'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 
 export interface DragCallbacks {
   /** 是否禁用拖拽（未登录只读模式） */

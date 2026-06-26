@@ -171,8 +171,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useKanbanStore } from '@/store/kanban'
-import { MessagePlugin } from 'tdesign-vue-next'
-import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
+import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 import type { CostAuditItem, KanbanStage, ProjectCategory, PriorityLevel, DocStatus } from '@/types'
 import { createRequestLock } from '@/utils/debounce'
 import { todayISO } from '@/utils/date'

@@ -80,7 +80,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import { fetchFieldConfigs, saveFieldConfig } from '@/api/audit'
 import type { AuditFieldConfig } from '@/types/audit'
 

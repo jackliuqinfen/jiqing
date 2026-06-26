@@ -1,6 +1,6 @@
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 
 export type PendingAction = 'create' | 'edit' | null
 

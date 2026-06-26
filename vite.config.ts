@@ -4,6 +4,20 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('@arco-design') || id.includes('@arco-themes')) return 'vendor-arco'
+            if (id.includes('vue') || id.includes('pinia')) return 'vendor-vue'
+            if (id.includes('sortablejs')) return 'vendor-dnd'
+            return 'vendor'
+          }
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

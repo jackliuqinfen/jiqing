@@ -266,7 +266,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '@/ui/message'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
 import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditStageCode, AuditViewMode } from '@/types/audit'
