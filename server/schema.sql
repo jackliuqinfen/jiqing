@@ -160,7 +160,63 @@ CREATE TABLE IF NOT EXISTS audit_stage_field_values (
   FOREIGN KEY (stage_id) REFERENCES audit_project_stages(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS system_users (
+  id TEXT PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  email TEXT DEFAULT '',
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer',
+  is_active INTEGER DEFAULT 1,
+  last_login_at TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value TEXT NOT NULL,
+  setting_group TEXT DEFAULT 'system',
+  description TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS system_operation_logs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT DEFAULT '',
+  username TEXT DEFAULT '',
+  role TEXT DEFAULT '',
+  action TEXT NOT NULL,
+  target_type TEXT DEFAULT '',
+  target_id TEXT DEFAULT '',
+  result TEXT DEFAULT 'success',
+  ip_address TEXT DEFAULT '',
+  user_agent TEXT DEFAULT '',
+  detail_json TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS system_theme_configs (
+  id TEXT PRIMARY KEY,
+  theme_key TEXT UNIQUE NOT NULL,
+  theme_name TEXT NOT NULL,
+  package_name TEXT NOT NULL,
+  preview_colors TEXT DEFAULT '[]',
+  apply_scope TEXT DEFAULT 'global',
+  is_enabled INTEGER DEFAULT 1,
+  is_default INTEGER DEFAULT 0,
+  dark_mode_enabled INTEGER DEFAULT 0,
+  compact_mode_enabled INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_projects_stage ON audit_projects(current_stage);
 CREATE INDEX IF NOT EXISTS idx_audit_projects_updated ON audit_projects(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_field_configs_sort ON audit_field_configs(entity_type, sort_order);
 CREATE INDEX IF NOT EXISTS idx_audit_field_options_group ON audit_field_options(group_key, sort_order);
+CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_operation_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_users_username ON system_users(username);

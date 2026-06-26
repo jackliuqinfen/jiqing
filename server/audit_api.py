@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import sqlite3
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +36,70 @@ def day(offset):
 
 def new_id():
     return str(uuid.uuid4())
+
+
+def token_secret():
+    return os.environ.get("TOKEN_SECRET") or os.environ.get("SESSION_SECRET") or "dev-only-change-me"
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120000)
+    return f"pbkdf2_sha256$120000${salt}${base64.b64encode(digest).decode('ascii')}"
+
+
+def verify_password(password, stored):
+    try:
+        algo, rounds, salt, encoded = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(rounds))
+        return hmac.compare_digest(base64.b64encode(digest).decode("ascii"), encoded)
+    except Exception:
+        return False
+
+
+def b64url_encode(data):
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def b64url_decode(text):
+    padding = "=" * (-len(text) % 4)
+    return base64.urlsafe_b64decode((text + padding).encode("ascii"))
+
+
+def sign_token(payload):
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body = b64url_encode(raw)
+    sig = hmac.new(token_secret().encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
+    return f"{body}.{b64url_encode(sig)}"
+
+
+def verify_token(token):
+    try:
+        body, sig = token.split(".", 1)
+        expected = hmac.new(token_secret().encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
+        if not hmac.compare_digest(b64url_encode(expected), sig):
+            return None
+        payload = json.loads(b64url_decode(body).decode("utf-8"))
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def user_payload(row):
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "displayName": row["display_name"],
+        "email": row["email"],
+        "role": row["role"],
+        "isActive": bool(row["is_active"]),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
 
 
 def connect():
@@ -140,12 +209,80 @@ def bootstrap():
         conn.executescript(schema)
         ensure_compatible_columns(conn)
         backfill_derived_fields(conn)
+        seed_system_settings(conn)
+        seed_theme_configs(conn)
+        seed_admin_user(conn)
         seed_field_configs(conn)
         seed_options(conn)
         count = conn.execute("SELECT COUNT(*) AS c FROM audit_projects").fetchone()["c"]
         if count == 0:
             seed_projects(conn)
         conn.commit()
+
+
+def seed_system_settings(conn):
+    ts = now_iso()
+    defaults = [
+        ("registration_open", {"enabled": False, "requireApproval": True}, "auth", "是否开放注册"),
+        ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
+        ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global"}, "theme", "当前主题"),
+    ]
+    for key, value, group, desc in defaults:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO system_settings
+            (setting_key, setting_value, setting_group, description, updated_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'system', ?, ?)
+            """,
+            (key, json.dumps(value, ensure_ascii=False), group, desc, ts, ts),
+        )
+
+
+def seed_theme_configs(conn):
+    ts = now_iso()
+    themes = [
+        ("arco-theme-0000", "Arco 官方默认主题", "@arco-themes/vue-0000", ["#165DFF", "#14C9C9", "#00B42A", "#FF7D00"], 1, 1, 10),
+        ("arco-default", "Arco fallback", "@arco-design/web-vue", ["#165DFF", "#0FC6C2", "#00B42A", "#86909C"], 1, 0, 20),
+        ("jiqing-blue", "专业蓝主题", "builtin:jiqing-blue", ["#0E42D2", "#168CFF", "#14C9C9", "#E8F3FF"], 0, 0, 30),
+        ("engineering-green", "青绿工程主题", "builtin:engineering-green", ["#008F7A", "#00B42A", "#14C9C9", "#E8FFFB"], 0, 0, 40),
+        ("gov-gray-blue", "灰蓝政企主题", "builtin:gov-gray-blue", ["#1D3557", "#457B9D", "#A8DADC", "#F1FAEE"], 0, 0, 50),
+        ("dark-command", "深色大屏主题", "builtin:dark-command", ["#0B1220", "#165DFF", "#14C9C9", "#00B42A"], 0, 0, 60),
+    ]
+    for key, name, package, colors, enabled, is_default, order in themes:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO system_theme_configs
+            (id, theme_key, theme_name, package_name, preview_colors, apply_scope,
+             is_enabled, is_default, dark_mode_enabled, compact_mode_enabled, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'global', ?, ?, 0, 0, ?, ?, ?)
+            """,
+            (new_id(), key, name, package, json.dumps(colors, ensure_ascii=False), enabled, is_default, order, ts, ts),
+        )
+
+
+def seed_admin_user(conn):
+    existing = conn.execute("SELECT COUNT(*) AS c FROM system_users").fetchone()["c"]
+    if existing:
+        return
+    username = os.environ.get("ADMIN_INIT_USERNAME", "").strip()
+    password = os.environ.get("ADMIN_INIT_PASSWORD", "")
+    allow_dev_fallback = os.environ.get("ENABLE_DEV_ADMIN_FALLBACK", "0") == "1"
+    if not username and allow_dev_fallback:
+        username = "admin"
+        password = os.environ.get("VITE_LOCAL_ADMIN_PASSWORD") or "admin"
+    if not username or not password:
+        print("No system admin created. Set ADMIN_INIT_USERNAME and ADMIN_INIT_PASSWORD before first production start.", flush=True)
+        return
+    ts = now_iso()
+    conn.execute(
+        """
+        INSERT INTO system_users
+        (id, username, display_name, email, password_hash, role, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'admin', 1, ?, ?)
+        """,
+        (new_id(), username, os.environ.get("ADMIN_INIT_DISPLAY_NAME", "系统管理员"), os.environ.get("ADMIN_INIT_EMAIL", ""), hash_password(password), ts, ts),
+    )
 
 
 def ensure_compatible_columns(conn):
@@ -588,6 +725,257 @@ class Handler(BaseHTTPRequestHandler):
     def handle_error(self, exc):
         self.respond(500, {"success": False, "error": str(exc)})
 
+    def client_ip(self):
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip()
+        return self.client_address[0] if self.client_address else ""
+
+    def current_user(self, conn):
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        payload = verify_token(auth.split(" ", 1)[1].strip())
+        if not payload:
+            return None
+        row = conn.execute(
+            "SELECT * FROM system_users WHERE id = ? AND is_active = 1",
+            (payload.get("sub"),),
+        ).fetchone()
+        return row
+
+    def require_user(self, conn):
+        row = self.current_user(conn)
+        if not row:
+            self.respond(401, {"success": False, "error": "请先登录"})
+            return None
+        return row
+
+    def require_role(self, conn, roles):
+        row = self.require_user(conn)
+        if not row:
+            return None
+        if row["role"] not in roles:
+            self.respond(403, {"success": False, "error": "没有权限执行该操作"})
+            return None
+        return row
+
+    def write_operation_log(self, conn, action, user=None, target_type="", target_id="", result="success", detail=None):
+        conn.execute(
+            """
+            INSERT INTO system_operation_logs
+            (id, user_id, username, role, action, target_type, target_id, result, ip_address, user_agent, detail_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id(),
+                user["id"] if user else "",
+                user["username"] if user else "",
+                user["role"] if user else "",
+                action,
+                target_type,
+                target_id,
+                result,
+                self.client_ip(),
+                self.headers.get("User-Agent", ""),
+                json.dumps(detail or {}, ensure_ascii=False),
+                now_iso(),
+            ),
+        )
+
+    def login(self, conn, data):
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+        row = conn.execute("SELECT * FROM system_users WHERE username = ?", (username,)).fetchone()
+        if not row or not row["is_active"] or not verify_password(password, row["password_hash"]):
+            self.write_operation_log(conn, "auth.login_failed", None, "system_user", username, "failed", {"username": username})
+            conn.commit()
+            self.respond(401, {"success": False, "error": "账号或密码错误"})
+            return
+        expires_at = int(time.time()) + 60 * 60 * 8
+        token = sign_token({"sub": row["id"], "role": row["role"], "username": row["username"], "exp": expires_at})
+        conn.execute("UPDATE system_users SET last_login_at = ?, updated_at = ? WHERE id = ?", (now_iso(), now_iso(), row["id"]))
+        self.write_operation_log(conn, "auth.login_success", row, "system_user", row["id"])
+        conn.commit()
+        fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (row["id"],)).fetchone()
+        self.respond(200, {"success": True, "data": {"token": token, "expiresAt": expires_at, "user": user_payload(fresh)}})
+
+    def list_users(self, conn):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        rows = conn.execute("SELECT * FROM system_users ORDER BY created_at DESC").fetchall()
+        self.respond(200, {"success": True, "data": [user_payload(r) for r in rows]})
+
+    def create_user(self, conn, data):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+        role = data.get("role") or "viewer"
+        if not username or not password:
+            self.respond(400, {"success": False, "error": "账号和密码不能为空"})
+            return
+        if role not in {"admin", "editor", "viewer"}:
+            self.respond(400, {"success": False, "error": "角色无效"})
+            return
+        ts = now_iso()
+        try:
+            conn.execute(
+                """
+                INSERT INTO system_users
+                (id, username, display_name, email, password_hash, role, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (new_id(), username, data.get("displayName") or username, data.get("email", ""), hash_password(password), role, ts, ts),
+            )
+        except sqlite3.IntegrityError:
+            self.respond(409, {"success": False, "error": "账号已存在"})
+            return
+        self.write_operation_log(conn, "user.create", user, "system_user", username)
+        conn.commit()
+        self.list_users(conn)
+
+    def update_user(self, conn, uid, data):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        row = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        fields = {
+            "display_name": data.get("displayName", row["display_name"]),
+            "email": data.get("email", row["email"]),
+            "role": data.get("role", row["role"]),
+            "is_active": 1 if data.get("isActive", bool(row["is_active"])) else 0,
+            "updated_at": now_iso(),
+        }
+        if fields["role"] not in {"admin", "editor", "viewer"}:
+            self.respond(400, {"success": False, "error": "角色无效"})
+            return
+        if data.get("password"):
+            fields["password_hash"] = hash_password(data["password"])
+        assignments = ", ".join([f"{key} = ?" for key in fields.keys()])
+        conn.execute(f"UPDATE system_users SET {assignments} WHERE id = ?", (*fields.values(), uid))
+        self.write_operation_log(conn, "user.update", user, "system_user", uid)
+        conn.commit()
+        fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
+        self.respond(200, {"success": True, "data": user_payload(fresh)})
+
+    def admin_stats(self, conn):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        users = conn.execute("SELECT role, is_active FROM system_users").fetchall()
+        projects = conn.execute("SELECT COUNT(*) AS c FROM audit_projects WHERE status != 'deleted'").fetchone()["c"]
+        self.respond(200, {"success": True, "data": {
+            "totalUsers": len(users),
+            "activeUsers": sum(1 for u in users if u["is_active"]),
+            "adminCount": sum(1 for u in users if u["role"] == "admin"),
+            "totalProjects": projects,
+            "recentLogins": conn.execute("SELECT COUNT(*) AS c FROM system_operation_logs WHERE action = 'auth.login_success'").fetchone()["c"],
+        }})
+
+    def system_settings(self, conn):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        rows = conn.execute("SELECT * FROM system_settings ORDER BY setting_key").fetchall()
+        self.respond(200, {"success": True, "data": [
+            {"key": r["setting_key"], "value": json.loads(r["setting_value"]), "updatedAt": r["updated_at"], "updatedBy": r["updated_by"]}
+            for r in rows
+        ]})
+
+    def set_system_setting(self, conn, key, data):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        ts = now_iso()
+        conn.execute(
+            """
+            INSERT INTO system_settings
+            (setting_key, setting_value, setting_group, description, updated_by, created_at, updated_at)
+            VALUES (?, ?, 'system', '', ?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+              setting_value = excluded.setting_value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+            """,
+            (key, json.dumps(data.get("value"), ensure_ascii=False), user["username"], ts, ts),
+        )
+        self.write_operation_log(conn, "system.setting_update", user, "system_setting", key)
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
+    def theme_options(self, conn):
+        rows = conn.execute("SELECT * FROM system_theme_configs ORDER BY sort_order, theme_name").fetchall()
+        self.respond(200, {"success": True, "data": [self.theme_payload(r) for r in rows]})
+
+    def theme_current(self, conn):
+        setting = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'current_theme'").fetchone()
+        value = json.loads(setting["setting_value"]) if setting else {"themeKey": "arco-theme-0000"}
+        row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
+        self.respond(200, {"success": True, "data": {**value, "theme": self.theme_payload(row) if row else None}})
+
+    def update_theme_current(self, conn, data):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        theme_key = data.get("themeKey") or "arco-theme-0000"
+        row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ? AND is_enabled = 1", (theme_key,)).fetchone()
+        if not row:
+            self.respond(400, {"success": False, "error": "主题不在启用白名单中"})
+            return
+        value = {
+            "themeKey": theme_key,
+            "darkMode": bool(data.get("darkMode")),
+            "compactMode": bool(data.get("compactMode")),
+            "applyScope": data.get("applyScope") or "global",
+        }
+        ts = now_iso()
+        conn.execute(
+            """
+            INSERT INTO system_settings
+            (setting_key, setting_value, setting_group, description, updated_by, created_at, updated_at)
+            VALUES ('current_theme', ?, 'theme', '当前主题', ?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+              setting_value = excluded.setting_value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+            """,
+            (json.dumps(value, ensure_ascii=False), user["username"], ts, ts),
+        )
+        self.write_operation_log(conn, "theme.update", user, "system_theme", theme_key)
+        conn.commit()
+        self.theme_current(conn)
+
+    def reset_theme(self, conn):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global"})
+
+    def theme_payload(self, row):
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "themeKey": row["theme_key"],
+            "themeName": row["theme_name"],
+            "packageName": row["package_name"],
+            "previewColors": json.loads(row["preview_colors"] or "[]"),
+            "applyScope": row["apply_scope"],
+            "isEnabled": bool(row["is_enabled"]),
+            "isDefault": bool(row["is_default"]),
+            "darkModeEnabled": bool(row["dark_mode_enabled"]),
+            "compactModeEnabled": bool(row["compact_mode_enabled"]),
+        }
+
+    def operation_logs(self, conn):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        rows = conn.execute("SELECT * FROM system_operation_logs ORDER BY created_at DESC LIMIT 200").fetchall()
+        self.respond(200, {"success": True, "data": [row_dict(r) for r in rows]})
+
     def do_GET(self):
         try:
             parsed = urlparse(self.path)
@@ -596,6 +984,29 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 if path == "/api/health":
                     self.respond(200, {"success": True, "data": {"status": "ok", "time": now_iso()}})
+                elif path == "/api/auth/me":
+                    user = self.require_user(conn)
+                    if user:
+                        self.respond(200, {"success": True, "data": user_payload(user)})
+                elif path == "/api/admin/users":
+                    self.list_users(conn)
+                elif path == "/api/admin/stats":
+                    self.admin_stats(conn)
+                elif path == "/api/admin/operation-logs":
+                    self.operation_logs(conn)
+                elif path == "/api/system/settings":
+                    self.system_settings(conn)
+                elif path == "/api/system/theme/current":
+                    self.theme_current(conn)
+                elif path == "/api/system/theme/options":
+                    self.theme_options(conn)
+                elif path.startswith("/api/system/theme/preview"):
+                    theme_key = params.get("themeKey", ["arco-theme-0000"])[0]
+                    row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (theme_key,)).fetchone()
+                    if row:
+                        self.respond(200, {"success": True, "data": self.theme_payload(row)})
+                    else:
+                        self.not_found()
                 elif path == "/api/audit/stages":
                     self.respond(200, {"success": True, "data": [{"code": c, "title": t, "color": color} for c, t, color in STAGES]})
                 elif path == "/api/audit/projects":
@@ -607,8 +1018,12 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/audit/dashboard/summary":
                     self.respond(200, {"success": True, "data": dashboard_summary(conn)})
                 elif path == "/api/audit/admin/field-configs":
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     self.respond(200, {"success": True, "data": [camel_config(r) for r in conn.execute("SELECT * FROM audit_field_configs ORDER BY sort_order, field_label")]})
                 elif path == "/api/audit/admin/field-options":
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     group = params.get("group_key", params.get("fieldKey", [""]))[0]
                     if group:
                         rows = conn.execute("SELECT * FROM audit_field_options WHERE group_key = ? ORDER BY sort_order, option_label", (group,)).fetchall()
@@ -647,13 +1062,33 @@ class Handler(BaseHTTPRequestHandler):
             path = parsed.path
             data = read_json(self)
             with connect() as conn:
-                if path == "/api/audit/projects":
+                if path == "/api/auth/login":
+                    self.login(conn, data)
+                elif path == "/api/auth/logout":
+                    user = self.current_user(conn)
+                    if user:
+                        self.write_operation_log(conn, "auth.logout", user, "system_user", user["id"])
+                        conn.commit()
+                    self.respond(200, {"success": True, "data": None})
+                elif path == "/api/admin/users":
+                    self.create_user(conn, data)
+                elif path == "/api/system/theme/reset":
+                    self.reset_theme(conn)
+                elif path == "/api/audit/projects":
+                    if not self.require_role(conn, {"admin", "editor"}):
+                        return
                     self.create_project(conn, data)
                 elif re.match(r"^/api/audit/projects/([^/]+)/progress$", path):
+                    if not self.require_role(conn, {"admin", "editor"}):
+                        return
                     self.update_progress(conn, re.match(r"^/api/audit/projects/([^/]+)/progress$", path).group(1), data)
                 elif path == "/api/audit/admin/field-configs":
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     self.upsert_field_config(conn, data)
                 elif path == "/api/audit/admin/field-options":
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     self.upsert_field_option(conn, data)
                 else:
                     self.not_found()
@@ -668,11 +1103,23 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 match = re.match(r"^/api/audit/projects/([^/]+)$", path)
                 if match:
+                    if not self.require_role(conn, {"admin", "editor"}):
+                        return
                     self.update_project(conn, match.group(1), data)
+                elif path.startswith("/api/admin/users/"):
+                    self.update_user(conn, path.rsplit("/", 1)[-1], data)
+                elif path == "/api/system/theme/current":
+                    self.update_theme_current(conn, data)
+                elif path.startswith("/api/system/settings/"):
+                    self.set_system_setting(conn, path.rsplit("/", 1)[-1], data)
                 elif path.startswith("/api/audit/admin/field-configs/"):
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     data["id"] = path.rsplit("/", 1)[-1]
                     self.upsert_field_config(conn, data)
                 elif path.startswith("/api/audit/admin/field-options/"):
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     data["id"] = path.rsplit("/", 1)[-1]
                     self.upsert_field_option(conn, data)
                 else:
@@ -686,11 +1133,17 @@ class Handler(BaseHTTPRequestHandler):
             path = parsed.path
             with connect() as conn:
                 if path.startswith("/api/audit/admin/field-configs/"):
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     conn.execute("UPDATE audit_field_configs SET enabled = 0, updated_at = ? WHERE id = ?", (now_iso(), path.rsplit("/", 1)[-1]))
+                    self.write_operation_log(conn, "field_config.delete", self.current_user(conn), "audit_field_config", path.rsplit("/", 1)[-1])
                     conn.commit()
                     self.respond(200, {"success": True, "data": None})
                 elif path.startswith("/api/audit/admin/field-options/"):
+                    if not self.require_role(conn, {"admin"}):
+                        return
                     conn.execute("UPDATE audit_field_options SET enabled = 0, updated_at = ? WHERE id = ?", (now_iso(), path.rsplit("/", 1)[-1]))
+                    self.write_operation_log(conn, "field_option.delete", self.current_user(conn), "audit_field_option", path.rsplit("/", 1)[-1])
                     conn.commit()
                     self.respond(200, {"success": True, "data": None})
                 else:
@@ -699,6 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_error(exc)
 
     def create_project(self, conn, data):
+        user = self.current_user(conn)
         columns = project_columns_from_payload(data)
         if not columns["project_name"]:
             self.respond(400, {"success": False, "error": "项目名称不能为空"})
@@ -714,12 +1168,15 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO audit_project_stages (id, project_id, stage_code, stage_name, entered_at, owner, progress_percent, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (new_id(), pid, columns["current_stage"], stage_name, ts, columns["contractor_name"], 10, columns["sort_order"]),
         )
-        log_action(conn, pid, "create", data.get("operator", "前端用户"), "新增项目", after=columns)
+        operator = user["username"] if user else data.get("operator", "前端用户")
+        log_action(conn, pid, "create", operator, "新增项目", after=columns)
+        self.write_operation_log(conn, "project.create", user, "audit_project", pid)
         conn.commit()
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         self.respond(201, {"success": True, "data": project_payload(conn, row)})
 
     def update_project(self, conn, pid, data):
+        user = self.current_user(conn)
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         if not row:
             self.not_found()
@@ -730,12 +1187,15 @@ class Handler(BaseHTTPRequestHandler):
         assignments = ", ".join([f"{key} = ?" for key in columns.keys()])
         conn.execute(f"UPDATE audit_projects SET {assignments} WHERE id = ?", (*columns.values(), pid))
         save_project_values(conn, pid, data.get("customFields"))
-        log_action(conn, pid, "update", data.get("operator", "前端用户"), "更新项目", before=before, after=columns)
+        operator = user["username"] if user else data.get("operator", "前端用户")
+        log_action(conn, pid, "update", operator, "更新项目", before=before, after=columns)
+        self.write_operation_log(conn, "project.update", user, "audit_project", pid)
         conn.commit()
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         self.respond(200, {"success": True, "data": project_payload(conn, row)})
 
     def update_progress(self, conn, pid, data):
+        user = self.current_user(conn)
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         if not row:
             self.not_found()
@@ -752,12 +1212,15 @@ class Handler(BaseHTTPRequestHandler):
             "INSERT INTO audit_project_stages (id, project_id, stage_code, stage_name, entered_at, owner, status, progress_percent, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
             (new_id(), pid, stage, stage_name, ts, data.get("operator", ""), int(data.get("progressPercent") or 30), int(data.get("sortOrder") or 0)),
         )
-        log_action(conn, pid, "progress", data.get("operator", "前端用户"), data.get("note", f"流转至{stage_name}"), before={"stage": row["current_stage"]}, after={"stage": stage})
+        operator = user["username"] if user else data.get("operator", "前端用户")
+        log_action(conn, pid, "progress", operator, data.get("note", f"流转至{stage_name}"), before={"stage": row["current_stage"]}, after={"stage": stage})
+        self.write_operation_log(conn, "project.progress", user, "audit_project", pid, detail={"stage": stage})
         conn.commit()
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         self.respond(200, {"success": True, "data": project_payload(conn, row)})
 
     def upsert_field_config(self, conn, data):
+        user = self.current_user(conn)
         fid = data.get("id") or new_id()
         ts = now_iso()
         conn.execute(
@@ -814,11 +1277,13 @@ class Handler(BaseHTTPRequestHandler):
                 fid,
             ),
         )
+        self.write_operation_log(conn, "field_config.upsert", user, "audit_field_config", fid)
         conn.commit()
         row = conn.execute("SELECT * FROM audit_field_configs WHERE id = ?", (fid,)).fetchone()
         self.respond(200, {"success": True, "data": camel_config(row)})
 
     def upsert_field_option(self, conn, data):
+        user = self.current_user(conn)
         oid = data.get("id") or new_id()
         ts = now_iso()
         label = data.get("optionLabel") or data.get("optionValue") or ""
@@ -838,6 +1303,7 @@ class Handler(BaseHTTPRequestHandler):
             "UPDATE audit_field_options SET field_key = ?, is_enabled = ?, is_system = ? WHERE id = ?",
             (data.get("fieldKey") or data.get("groupKey", ""), int(data.get("enabled", True)), int(bool(data.get("isSystem"))), oid),
         )
+        self.write_operation_log(conn, "field_option.upsert", user, "audit_field_option", oid)
         conn.commit()
         row = conn.execute("SELECT * FROM audit_field_options WHERE id = ?", (oid,)).fetchone()
         self.respond(200, {"success": True, "data": camel_option(row)})

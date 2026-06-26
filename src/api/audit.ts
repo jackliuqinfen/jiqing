@@ -7,6 +7,7 @@ import type {
   AuditProject,
   AuditSummary,
 } from '@/types/audit'
+import { getAuthToken } from '@/api/system'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
 
@@ -31,9 +32,14 @@ function buildQuery(filters?: Partial<AuditFilters>): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken()
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
     ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers || {}),
+    },
   })
   const payload = (await res.json()) as ApiResult<T>
   if (!res.ok || !payload.success) {
@@ -51,8 +57,9 @@ export function fetchAuditProjects(filters?: Partial<AuditFilters>): Promise<Aud
 }
 
 export async function fetchAuditProjectPage(filters?: Partial<AuditFilters>): Promise<{ projects: AuditProject[]; total: number; page: number; pageSize: number }> {
+  const token = getAuthToken()
   const res = await fetch(`${API_BASE}/audit/projects${buildQuery(filters)}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   })
   const payload = (await res.json()) as ApiResult<AuditProject[]>
   if (!res.ok || !payload.success) {

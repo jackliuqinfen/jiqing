@@ -49,7 +49,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { getSystemSetting, setSystemSetting } from '@/api/supabase'
+import { getSystemSetting, setSystemSetting } from '@/api/system'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { RegistrationSetting, LoginRulesSetting } from '@/types'

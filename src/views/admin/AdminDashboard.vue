@@ -73,7 +73,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getAdminStats, getAllSystemSettings } from '@/api/supabase'
+import { getAdminStats, getAllSystemSettings } from '@/api/system'
 import type { AdminStats } from '@/types'
 
 const stats = ref<AdminStats>({ totalUsers: 0, activeUsers: 0, adminCount: 0, totalProjects: 0, recentLogins: 0 })

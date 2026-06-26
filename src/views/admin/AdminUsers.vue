@@ -104,7 +104,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/supabase'
+import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { AdminUser, AdminRole, CreateAdminUserDto, UpdateAdminUserDto } from '@/types'
 import type { FormInstanceFunctions, FormRule } from 'tdesign-vue-next'

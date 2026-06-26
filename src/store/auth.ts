@@ -1,31 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
-  signInWithUsername,
-  signOut,
-  getSession,
-  onAuthStateChange,
+  loginWithPassword,
+  logoutSession,
+  getCurrentSession,
   getSystemSetting,
   getAllSystemSettings,
-  isSupabaseConfigured,
-} from '@/api/supabase'
+  clearAuthSession,
+} from '@/api/system'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { UserProfile, AuthStatus, AdminRole, SystemSetting, RegistrationSetting, LoginRulesSetting } from '@/types'
-
-// ========== DEV ONLY：本地预览用的模拟管理员 ==========
-const MOCK_AUTH_KEY = '__cost_audit_mock_auth__'
-const MOCK_ADMIN_USER: UserProfile = {
-  id: 'mock-admin-id',
-  username: 'admin',
-  displayName: '系统管理员',
-  email: 'admin@jijian.com',
-  role: 'admin',
-  createdAt: new Date().toISOString(),
-}
-
-function isLocalAdminAuth(username: string, password: string): boolean {
-  return !isSupabaseConfigured() && username === 'admin' && password === (import.meta.env.VITE_LOCAL_ADMIN_PASSWORD || 'admin')
-}
 
 export const useAuthStore = defineStore('auth', () => {
   // ========== 状态 ==========
@@ -69,15 +53,9 @@ export const useAuthStore = defineStore('auth', () => {
       status.value = 'loading'
       error.value = null
 
-      // 未配置真实 Supabase 时，允许内网部署使用本地管理员进入配置后台。
-      if (isLocalAdminAuth(username, password)) {
-        localStorage.setItem(MOCK_AUTH_KEY, '1')
-        user.value = MOCK_ADMIN_USER
-        status.value = 'authenticated'
-        return true
-      }
-
-      await signInWithUsername(username, password)
+      const session = await loginWithPassword(username, password)
+      user.value = session.user
+      status.value = 'authenticated'
       return true
     } catch (err) {
       const msg = err instanceof Error ? err.message : '登录失败'
@@ -93,10 +71,10 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function logout(): Promise<void> {
     try {
-      localStorage.removeItem(MOCK_AUTH_KEY)
-      await signOut()
+      await logoutSession()
     } catch {
       // 即使服务端登出失败也清空本地状态
+      clearAuthSession()
     } finally {
       user.value = null
       status.value = 'unauthenticated'
@@ -111,19 +89,9 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       status.value = 'loading'
 
-      if (!isSupabaseConfigured()) {
-        if (localStorage.getItem(MOCK_AUTH_KEY) === '1') {
-          user.value = MOCK_ADMIN_USER
-          status.value = 'authenticated'
-        } else {
-          status.value = 'unauthenticated'
-        }
-        return
-      }
-
       // 并行：恢复会话 + 拉取系统设置
       const [session] = await Promise.all([
-        getSession(),
+        getCurrentSession(),
         fetchSystemSettings(),
       ])
 
@@ -137,16 +105,7 @@ export const useAuthStore = defineStore('auth', () => {
       status.value = 'unauthenticated'
     }
 
-    // 监听后续认证状态变化
-    onAuthStateChange((session) => {
-      if (session) {
-        user.value = session.user
-        status.value = 'authenticated'
-      } else {
-        user.value = null
-        status.value = 'unauthenticated'
-      }
-    })
+    // 后端本地 token 是无刷新会话，后续状态由接口 401 和登出动作驱动。
   }
 
   /**

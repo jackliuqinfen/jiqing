@@ -40,6 +40,7 @@ Thumbs.db
 .supabase/
 
 # Local SQLite databases and runtime data
+__pycache__/
 server/*.sqlite3
 server/*.db
 *.sqlite3
