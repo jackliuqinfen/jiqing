@@ -149,6 +149,23 @@ export interface AuditSummary {
   stageCounts: Record<string, number>
 }
 
+export interface AuditDashboardOverview {
+  summary: AuditSummary
+  statusDistribution: { type: string; value: number }[]
+  stageDistribution: { stage: string; stageCode: string; count: number }[]
+  trendData: { month: string; type: string; count: number }[]
+  cardSparklines: Record<string, number[]>
+  riskQueue: {
+    id: string
+    projectName: string
+    managerName: string
+    auditDeadline: string
+    isDelayed: boolean
+    delayDays: number
+  }[]
+  amountTop: { id: string; name: string; amount: number }[]
+}
+
 export interface AuditMeta {
   stages: AuditStageMeta[]
   fieldConfigs: AuditFieldConfig[]

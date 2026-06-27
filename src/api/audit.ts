@@ -3,6 +3,7 @@ import type {
   AuditFieldConfig,
   AuditFieldOption,
   AuditFilters,
+  AuditDashboardOverview,
   AuditMeta,
   AuditProject,
   AuditProjectAttachment,
@@ -151,6 +152,10 @@ export function updateAuditProgress(id: string, body: { stageCode: string; opera
 
 export function fetchAuditSummary(): Promise<AuditSummary> {
   return request('/audit/dashboard/summary')
+}
+
+export function fetchAuditDashboardOverview(): Promise<AuditDashboardOverview> {
+  return request('/audit/dashboard/overview')
 }
 
 export function fetchFieldConfigs(): Promise<AuditFieldConfig[]> {

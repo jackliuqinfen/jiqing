@@ -1313,6 +1313,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200, {"success": True, "data": [project_payload(conn, r) for r in rows]})
                 elif path == "/api/audit/dashboard/summary":
                     self.respond(200, {"success": True, "data": dashboard_summary(conn)})
+                elif path == "/api/audit/dashboard/overview":
+                    self.respond(200, {"success": True, "data": dashboard_overview(conn)})
                 elif re.match(r"^/api/audit/projects/([^/]+)/attachments$", path):
                     self.list_project_attachments(conn, re.match(r"^/api/audit/projects/([^/]+)/attachments$", path).group(1))
                 elif re.match(r"^/api/audit/attachments/([^/]+)/preview$", path):
@@ -1648,6 +1650,120 @@ def dashboard_summary(conn):
         "totalFirstCutAmount": sum(max(float(r["submitted_amount"] or 0) - float(r["first_audit_amount"] or 0), 0) for r in rows if r["first_audit_amount"]),
         "totalSecondCutAmount": sum(max(float(r["first_audit_amount"] or 0) - float(r["second_audit_amount"] or 0), 0) for r in rows if r["second_audit_amount"]),
         "stageCounts": stage_counts,
+    }
+
+
+def dashboard_sparkline(seed, points=8):
+    base = max(int(seed or 1), 1)
+    values = []
+    for index in range(points):
+        value = 34 + ((base * 13 + index * 17) % 42) + (index % 3) * 6
+        values.append(max(18, min(value, 92)))
+    return values
+
+
+def month_key(value):
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return f"{parsed.year}-{parsed.month:02d}"
+    except ValueError:
+        return str(value)[:7] if len(str(value)) >= 7 else ""
+
+
+def dashboard_overview(conn):
+    rows = conn.execute("SELECT * FROM audit_projects WHERE status != 'deleted'").fetchall()
+    summary = dashboard_summary(conn)
+    stage_title = {code: title for code, title, _ in STAGES}
+    today = date.today().isoformat()
+    upcoming_end = (date.today() + timedelta(days=7)).isoformat()
+
+    def is_overdue(row):
+        deadline = row["planned_end_date"] or row["audit_deadline"]
+        return bool(deadline and deadline < today and row["current_stage"] != "archived")
+
+    def is_upcoming(row):
+        deadline = row["planned_end_date"] or row["audit_deadline"]
+        return bool(deadline and today <= deadline <= upcoming_end and row["current_stage"] != "archived")
+
+    paused_count = sum(1 for row in rows if (row["status"] or "").lower() == "paused" or "暂停" in (row["status"] or ""))
+    delayed_count = summary["overdueProjects"]
+    completed_count = summary["completedProjects"]
+    running_count = summary["inAuditProjects"]
+    not_started_count = max(len(rows) - paused_count - delayed_count - completed_count - running_count, 0)
+
+    now = date.today().replace(day=1)
+    months = []
+    year = now.year
+    month = now.month
+    for offset in range(5, -1, -1):
+        m = month - offset
+        y = year
+        while m <= 0:
+            y -= 1
+            m += 12
+        months.append(f"{y}-{m:02d}")
+
+    trend_data = []
+    for month in months:
+        created = sum(1 for row in rows if month_key(row["created_at"]) == month)
+        completed = sum(
+            1
+            for row in rows
+            if row["current_stage"] == "archived" and month_key(row["actual_end_date"] or row["updated_at"]) == month
+        )
+        trend_data.append({"month": month, "type": "新增", "count": created})
+        trend_data.append({"month": month, "type": "完成", "count": completed})
+
+    risk_rows = sorted(
+        [row for row in rows if is_overdue(row) or is_upcoming(row)],
+        key=lambda row: (0 if is_overdue(row) else 1, -(row["delay_days"] or 0), row["planned_end_date"] or row["audit_deadline"] or ""),
+    )[:5]
+
+    amount_rows = sorted(rows, key=lambda row: float(row["submitted_amount"] or 0), reverse=True)[:8]
+
+    return {
+        "summary": summary,
+        "statusDistribution": [
+            {"type": "未开始", "value": not_started_count},
+            {"type": "进行中", "value": running_count},
+            {"type": "延期", "value": delayed_count},
+            {"type": "已完成", "value": completed_count},
+            {"type": "暂停", "value": paused_count},
+        ],
+        "stageDistribution": [
+            {"stage": stage_title.get(code, code), "stageCode": code, "count": summary["stageCounts"].get(code, 0)}
+            for code, _, _ in STAGES
+        ],
+        "trendData": trend_data,
+        "cardSparklines": {
+            "totalProjects": dashboard_sparkline(summary["totalProjects"]),
+            "inAuditProjects": dashboard_sparkline(summary["inAuditProjects"] + 8),
+            "completedProjects": dashboard_sparkline(summary["completedProjects"] + 16),
+            "overdueProjects": dashboard_sparkline(summary["overdueProjects"] + 24),
+            "monthlyNewProjects": dashboard_sparkline(summary["monthlyNewProjects"] + 32),
+            "upcomingDueProjects": dashboard_sparkline(summary["upcomingDueProjects"] + 40),
+        },
+        "riskQueue": [
+            {
+                "id": row["id"],
+                "projectName": row["project_name"],
+                "managerName": row["manager_name"] or row["contractor_name"],
+                "auditDeadline": row["planned_end_date"] or row["audit_deadline"],
+                "isDelayed": is_overdue(row),
+                "delayDays": row["delay_days"] or 0,
+            }
+            for row in risk_rows
+        ],
+        "amountTop": [
+            {
+                "id": row["id"],
+                "name": row["project_name"][:12] + "..." if len(row["project_name"]) > 12 else row["project_name"],
+                "amount": float(row["submitted_amount"] or 0) / 10000,
+            }
+            for row in amount_rows
+        ],
     }
 
 

@@ -124,7 +124,7 @@
             <i :class="{ urgent: project.isDelayed }" />
             <div>
               <strong>{{ project.projectName }}</strong>
-              <span>{{ project.managerName || '未分配' }} · {{ project.deadline.auditDeadline || '未设期限' }}</span>
+              <span>{{ project.managerName || '未分配' }} · {{ project.auditDeadline || '未设期限' }}</span>
             </div>
             <em>{{ project.isDelayed ? `延期 ${project.delayDays || 0} 天` : '即将到期' }}</em>
           </div>
@@ -195,22 +195,6 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(Math.max(value, min), max)
 }
 
-function toMonth(value?: string) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
-function isUpcoming(dateText?: string) {
-  if (!dateText) return false
-  const today = new Date()
-  const due = new Date(dateText)
-  if (Number.isNaN(due.getTime())) return false
-  const diff = due.getTime() - today.getTime()
-  return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000
-}
-
 function sparkline(seed: number, points = 8) {
   const base = Math.max(seed, 1)
   return Array.from({ length: points }, (_, index) => {
@@ -219,20 +203,9 @@ function sparkline(seed: number, points = 8) {
   })
 }
 
-const pausedProjects = computed(() =>
-  store.projects.filter((project) => project.status?.includes('暂停') || project.status?.includes('停')).length
-)
-
-const otherProjects = computed(() =>
-  Math.max(
-    store.summary.totalProjects -
-      store.summary.inAuditProjects -
-      store.summary.completedProjects -
-      store.summary.overdueProjects -
-      pausedProjects.value,
-    0
-  )
-)
+function overviewSparkline(key: string, fallbackSeed: number) {
+  return store.overview.cardSparklines[key] || sparkline(fallbackSeed)
+}
 
 const completionRate = computed(() => {
   if (!store.summary.totalProjects) return 0
@@ -246,12 +219,12 @@ const operationalLoad = computed(() => {
 })
 
 const kpiCards = computed(() => [
-  { label: '审计项目总数', value: store.summary.totalProjects, hint: '数据库实时统计', level: 'normal', sparkline: sparkline(store.summary.totalProjects) },
-  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: sparkline(store.summary.inAuditProjects + 8) },
-  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: sparkline(store.summary.completedProjects + 16) },
-  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: sparkline(store.summary.overdueProjects + 24) },
-  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: sparkline(store.summary.monthlyNewProjects + 32) },
-  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: sparkline(store.summary.upcomingDueProjects + 40) },
+  { label: '审计项目总数', value: store.summary.totalProjects, hint: '数据库实时统计', level: 'normal', sparkline: overviewSparkline('totalProjects', store.summary.totalProjects) },
+  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: overviewSparkline('inAuditProjects', store.summary.inAuditProjects + 8) },
+  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: overviewSparkline('completedProjects', store.summary.completedProjects + 16) },
+  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: overviewSparkline('overdueProjects', store.summary.overdueProjects + 24) },
+  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: overviewSparkline('monthlyNewProjects', store.summary.monthlyNewProjects + 32) },
+  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: overviewSparkline('upcomingDueProjects', store.summary.upcomingDueProjects + 40) },
 ])
 
 const missionItems = computed(() => [
@@ -267,55 +240,22 @@ const heroSignals = computed(() => [
 ])
 
 const stageRows = computed(() =>
-  store.meta.stages.map((stage) => ({
-    stage: stage.title,
-    count: store.summary.stageCounts?.[stage.code] || 0,
-  }))
+  store.overview.stageDistribution.length
+    ? store.overview.stageDistribution
+    : store.meta.stages.map((stage) => ({
+        stage: stage.title,
+        stageCode: stage.code,
+        count: store.summary.stageCounts?.[stage.code] || 0,
+      }))
 )
 
-const statusRows = computed(() => [
-  { type: '未开始', value: otherProjects.value },
-  { type: '进行中', value: store.summary.inAuditProjects },
-  { type: '延期', value: store.summary.overdueProjects },
-  { type: '已完成', value: store.summary.completedProjects },
-  { type: '暂停', value: pausedProjects.value },
-])
+const statusRows = computed(() => store.overview.statusDistribution)
 
-const lastSixMonths = computed(() => {
-  const now = new Date()
-  return Array.from({ length: 6 }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1)
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-  })
-})
+const trendRows = computed(() => store.overview.trendData)
 
-const trendRows = computed(() =>
-  lastSixMonths.value.flatMap((month) => {
-    const created = store.projects.filter((project) => toMonth(project.createdAt) === month).length
-    const completed = store.projects.filter((project) => toMonth(project.actualEndDate || project.updatedAt) === month && project.stage === 'archived').length
-    return [
-      { month, type: '新增', count: created },
-      { month, type: '完成', count: completed },
-    ]
-  })
-)
+const amountRows = computed(() => store.overview.amountTop)
 
-const amountRows = computed(() =>
-  store.projects
-    .slice(0, 8)
-    .map((project, index) => ({
-      name: project.projectName.length > 12 ? `${project.projectName.slice(0, 12)}...` : project.projectName,
-      amount: Number(project.amount.submittedAmount || 0) / 10000,
-      index: index + 1,
-    }))
-)
-
-const riskQueue = computed(() =>
-  store.projects
-    .filter((project) => project.isDelayed || isUpcoming(project.deadline.auditDeadline))
-    .sort((a, b) => Number(b.isDelayed) - Number(a.isDelayed) || (b.delayDays || 0) - (a.delayDays || 0))
-    .slice(0, 5)
-)
+const riskQueue = computed(() => store.overview.riskQueue)
 
 const baseChart = {
   background: 'transparent',

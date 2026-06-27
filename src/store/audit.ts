@@ -3,11 +3,11 @@ import { defineStore } from 'pinia'
 import {
   createAuditProject,
   deleteProjectAttachment,
+  fetchAuditDashboardOverview,
   fetchAuditMeta,
   fetchAuditProject,
   fetchAuditProjectPage,
   fetchAuditProjects,
-  fetchAuditSummary,
   fetchProjectAttachments,
   saveFieldOption,
   updateAuditProgress,
@@ -17,6 +17,7 @@ import {
 import type {
   AuditFieldConfig,
   AuditFieldOption,
+  AuditDashboardOverview,
   AuditFilters,
   AuditMeta,
   AuditProject,
@@ -41,6 +42,29 @@ const DEFAULT_FILTERS: AuditFilters = {
   sort: 'stage',
 }
 
+const DEFAULT_SUMMARY: AuditSummary = {
+  totalProjects: 0,
+  inAuditProjects: 0,
+  completedProjects: 0,
+  overdueProjects: 0,
+  totalSubmittedAmount: 0,
+  totalFirstCutAmount: 0,
+  totalSecondCutAmount: 0,
+  monthlyNewProjects: 0,
+  upcomingDueProjects: 0,
+  stageCounts: {},
+}
+
+const DEFAULT_OVERVIEW: AuditDashboardOverview = {
+  summary: DEFAULT_SUMMARY,
+  statusDistribution: [],
+  stageDistribution: [],
+  trendData: [],
+  cardSparklines: {},
+  riskQueue: [],
+  amountTop: [],
+}
+
 export const useAuditStore = defineStore('audit', () => {
   const loading = ref(false)
   const saving = ref(false)
@@ -50,18 +74,8 @@ export const useAuditStore = defineStore('audit', () => {
   const selectedProject = ref<AuditProject | null>(null)
   const filters = ref<AuditFilters>({ ...DEFAULT_FILTERS })
   const meta = ref<AuditMeta>({ stages: [], fieldConfigs: [], options: {} })
-  const summary = ref<AuditSummary>({
-    totalProjects: 0,
-    inAuditProjects: 0,
-    completedProjects: 0,
-    overdueProjects: 0,
-    totalSubmittedAmount: 0,
-    totalFirstCutAmount: 0,
-    totalSecondCutAmount: 0,
-    monthlyNewProjects: 0,
-    upcomingDueProjects: 0,
-    stageCounts: {},
-  })
+  const summary = ref<AuditSummary>({ ...DEFAULT_SUMMARY })
+  const overview = ref<AuditDashboardOverview>({ ...DEFAULT_OVERVIEW, summary: { ...DEFAULT_SUMMARY } })
 
   const cardFields = computed(() => meta.value.fieldConfigs.filter((f) => f.visibleInCard && f.enabled))
   const tableFields = computed(() => meta.value.fieldConfigs.filter((f) => f.visibleInTable && f.enabled))
@@ -82,15 +96,16 @@ export const useAuditStore = defineStore('audit', () => {
     loading.value = true
     error.value = null
     try {
-      const [nextMeta, pageResult, nextSummary] = await Promise.all([
+      const [nextMeta, pageResult, nextOverview] = await Promise.all([
         fetchAuditMeta(),
         fetchAuditProjectPage(filters.value),
-        fetchAuditSummary(),
+        fetchAuditDashboardOverview(),
       ])
       meta.value = nextMeta
       projects.value = pageResult.projects
       total.value = pageResult.total
-      summary.value = nextSummary
+      overview.value = nextOverview
+      summary.value = nextOverview.summary
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载失败'
     } finally {
@@ -102,13 +117,14 @@ export const useAuditStore = defineStore('audit', () => {
     loading.value = true
     error.value = null
     try {
-      const [pageResult, nextSummary] = await Promise.all([
+      const [pageResult, nextOverview] = await Promise.all([
         fetchAuditProjectPage(filters.value),
-        fetchAuditSummary(),
+        fetchAuditDashboardOverview(),
       ])
       projects.value = pageResult.projects
       total.value = pageResult.total
-      summary.value = nextSummary
+      overview.value = nextOverview
+      summary.value = nextOverview.summary
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载失败'
     } finally {
@@ -201,6 +217,7 @@ export const useAuditStore = defineStore('audit', () => {
     filters,
     meta,
     summary,
+    overview,
     cardFields,
     tableFields,
     detailFields,
