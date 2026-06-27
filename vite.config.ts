@@ -10,6 +10,7 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('@arco-design') || id.includes('@arco-themes')) return 'vendor-arco'
+            if (id.includes('jquery')) return 'auth-module'
             if (id.includes('@visactor/vrender-core')) return 'vendor-vrender-core'
             if (id.includes('@visactor/vrender-kits')) return 'vendor-vrender-kits'
             if (id.includes('@visactor/vrender-components')) return 'vendor-vrender-components'
