@@ -110,6 +110,7 @@
               block
               size="large"
               :loading="authStore.isAuthLoading"
+              @click="handleLogin"
             >
               登 录
             </t-button>
