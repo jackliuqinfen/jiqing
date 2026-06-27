@@ -43,6 +43,25 @@ print(f"{sys.argv[1]}={shlex.quote(sys.argv[2])}")
 PY
 }
 
+normalize_env_file() {
+  if [ ! -f "$ENV_FILE" ]; then
+    return
+  fi
+  python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8-sig")
+text = text.replace("\r\n", "\n").replace("\r", "\n")
+if text and not text.endswith("\n"):
+    text += "\n"
+path.write_text(text, encoding="utf-8")
+PY
+}
+
+normalize_env_file
+
 if [ ! -f "$ENV_FILE" ]; then
   SESSION_SECRET=$(python3 - <<'PY'
 import secrets
@@ -92,6 +111,7 @@ ensure_env_line UPLOAD_ROOT "$UPLOAD_ROOT"
 ensure_env_line MAX_UPLOAD_SIZE "$MAX_UPLOAD_SIZE"
 ensure_env_line DEFAULT_THEME_KEY arco-theme-0000
 ensure_env_line CHART_LIBRARY vchart
+normalize_env_file
 chmod 600 "$ENV_FILE"
 
 find "$APP_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
