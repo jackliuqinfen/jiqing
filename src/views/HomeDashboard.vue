@@ -260,8 +260,26 @@ const moduleStatus = [
   padding: var(--space-4);
 }
 
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .chart-card--wide {
   min-height: 360px;
+}
+
+.chart-card :deep(.vchart-panel) {
+  flex: none;
+  height: 270px;
+  min-height: 270px;
+  overflow: hidden;
+}
+
+.chart-card--wide :deep(.vchart-panel) {
+  height: 292px;
+  min-height: 292px;
 }
 
 .card-head {
