@@ -86,9 +86,18 @@ CREATE TABLE IF NOT EXISTS audit_project_attachments (
   file_name TEXT NOT NULL,
   file_url TEXT NOT NULL,
   file_type TEXT DEFAULT '',
+  original_name TEXT DEFAULT '',
+  stored_name TEXT DEFAULT '',
+  file_ext TEXT DEFAULT '',
+  mime_type TEXT DEFAULT '',
+  file_size INTEGER DEFAULT 0,
+  relative_path TEXT DEFAULT '',
   uploaded_by TEXT DEFAULT '',
+  uploaded_by_name TEXT DEFAULT '',
   uploaded_at TEXT NOT NULL,
   created_at TEXT DEFAULT '',
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
   FOREIGN KEY (project_id) REFERENCES audit_projects(id) ON DELETE CASCADE
 );
 

@@ -116,12 +116,24 @@ export interface AuditProjectStage {
 
 export interface AuditProjectAttachment {
   id: string
-  project_id: string
-  file_name: string
-  file_url: string
-  file_type: string
-  uploaded_by: string
-  uploaded_at: string
+  projectId: string
+  originalName: string
+  storedName: string
+  fileExt: string
+  mimeType: string
+  fileSize: number
+  uploadedBy: string
+  uploadedByName: string
+  createdAt: string
+  previewUrl: string
+  downloadUrl: string
+  canPreview: boolean
+  project_id?: string
+  file_name?: string
+  file_url?: string
+  file_type?: string
+  uploaded_by?: string
+  uploaded_at?: string
 }
 
 export interface AuditSummary {

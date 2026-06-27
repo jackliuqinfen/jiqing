@@ -5,11 +5,13 @@ import type {
   AuditFilters,
   AuditMeta,
   AuditProject,
+  AuditProjectAttachment,
   AuditSummary,
 } from '@/types/audit'
 import { getAuthToken } from '@/api/system'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
+const FORBIDDEN_ATTACHMENT_SUFFIXES = ['.zip', '.rar', '.7z', '.tar', '.tar.gz', '.tgz', '.gz', '.bz2', '.xz', '.iso']
 
 function buildQuery(filters?: Partial<AuditFilters>): string {
   const params = new URLSearchParams()
@@ -48,6 +50,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data
 }
 
+async function authorizedBlob(path: string): Promise<Blob> {
+  const token = getAuthToken()
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (!res.ok) {
+    let message = `请求失败: ${res.status}`
+    try {
+      const payload = await res.json()
+      message = payload.error || message
+    } catch {
+      // Binary endpoints only return JSON on errors.
+    }
+    throw new Error(message)
+  }
+  return res.blob()
+}
+
 export function fetchAuditMeta(): Promise<AuditMeta> {
   return request('/audit/admin/meta')
 }
@@ -75,6 +95,46 @@ export async function fetchAuditProjectPage(filters?: Partial<AuditFilters>): Pr
 
 export function fetchAuditProject(id: string): Promise<AuditProject> {
   return request(`/audit/projects/${id}`)
+}
+
+export function fetchProjectAttachments(projectId: string): Promise<AuditProjectAttachment[]> {
+  return request(`/audit/projects/${projectId}/attachments`)
+}
+
+export function validateAttachmentFile(file: File): string {
+  const name = file.name.toLowerCase()
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath
+  if (relativePath && relativePath.includes('/')) return '不支持上传文件夹'
+  if (FORBIDDEN_ATTACHMENT_SUFFIXES.some((suffix) => name.endsWith(suffix))) return '不允许上传压缩包或镜像类文件'
+  return ''
+}
+
+export async function uploadProjectAttachment(projectId: string, file: File): Promise<AuditProjectAttachment> {
+  const message = validateAttachmentFile(file)
+  if (message) throw new Error(message)
+  const token = getAuthToken()
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API_BASE}/audit/projects/${projectId}/attachments`, {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  })
+  const payload = (await res.json()) as ApiResult<AuditProjectAttachment>
+  if (!res.ok || !payload.success) throw new Error(payload.error || `请求失败: ${res.status}`)
+  return payload.data
+}
+
+export function fetchAttachmentPreviewBlob(id: string): Promise<Blob> {
+  return authorizedBlob(`/audit/attachments/${id}/preview`)
+}
+
+export function fetchAttachmentDownloadBlob(id: string): Promise<Blob> {
+  return authorizedBlob(`/audit/attachments/${id}/download`)
+}
+
+export function deleteProjectAttachment(id: string): Promise<null> {
+  return request(`/audit/attachments/${id}`, { method: 'DELETE' })
 }
 
 export function createAuditProject(data: Partial<AuditProject>): Promise<AuditProject> {

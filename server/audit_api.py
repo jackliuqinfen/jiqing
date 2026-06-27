@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -13,7 +14,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT / "audit-kanban.sqlite3"
@@ -24,6 +25,21 @@ STAGES = [
     ("conclusion", "定案结论", "#14B8A6"),
     ("archived", "办结归档", "#8E95A3"),
 ]
+FORBIDDEN_ATTACHMENT_SUFFIXES = (
+    ".zip",
+    ".rar",
+    ".7z",
+    ".tar",
+    ".tar.gz",
+    ".tgz",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".iso",
+)
+TEXT_PREVIEW_SUFFIXES = {".txt", ".csv", ".json", ".log", ".md", ".xml", ".yml", ".yaml"}
+INLINE_PREVIEW_PREFIXES = ("image/", "audio/", "video/")
+INLINE_PREVIEW_TYPES = {"application/pdf"}
 
 
 def is_production():
@@ -127,6 +143,100 @@ def read_json(handler):
         return {}
     raw = handler.rfile.read(length).decode("utf-8")
     return json.loads(raw or "{}")
+
+
+def upload_root():
+    return Path(os.environ.get("UPLOAD_ROOT", ROOT / "uploads")).resolve()
+
+
+def max_upload_size():
+    try:
+        return int(os.environ.get("MAX_UPLOAD_SIZE", str(25 * 1024 * 1024)))
+    except ValueError:
+        return 25 * 1024 * 1024
+
+
+def row_get(row, key, default=""):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
+
+
+def is_forbidden_attachment_name(filename):
+    lower = filename.lower()
+    return any(lower.endswith(suffix) for suffix in FORBIDDEN_ATTACHMENT_SUFFIXES)
+
+
+def is_path_like_filename(filename):
+    return "/" in filename or "\\" in filename or filename in {"", ".", ".."}
+
+
+def safe_attachment_path(relative_path):
+    cleaned = (relative_path or "").replace("\\", "/").lstrip("/")
+    if not cleaned or ".." in Path(cleaned).parts:
+        raise ValueError("非法附件路径")
+    root = upload_root()
+    path = (root / cleaned).resolve()
+    if os.path.commonpath([str(root), str(path)]) != str(root):
+        raise ValueError("非法附件路径")
+    return path
+
+
+def parse_multipart_file(handler):
+    content_type = handler.headers.get("Content-Type", "")
+    match = re.search(r"boundary=(?P<boundary>\"[^\"]+\"|[^;]+)", content_type)
+    if "multipart/form-data" not in content_type or not match:
+        raise ValueError("请使用 multipart/form-data 上传文件")
+    boundary = match.group("boundary").strip('"').encode("utf-8")
+    length = int(handler.headers.get("Content-Length") or "0")
+    limit = max_upload_size()
+    if length <= 0:
+        raise ValueError("上传内容为空")
+    if length > limit:
+        raise ValueError(f"文件不能超过 {limit // 1024 // 1024}MB")
+    raw = handler.rfile.read(length)
+    delimiter = b"--" + boundary
+    for part in raw.split(delimiter):
+        part = part.strip(b"\r\n")
+        if not part or part == b"--" or b"\r\n\r\n" not in part:
+            continue
+        header_blob, body = part.split(b"\r\n\r\n", 1)
+        headers = header_blob.decode("iso-8859-1", errors="ignore")
+        disposition = next((line for line in headers.split("\r\n") if line.lower().startswith("content-disposition:")), "")
+        if 'name="file"' not in disposition or "filename=" not in disposition:
+            continue
+        filename_match = re.search(r'filename="([^"]*)"', disposition)
+        filename = filename_match.group(1) if filename_match else ""
+        return filename, body.rstrip(b"\r\n")
+    raise ValueError("未找到上传文件")
+
+
+def attachment_payload(row):
+    original_name = row_get(row, "original_name") or row_get(row, "file_name")
+    mime_type = row_get(row, "mime_type") or row_get(row, "file_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    created_at = row_get(row, "created_at") or row_get(row, "uploaded_at")
+    file_ext = row_get(row, "file_ext") or Path(original_name).suffix.lower()
+    can_preview = mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "originalName": original_name,
+        "storedName": row_get(row, "stored_name"),
+        "fileExt": file_ext,
+        "mimeType": mime_type,
+        "fileSize": int(row_get(row, "file_size", 0) or 0),
+        "uploadedBy": row_get(row, "uploaded_by"),
+        "uploadedByName": row_get(row, "uploaded_by_name") or row_get(row, "uploaded_by"),
+        "createdAt": created_at,
+        "previewUrl": f"/api/audit/attachments/{row['id']}/preview",
+        "downloadUrl": f"/api/audit/attachments/{row['id']}/download",
+        "canPreview": can_preview,
+        "file_name": original_name,
+        "file_type": mime_type,
+        "uploaded_by": row_get(row, "uploaded_by_name") or row_get(row, "uploaded_by"),
+        "uploaded_at": created_at,
+    }
 
 
 def row_dict(row):
@@ -337,7 +447,16 @@ def ensure_compatible_columns(conn):
             "operator_name": "TEXT DEFAULT ''",
         },
         "audit_project_attachments": {
+            "original_name": "TEXT DEFAULT ''",
+            "stored_name": "TEXT DEFAULT ''",
+            "file_ext": "TEXT DEFAULT ''",
+            "mime_type": "TEXT DEFAULT ''",
+            "file_size": "INTEGER DEFAULT 0",
+            "relative_path": "TEXT DEFAULT ''",
+            "uploaded_by_name": "TEXT DEFAULT ''",
             "created_at": "TEXT DEFAULT ''",
+            "deleted_at": "TEXT DEFAULT ''",
+            "is_deleted": "INTEGER DEFAULT 0",
         },
         "audit_field_configs": {
             "field_name": "TEXT DEFAULT ''",
@@ -741,6 +860,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def respond_file(self, path, content_type, filename, inline=True):
+        disposition = "inline" if inline else "attachment"
+        encoded_name = quote(filename or path.name)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(path.stat().st_size))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
+        self.end_headers()
+        with path.open("rb") as fh:
+            while True:
+                chunk = fh.read(1024 * 256)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def not_found(self):
         self.respond(404, {"success": False, "error": "Not found"})
 
@@ -804,6 +939,145 @@ class Handler(BaseHTTPRequestHandler):
                 now_iso(),
             ),
         )
+
+    def attachment_row(self, conn, attachment_id):
+        return conn.execute(
+            "SELECT * FROM audit_project_attachments WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (attachment_id,),
+        ).fetchone()
+
+    def list_project_attachments(self, conn, project_id):
+        user = self.require_user(conn)
+        if not user:
+            return
+        if not conn.execute("SELECT id FROM audit_projects WHERE id = ?", (project_id,)).fetchone():
+            self.not_found()
+            return
+        rows = conn.execute(
+            """
+            SELECT * FROM audit_project_attachments
+            WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0
+            ORDER BY COALESCE(NULLIF(created_at, ''), uploaded_at) DESC
+            """,
+            (project_id,),
+        ).fetchall()
+        self.respond(200, {"success": True, "data": [attachment_payload(r) for r in rows]})
+
+    def upload_project_attachment(self, conn, project_id):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        if not conn.execute("SELECT id FROM audit_projects WHERE id = ?", (project_id,)).fetchone():
+            self.not_found()
+            return
+        try:
+            original_name, content = parse_multipart_file(self)
+        except ValueError as exc:
+            self.respond(400, {"success": False, "error": str(exc)})
+            return
+        if is_path_like_filename(original_name):
+            self.respond(400, {"success": False, "error": "不支持上传文件夹或路径型文件名"})
+            return
+        if is_forbidden_attachment_name(original_name):
+            self.respond(400, {"success": False, "error": "不允许上传压缩包或镜像类文件"})
+            return
+        if not content:
+            self.respond(400, {"success": False, "error": "文件内容为空"})
+            return
+        if len(content) > max_upload_size():
+            self.respond(400, {"success": False, "error": "文件超过上传大小限制"})
+            return
+        file_ext = Path(original_name).suffix.lower()
+        mime_type = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        stored_name = f"{uuid.uuid4().hex}{file_ext}"
+        relative_path = f"audit-projects/{project_id}/{stored_name}"
+        target = safe_attachment_path(relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        attachment_id = new_id()
+        ts = now_iso()
+        conn.execute(
+            """
+            INSERT INTO audit_project_attachments
+            (id, project_id, file_name, file_url, file_type, uploaded_by, uploaded_at,
+             original_name, stored_name, file_ext, mime_type, file_size, relative_path,
+             uploaded_by_name, created_at, deleted_at, is_deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 0)
+            """,
+            (
+                attachment_id,
+                project_id,
+                original_name,
+                relative_path,
+                mime_type,
+                user["username"],
+                ts,
+                original_name,
+                stored_name,
+                file_ext,
+                mime_type,
+                len(content),
+                relative_path,
+                user["display_name"] or user["username"],
+                ts,
+            ),
+        )
+        self.write_operation_log(conn, "attachment.upload", user, "audit_project_attachment", attachment_id, "success", {"projectId": project_id, "fileName": original_name})
+        conn.commit()
+        row = self.attachment_row(conn, attachment_id)
+        self.respond(201, {"success": True, "data": attachment_payload(row)})
+
+    def preview_attachment(self, conn, attachment_id):
+        if not self.require_user(conn):
+            return
+        row = self.attachment_row(conn, attachment_id)
+        if not row:
+            self.not_found()
+            return
+        original_name = row_get(row, "original_name") or row_get(row, "file_name")
+        mime_type = row_get(row, "mime_type") or row_get(row, "file_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        file_ext = row_get(row, "file_ext") or Path(original_name).suffix.lower()
+        if not (mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES):
+            self.respond(415, {"success": False, "error": "该文件类型暂不支持在线预览，请下载查看"})
+            return
+        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
+        if not path.exists():
+            self.not_found()
+            return
+        if file_ext in TEXT_PREVIEW_SUFFIXES and not mime_type.startswith("text/"):
+            mime_type = "text/plain; charset=utf-8"
+        self.respond_file(path, mime_type, original_name, inline=True)
+
+    def download_attachment(self, conn, attachment_id):
+        if not self.require_user(conn):
+            return
+        row = self.attachment_row(conn, attachment_id)
+        if not row:
+            self.not_found()
+            return
+        original_name = row_get(row, "original_name") or row_get(row, "file_name")
+        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
+        if not path.exists():
+            self.not_found()
+            return
+        mime_type = row_get(row, "mime_type") or row_get(row, "file_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        self.respond_file(path, mime_type, original_name, inline=False)
+
+    def delete_attachment(self, conn, attachment_id):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        row = self.attachment_row(conn, attachment_id)
+        if not row:
+            self.not_found()
+            return
+        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
+        if path.exists():
+            path.unlink()
+        conn.execute("UPDATE audit_project_attachments SET is_deleted = 1, deleted_at = ? WHERE id = ?", (now_iso(), attachment_id))
+        self.write_operation_log(conn, "attachment.delete", user, "audit_project_attachment", attachment_id, "success", {"projectId": row["project_id"], "fileName": row_get(row, "original_name") or row_get(row, "file_name")})
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
 
     def login(self, conn, data):
         username = (data.get("username") or "").strip()
@@ -1039,6 +1313,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200, {"success": True, "data": [project_payload(conn, r) for r in rows]})
                 elif path == "/api/audit/dashboard/summary":
                     self.respond(200, {"success": True, "data": dashboard_summary(conn)})
+                elif re.match(r"^/api/audit/projects/([^/]+)/attachments$", path):
+                    self.list_project_attachments(conn, re.match(r"^/api/audit/projects/([^/]+)/attachments$", path).group(1))
+                elif re.match(r"^/api/audit/attachments/([^/]+)/preview$", path):
+                    self.preview_attachment(conn, re.match(r"^/api/audit/attachments/([^/]+)/preview$", path).group(1))
+                elif re.match(r"^/api/audit/attachments/([^/]+)/download$", path):
+                    self.download_attachment(conn, re.match(r"^/api/audit/attachments/([^/]+)/download$", path).group(1))
                 elif path == "/api/audit/admin/field-configs":
                     if not self.require_role(conn, {"admin"}):
                         return
@@ -1067,7 +1347,19 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         logs = [row_dict(r) for r in conn.execute("SELECT * FROM audit_project_logs WHERE project_id = ? ORDER BY created_at DESC LIMIT 30", (match.group(1),))]
                         stages = [row_dict(r) for r in conn.execute("SELECT * FROM audit_project_stages WHERE project_id = ? ORDER BY stage_order, sort_order, entered_at", (match.group(1),))]
-                        attachments = [row_dict(r) for r in conn.execute("SELECT * FROM audit_project_attachments WHERE project_id = ? ORDER BY uploaded_at DESC", (match.group(1),))]
+                        attachments = []
+                        if self.current_user(conn):
+                            attachments = [
+                                attachment_payload(r)
+                                for r in conn.execute(
+                                    """
+                                    SELECT * FROM audit_project_attachments
+                                    WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0
+                                    ORDER BY COALESCE(NULLIF(created_at, ''), uploaded_at) DESC
+                                    """,
+                                    (match.group(1),),
+                                )
+                            ]
                         payload = project_payload(conn, row)
                         payload["logs"] = logs
                         payload["stages"] = stages
@@ -1082,8 +1374,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             path = parsed.path
-            data = read_json(self)
             with connect() as conn:
+                attachment_match = re.match(r"^/api/audit/projects/([^/]+)/attachments$", path)
+                if attachment_match:
+                    self.upload_project_attachment(conn, attachment_match.group(1))
+                    return
+                data = read_json(self)
                 if path == "/api/auth/login":
                     self.login(conn, data)
                 elif path == "/api/auth/logout":
@@ -1168,6 +1464,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.write_operation_log(conn, "field_option.delete", self.current_user(conn), "audit_field_option", path.rsplit("/", 1)[-1])
                     conn.commit()
                     self.respond(200, {"success": True, "data": None})
+                elif re.match(r"^/api/audit/attachments/([^/]+)$", path):
+                    self.delete_attachment(conn, re.match(r"^/api/audit/attachments/([^/]+)$", path).group(1))
                 else:
                     self.not_found()
         except Exception as exc:

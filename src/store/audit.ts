@@ -2,14 +2,17 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
   createAuditProject,
+  deleteProjectAttachment,
   fetchAuditMeta,
   fetchAuditProject,
   fetchAuditProjectPage,
   fetchAuditProjects,
   fetchAuditSummary,
+  fetchProjectAttachments,
   saveFieldOption,
   updateAuditProgress,
   updateAuditProject,
+  uploadProjectAttachment,
 } from '@/api/audit'
 import type {
   AuditFieldConfig,
@@ -17,6 +20,7 @@ import type {
   AuditFilters,
   AuditMeta,
   AuditProject,
+  AuditProjectAttachment,
   AuditStageCode,
   AuditSummary,
 } from '@/types/audit'
@@ -116,6 +120,25 @@ export const useAuditStore = defineStore('audit', () => {
     selectedProject.value = await fetchAuditProject(project.id)
   }
 
+  async function refreshSelectedProjectAttachments() {
+    if (!selectedProject.value) return
+    selectedProject.value.attachments = await fetchProjectAttachments(selectedProject.value.id)
+  }
+
+  async function uploadAttachment(file: File): Promise<AuditProjectAttachment> {
+    if (!selectedProject.value) throw new Error('请先选择项目')
+    const attachment = await uploadProjectAttachment(selectedProject.value.id, file)
+    selectedProject.value.attachments = [attachment, ...(selectedProject.value.attachments || [])]
+    return attachment
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    await deleteProjectAttachment(attachmentId)
+    if (selectedProject.value) {
+      selectedProject.value.attachments = (selectedProject.value.attachments || []).filter((item) => item.id !== attachmentId)
+    }
+  }
+
   async function saveProject(project: Partial<AuditProject>) {
     saving.value = true
     try {
@@ -186,6 +209,9 @@ export const useAuditStore = defineStore('audit', () => {
     refreshAll,
     refreshProjects,
     selectProject,
+    refreshSelectedProjectAttachments,
+    uploadAttachment,
+    removeAttachment,
     saveProject,
     moveProject,
     addOption,

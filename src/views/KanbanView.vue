@@ -246,9 +246,28 @@
             <p v-if="(store.selectedProject.stages || []).length === 0">暂无阶段记录</p>
           </div>
           <div class="attachment-box">
-            <h3>附件信息</h3>
-            <p v-for="file in store.selectedProject.attachments || []" :key="file.id">{{ file.file_name }} · {{ file.uploaded_by || '-' }}</p>
-            <p v-if="(store.selectedProject.attachments || []).length === 0">暂无附件，已预留上传扩展位</p>
+            <div class="section-title-row">
+              <h3>附件信息</h3>
+              <t-button v-if="authStore.isEditor" size="small" variant="outline" :loading="attachmentUploading" @click="triggerAttachmentSelect">
+                <template #icon><t-icon name="upload" /></template>
+                上传
+              </t-button>
+              <input ref="attachmentInputRef" class="attachment-input" type="file" @change="handleAttachmentUpload" />
+            </div>
+            <div v-if="(store.selectedProject.attachments || []).length" class="attachment-list">
+              <div v-for="file in store.selectedProject.attachments || []" :key="file.id" class="attachment-item">
+                <div class="attachment-main">
+                  <strong>{{ attachmentName(file) }}</strong>
+                  <span>{{ attachmentType(file) }} · {{ formatFileSize(file.fileSize) }} · {{ attachmentUploader(file) }} · {{ attachmentCreatedAt(file) }}</span>
+                </div>
+                <div class="attachment-actions">
+                  <button type="button" :disabled="!file.canPreview" @click="openAttachmentPreview(file)">预览</button>
+                  <button type="button" @click="downloadAttachment(file)">下载</button>
+                  <button v-if="authStore.isEditor" type="button" class="danger-text" @click="removeAttachment(file)">删除</button>
+                </div>
+              </div>
+            </div>
+            <p v-else>暂无附件</p>
           </div>
           <div class="log-box">
             <h3>操作日志</h3>
@@ -260,6 +279,27 @@
         </div>
       </div>
     </aside>
+
+    <div v-if="attachmentPreview.visible" class="preview-mask">
+      <div class="preview-panel">
+        <div class="preview-head">
+          <div>
+            <h3>{{ attachmentPreview.title }}</h3>
+            <p>{{ attachmentPreview.hint }}</p>
+          </div>
+          <button class="icon-button" @click="closeAttachmentPreview"><t-icon name="close" /></button>
+        </div>
+        <div class="preview-body">
+          <p v-if="attachmentPreview.loading" class="preview-message">正在加载预览...</p>
+          <img v-else-if="attachmentPreview.kind === 'image'" :src="attachmentPreview.url" alt="附件预览" />
+          <iframe v-else-if="attachmentPreview.kind === 'pdf'" :src="attachmentPreview.url" title="PDF 预览" />
+          <pre v-else-if="attachmentPreview.kind === 'text'">{{ attachmentPreview.text }}</pre>
+          <video v-else-if="attachmentPreview.kind === 'video'" :src="attachmentPreview.url" controls />
+          <audio v-else-if="attachmentPreview.kind === 'audio'" :src="attachmentPreview.url" controls />
+          <p v-else class="preview-message">{{ attachmentPreview.error || '该文件类型暂不支持在线预览，请下载查看' }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -267,9 +307,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
+import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob } from '@/api/audit'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
-import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditStageCode, AuditViewMode } from '@/types/audit'
+import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
 
 const router = useRouter()
 const store = useAuditStore()
@@ -281,6 +322,18 @@ const editing = ref(false)
 const editingId = ref('')
 const formValues = reactive<Record<string, string>>({})
 const customOptionValues = reactive<Record<string, string>>({})
+const attachmentInputRef = ref<HTMLInputElement | null>(null)
+const attachmentUploading = ref(false)
+const attachmentPreview = reactive({
+  visible: false,
+  loading: false,
+  title: '',
+  hint: '',
+  kind: '',
+  url: '',
+  text: '',
+  error: '',
+})
 
 const viewModes: { value: AuditViewMode; label: string; icon: string }[] = [
   { value: 'kanban', label: '看板', icon: 'view-column' },
@@ -356,6 +409,7 @@ function closeDrawer() {
   detailVisible.value = false
   editing.value = false
   store.selectedProject = null
+  closeAttachmentPreview()
 }
 
 function openCreate() {
@@ -477,6 +531,122 @@ async function moveProject(stageCode: AuditStageCode) {
   MessagePlugin.success('进度已更新')
 }
 
+function attachmentName(file: AuditProjectAttachment) {
+  return file.originalName || file.file_name || '-'
+}
+
+function attachmentType(file: AuditProjectAttachment) {
+  return file.fileExt || file.mimeType || file.file_type || '未知类型'
+}
+
+function attachmentUploader(file: AuditProjectAttachment) {
+  return file.uploadedByName || file.uploadedBy || file.uploaded_by || '-'
+}
+
+function attachmentCreatedAt(file: AuditProjectAttachment) {
+  return (file.createdAt || file.uploaded_at || '').replace('T', ' ') || '-'
+}
+
+function formatFileSize(size = 0) {
+  if (!size) return '0 B'
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${size} B`
+}
+
+function triggerAttachmentSelect() {
+  attachmentInputRef.value?.click()
+}
+
+async function handleAttachmentUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  attachmentUploading.value = true
+  try {
+    await store.uploadAttachment(file)
+    MessagePlugin.success('附件已上传')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '附件上传失败')
+  } finally {
+    attachmentUploading.value = false
+    input.value = ''
+  }
+}
+
+function previewKind(file: AuditProjectAttachment) {
+  const mime = file.mimeType || file.file_type || ''
+  const ext = file.fileExt || ''
+  if (mime.startsWith('image/')) return 'image'
+  if (mime === 'application/pdf' || ext === '.pdf') return 'pdf'
+  if (mime.startsWith('video/')) return 'video'
+  if (mime.startsWith('audio/')) return 'audio'
+  if (mime.startsWith('text/') || ['.txt', '.csv', '.json', '.log', '.md', '.xml', '.yml', '.yaml'].includes(ext)) return 'text'
+  return 'unsupported'
+}
+
+async function openAttachmentPreview(file: AuditProjectAttachment) {
+  closeAttachmentPreview()
+  attachmentPreview.visible = true
+  attachmentPreview.loading = true
+  attachmentPreview.title = attachmentName(file)
+  attachmentPreview.hint = `${attachmentType(file)} · ${formatFileSize(file.fileSize)}`
+  attachmentPreview.kind = previewKind(file)
+  try {
+    if (attachmentPreview.kind === 'unsupported') {
+      attachmentPreview.error = '该文件类型暂不支持在线预览，请下载查看'
+      return
+    }
+    const blob = await fetchAttachmentPreviewBlob(file.id)
+    if (attachmentPreview.kind === 'text') {
+      attachmentPreview.text = await blob.text()
+    } else {
+      attachmentPreview.url = URL.createObjectURL(blob)
+    }
+  } catch (err) {
+    attachmentPreview.kind = 'unsupported'
+    attachmentPreview.error = err instanceof Error ? err.message : '预览失败'
+  } finally {
+    attachmentPreview.loading = false
+  }
+}
+
+function closeAttachmentPreview() {
+  if (attachmentPreview.url) URL.revokeObjectURL(attachmentPreview.url)
+  attachmentPreview.visible = false
+  attachmentPreview.loading = false
+  attachmentPreview.title = ''
+  attachmentPreview.hint = ''
+  attachmentPreview.kind = ''
+  attachmentPreview.url = ''
+  attachmentPreview.text = ''
+  attachmentPreview.error = ''
+}
+
+async function downloadAttachment(file: AuditProjectAttachment) {
+  try {
+    const blob = await fetchAttachmentDownloadBlob(file.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = attachmentName(file)
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '下载失败')
+  }
+}
+
+async function removeAttachment(file: AuditProjectAttachment) {
+  if (!window.confirm(`确认删除附件「${attachmentName(file)}」？`)) return
+  try {
+    await store.removeAttachment(file.id)
+    MessagePlugin.success('附件已删除')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '删除失败')
+  }
+}
+
 function ganttStyle(project: AuditProject) {
   const dates = store.projects.flatMap((item) => [item.deadline.submitDate, item.deadline.auditDeadline]).filter(Boolean).sort()
   const min = dates[0] || new Date().toISOString().slice(0, 10)
@@ -514,7 +684,7 @@ async function logout() {
   border-bottom: 1px solid var(--border-color-strong);
 }
 
-.brand, .header-actions, .segmented, .card-title-row, .card-footer, .detail-status, .drawer-actions, .stage-actions {
+.brand, .header-actions, .segmented, .card-title-row, .card-footer, .detail-status, .drawer-actions, .stage-actions, .section-title-row, .attachment-actions {
   display: flex;
   align-items: center;
 }
@@ -732,6 +902,8 @@ async function logout() {
 .detail-grid dd { margin: 0; }
 .progress-box, .stage-history, .attachment-box, .log-box { border-top: 1px solid var(--border-color); padding-top: var(--space-4); margin-top: var(--space-4); }
 .progress-box h3, .stage-history h3, .attachment-box h3, .log-box h3 { font-size: var(--text-md); margin: 0 0 var(--space-3); }
+.section-title-row { justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.section-title-row h3 { margin: 0; }
 .stage-actions { gap: var(--space-2); flex-wrap: wrap; }
 .stage-actions button {
   border: 1px solid var(--border-color-strong);
@@ -741,6 +913,97 @@ async function logout() {
 }
 .stage-actions button.active { background: var(--color-brand-500); border-color: var(--color-brand-500); color: #fff; }
 .stage-history p, .attachment-box p, .log-box p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 6px; }
+.attachment-input { display: none; }
+.attachment-list { display: grid; gap: var(--space-2); }
+.attachment-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-page);
+}
+.attachment-main { display: grid; gap: 4px; min-width: 0; }
+.attachment-main strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-main span { color: var(--text-secondary); font-size: var(--text-xs); }
+.attachment-actions { gap: 6px; }
+.attachment-actions button {
+  border: 1px solid var(--border-color);
+  background: #fff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 5px 8px;
+}
+.attachment-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.attachment-actions .danger-text { color: var(--color-danger); }
+.preview-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: rgba(15, 23, 42, .48);
+}
+.preview-panel {
+  width: min(960px, 92vw);
+  max-height: 88vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color-strong);
+  box-shadow: var(--shadow-lg);
+}
+.preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+.preview-head h3 { margin: 0; font-size: var(--text-lg); }
+.preview-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-xs); }
+.preview-body {
+  min-height: 360px;
+  overflow: auto;
+  padding: var(--space-4);
+  background: #f8fafc;
+}
+.preview-body img, .preview-body video {
+  max-width: 100%;
+  max-height: 68vh;
+  display: block;
+  margin: 0 auto;
+}
+.preview-body iframe {
+  width: 100%;
+  min-height: 68vh;
+  border: 0;
+  background: #fff;
+}
+.preview-body audio { width: 100%; }
+.preview-body pre {
+  min-height: 320px;
+  margin: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  background: #fff;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.preview-message { color: var(--text-secondary); font-size: var(--text-sm); }
 
 .layout-vertical .kanban-board { grid-template-columns: 1fr; }
 .layout-vertical .kanban-column { max-height: none; }
@@ -756,6 +1019,8 @@ async function logout() {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kanban-board { grid-template-columns: repeat(5, 260px); }
   .project-form { grid-template-columns: 1fr; }
+  .attachment-item { grid-template-columns: 1fr; }
+  .attachment-actions { flex-wrap: wrap; }
 }
 
 @media (max-width: 640px) {

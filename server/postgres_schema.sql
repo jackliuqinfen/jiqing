@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS audit_project_logs (
 CREATE TABLE IF NOT EXISTS audit_project_attachments (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES audit_projects(id) ON DELETE CASCADE,
+  file_name TEXT DEFAULT '',
+  file_url TEXT DEFAULT '',
+  file_type TEXT DEFAULT '',
   original_name TEXT NOT NULL,
   stored_name TEXT NOT NULL,
   file_ext TEXT DEFAULT '',
@@ -91,6 +94,7 @@ CREATE TABLE IF NOT EXISTS audit_project_attachments (
   relative_path TEXT NOT NULL,
   uploaded_by TEXT DEFAULT '',
   uploaded_by_name TEXT DEFAULT '',
+  uploaded_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL,
   deleted_at TIMESTAMPTZ,
   is_deleted BOOLEAN DEFAULT FALSE
@@ -223,4 +227,3 @@ CREATE INDEX IF NOT EXISTS idx_audit_field_configs_sort ON audit_field_configs(e
 CREATE INDEX IF NOT EXISTS idx_audit_field_options_group ON audit_field_options(group_key, sort_order);
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_operation_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_users_username ON system_users(username);
-
