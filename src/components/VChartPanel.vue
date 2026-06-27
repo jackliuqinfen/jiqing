@@ -14,7 +14,10 @@ import { registerCartesianBandAxis, registerCartesianLinearAxis } from '@visacto
 import { registerDiscreteLegend } from '@visactor/vchart/esm/component/legend'
 import { registerLabel } from '@visactor/vchart/esm/component/label'
 import { registerTooltip } from '@visactor/vchart/esm/component/tooltip'
-import { registerCanvasTooltipHandler } from '@visactor/vchart/esm/plugin/components/tooltip-handler'
+import {
+  registerCanvasTooltipHandler,
+  registerDomTooltipHandler,
+} from '@visactor/vchart/esm/plugin/components/tooltip-handler'
 import { initVChartArcoTheme } from '@visactor/vchart-arco-theme'
 
 const props = defineProps<{
@@ -39,6 +42,7 @@ function ensureRegisters() {
     registerDiscreteLegend,
     registerLabel,
     registerTooltip,
+    registerDomTooltipHandler,
     registerCanvasTooltipHandler,
   ])
   registersReady = true
