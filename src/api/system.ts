@@ -4,6 +4,7 @@ import type {
   AuthSession,
   CreateAdminUserDto,
   CurrentTheme,
+  OperationLogEntry,
   SystemSetting,
   SystemSettingKey,
   SystemSettingValue,
@@ -54,6 +55,46 @@ function normalizeAdminUser(user: AdminUser & { isActive?: boolean }): AdminUser
     isActive: user.isActive !== false,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+  }
+}
+
+type RawOperationLog = {
+  id: string
+  user_id?: string
+  username?: string
+  role?: OperationLogEntry['role']
+  action: string
+  target_type?: string
+  target_id?: string
+  result?: string
+  ip_address?: string
+  user_agent?: string
+  detail_json?: string
+  created_at?: string
+}
+
+function normalizeOperationLog(row: RawOperationLog): OperationLogEntry {
+  let detail: Record<string, unknown> = {}
+  if (row.detail_json) {
+    try {
+      detail = JSON.parse(row.detail_json) as Record<string, unknown>
+    } catch {
+      detail = { raw: row.detail_json }
+    }
+  }
+  return {
+    id: row.id,
+    userId: row.user_id || '',
+    username: row.username || '系统',
+    role: row.role || '',
+    action: row.action,
+    targetType: row.target_type || '',
+    targetId: row.target_id || '',
+    result: row.result || 'success',
+    ipAddress: row.ip_address || '',
+    userAgent: row.user_agent || '',
+    detail,
+    createdAt: row.created_at || '',
   }
 }
 
@@ -122,6 +163,11 @@ export async function updateAdminUser(dto: UpdateAdminUserDto): Promise<void> {
 
 export async function getAdminStats(): Promise<AdminStats> {
   return request<AdminStats>('/admin/stats')
+}
+
+export async function getOperationLogs(): Promise<OperationLogEntry[]> {
+  const rows = await request<RawOperationLog[]>('/admin/operation-logs')
+  return rows.map(normalizeOperationLog)
 }
 
 export async function getAllSystemSettings(): Promise<SystemSetting[]> {

@@ -92,6 +92,11 @@ const routes: RouteRecordRaw[] = [
         name: 'AdminSettings',
         component: () => import('@/views/admin/AdminSystemSettings.vue'),
       },
+      {
+        path: 'operation-logs',
+        name: 'AdminOperationLogs',
+        component: () => import('@/views/admin/AdminOperationLogs.vue'),
+      },
     ],
   },
   {

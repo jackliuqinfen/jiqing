@@ -366,3 +366,19 @@ export interface AdminStats {
   totalProjects: number
   recentLogins: number
 }
+
+/** 系统操作日志 */
+export interface OperationLogEntry {
+  id: string
+  userId: string
+  username: string
+  role: AdminRole | ''
+  action: string
+  targetType: string
+  targetId: string
+  result: 'success' | 'failed' | string
+  ipAddress: string
+  userAgent: string
+  detail: Record<string, unknown>
+  createdAt: string
+}

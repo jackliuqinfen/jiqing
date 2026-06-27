@@ -42,10 +42,10 @@
           <t-icon name="usergroup" />
           <span>用户管理</span>
         </router-link>
-        <button class="module-link module-link--disabled" type="button" @click="showUnderConstruction('操作日志')">
+        <router-link v-if="authStore.isAdmin" to="/admin/operation-logs" class="module-link">
           <t-icon name="file-paste" />
           <span>操作日志</span>
-        </button>
+        </router-link>
       </div>
 
       <div class="sidebar-foot">
@@ -99,10 +99,6 @@ const mainNav = [
 
 const routeTitle = computed(() => String(route.meta.title || '江苏集庆·工程管理系统'))
 const routeSubtitle = computed(() => String(route.meta.subtitle || '稳态指挥台 · 工程经营与审计协同'))
-
-function showUnderConstruction(name: string) {
-  MessagePlugin.info(`${name}模块建设中`)
-}
 
 async function logout() {
   await authStore.logout()

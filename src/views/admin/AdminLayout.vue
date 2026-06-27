@@ -33,6 +33,10 @@
           <t-icon name="system-setting" />
           <span>系统设置</span>
         </router-link>
+        <router-link to="/admin/operation-logs" class="nav-item" active-class="nav-item--active">
+          <t-icon name="file-paste" />
+          <span>操作日志</span>
+        </router-link>
       </nav>
 
       <div class="sidebar-footer">
