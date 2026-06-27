@@ -85,6 +85,12 @@ const iconMap: Record<string, Component> = {
   'view-module': IconApps,
 }
 
+function numericSize(size: unknown, sizes: Record<string, number>) {
+  if (typeof size === 'number') return size
+  if (typeof size === 'string') return sizes[size] ?? (Number(size) || undefined)
+  return undefined
+}
+
 function buttonProps(props: Record<string, unknown>) {
   const theme = props.theme as string | undefined
   const variant = props.variant as string | undefined
@@ -212,17 +218,19 @@ const TForm = defineComponent({
         formRef.value?.resetFields?.()
       },
     })
-    const formProps: Record<string, any> = {
-      ...attrs,
-      ref: formRef,
-      model: props.data,
-      rules: props.rules,
-      layout: props.labelAlign === 'top' ? 'vertical' : 'horizontal',
+    return () => {
+      const formProps: Record<string, any> = {
+        ...attrs,
+        ref: formRef,
+        model: props.data ?? {},
+        rules: props.rules,
+        layout: props.labelAlign === 'top' ? 'vertical' : 'horizontal',
+      }
+      if (props.labelWidth) {
+        formProps.labelColProps = { style: { width: typeof props.labelWidth === 'number' ? `${props.labelWidth}px` : props.labelWidth } }
+      }
+      return h(Form as any, formProps, slots)
     }
-    if (props.labelWidth) {
-      formProps.labelColProps = { style: { width: typeof props.labelWidth === 'number' ? `${props.labelWidth}px` : props.labelWidth } }
-    }
-    return () => h(Form as any, formProps, slots)
   },
 })
 
@@ -272,7 +280,11 @@ const TCard = defineComponent({
   name: 'TCard',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
-    return () => h(Card as any, attrs, { ...slots, extra: slots.actions || slots.extra })
+    return () => {
+      const mappedSlots = { ...slots }
+      delete mappedSlots.actions
+      return h(Card as any, attrs, { ...mappedSlots, extra: slots.actions || slots.extra })
+    }
   },
 })
 
@@ -296,7 +308,11 @@ const TAvatar = defineComponent({
   name: 'TAvatar',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
-    return () => h(Avatar as any, attrs, slots)
+    return () => {
+      const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
+      mapped.size = numericSize(mapped.size, { small: 24, medium: 32, large: 40 })
+      return h(Avatar as any, mapped, slots)
+    }
   },
 })
 
@@ -350,7 +366,11 @@ const TLoading = defineComponent({
   inheritAttrs: false,
   props: { text: String },
   setup(props, { attrs }) {
-    return () => h(Spin as any, { ...attrs, tip: props.text })
+    return () => {
+      const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
+      mapped.size = numericSize(mapped.size, { small: 16, medium: 24, large: 32 })
+      return h(Spin as any, { ...mapped, tip: props.text })
+    }
   },
 })
 

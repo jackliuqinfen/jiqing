@@ -3,9 +3,12 @@ import type {
   AdminUser,
   AuthSession,
   CreateAdminUserDto,
+  CurrentTheme,
   SystemSetting,
   SystemSettingKey,
   SystemSettingValue,
+  ThemeOption,
+  ThemeSetting,
   UpdateAdminUserDto,
   UserProfile,
 } from '@/types'
@@ -136,4 +139,20 @@ export async function setSystemSetting(
   _updatedBy: string
 ): Promise<void> {
   await request<null>(`/system/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) })
+}
+
+export async function getThemeOptions(): Promise<ThemeOption[]> {
+  return request<ThemeOption[]>('/system/theme/options')
+}
+
+export async function getCurrentTheme(): Promise<CurrentTheme> {
+  return request<CurrentTheme>('/system/theme/current')
+}
+
+export async function updateCurrentTheme(setting: ThemeSetting): Promise<CurrentTheme> {
+  return request<CurrentTheme>('/system/theme/current', { method: 'PUT', body: JSON.stringify(setting) })
+}
+
+export async function resetCurrentTheme(): Promise<CurrentTheme> {
+  return request<CurrentTheme>('/system/theme/reset', { method: 'POST', body: '{}' })
 }

@@ -289,7 +289,7 @@ export interface AdminUser {
 }
 
 /** 系统设置键 */
-export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name'
+export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name' | 'current_theme'
 
 /** 系统设置值类型 */
 export interface RegistrationSetting {
@@ -304,7 +304,31 @@ export interface LoginRulesSetting {
   allowConcurrentSessions: boolean
 }
 
-export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | string
+export interface ThemeSetting {
+  themeKey: string
+  darkMode: boolean
+  compactMode: boolean
+  applyScope: string
+}
+
+export interface ThemeOption {
+  id: string
+  themeKey: string
+  themeName: string
+  packageName: string
+  previewColors: string[]
+  applyScope: string
+  isEnabled: boolean
+  isDefault: boolean
+  darkModeEnabled: boolean
+  compactModeEnabled: boolean
+}
+
+export interface CurrentTheme extends ThemeSetting {
+  theme: ThemeOption | null
+}
+
+export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | ThemeSetting | string
 
 /** 系统设置条目 */
 export interface SystemSetting {

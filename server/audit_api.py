@@ -244,10 +244,10 @@ def seed_theme_configs(conn):
     themes = [
         ("arco-theme-0000", "Arco 官方默认主题", "@arco-themes/vue-0000", ["#165DFF", "#14C9C9", "#00B42A", "#FF7D00"], 1, 1, 10),
         ("arco-default", "Arco fallback", "@arco-design/web-vue", ["#165DFF", "#0FC6C2", "#00B42A", "#86909C"], 1, 0, 20),
-        ("jiqing-blue", "专业蓝主题", "builtin:jiqing-blue", ["#0E42D2", "#168CFF", "#14C9C9", "#E8F3FF"], 0, 0, 30),
-        ("engineering-green", "青绿工程主题", "builtin:engineering-green", ["#008F7A", "#00B42A", "#14C9C9", "#E8FFFB"], 0, 0, 40),
-        ("gov-gray-blue", "灰蓝政企主题", "builtin:gov-gray-blue", ["#1D3557", "#457B9D", "#A8DADC", "#F1FAEE"], 0, 0, 50),
-        ("dark-command", "深色大屏主题", "builtin:dark-command", ["#0B1220", "#165DFF", "#14C9C9", "#00B42A"], 0, 0, 60),
+        ("jiqing-blue", "专业蓝主题", "builtin:jiqing-blue", ["#0E42D2", "#168CFF", "#14C9C9", "#E8F3FF"], 1, 0, 30),
+        ("engineering-green", "青绿工程主题", "builtin:engineering-green", ["#008F7A", "#00B42A", "#14C9C9", "#E8FFFB"], 1, 0, 40),
+        ("gov-gray-blue", "灰蓝政企主题", "builtin:gov-gray-blue", ["#1D3557", "#457B9D", "#A8DADC", "#F1FAEE"], 1, 0, 50),
+        ("dark-command", "深色大屏主题", "builtin:dark-command", ["#0B1220", "#165DFF", "#14C9C9", "#00B42A"], 1, 0, 60),
     ]
     for key, name, package, colors, enabled, is_default, order in themes:
         conn.execute(
@@ -258,6 +258,15 @@ def seed_theme_configs(conn):
             VALUES (?, ?, ?, ?, ?, 'global', ?, ?, 0, 0, ?, ?, ?)
             """,
             (new_id(), key, name, package, json.dumps(colors, ensure_ascii=False), enabled, is_default, order, ts, ts),
+        )
+        conn.execute(
+            """
+            UPDATE system_theme_configs
+            SET theme_name = ?, package_name = ?, preview_colors = ?, is_enabled = ?,
+                is_default = ?, sort_order = ?, updated_at = ?
+            WHERE theme_key = ?
+            """,
+            (name, package, json.dumps(colors, ensure_ascii=False), enabled, is_default, order, ts, key),
         )
 
 

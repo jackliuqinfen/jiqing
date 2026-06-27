@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import '@arco-themes/vue-0000/css/arco.css'
 import { installTDesignCompat } from '@/ui/tdesignCompat'
+import { initThemePreference } from '@/ui/theme'
 import '@/ui/tdesignCompat.css'
 import App from './App.vue'
 import router from './router'
@@ -15,5 +16,6 @@ app.use(createPinia())
 app.use(router)
 
 installTDesignCompat(app)
+initThemePreference()
 
 app.mount('#app')
