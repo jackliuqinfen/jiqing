@@ -124,11 +124,17 @@ Implemented:
 - Admin theme selection exists in system settings.
 - No arbitrary npm package input or runtime dynamic package loading exists.
 
+Current productized theme setting coverage:
+
+- Theme settings page exposes whitelist theme selection, theme key, package identifier, enabled/default state, preview colors, apply-scope selection, dark mode, compact mode, restore default, current theme preview, and chart theme preview.
+- Apply scope is persisted through the current-theme setting and is ready for later module-level theme reads.
+- Chart preview uses VChart and the active whitelist color set; base chart theme following is implemented through `@visactor/vchart-arco-theme`.
+
 Remaining gap:
 
-- Theme settings page does not yet expose full theme management fields such as apply-scope editing, enable/default management, or chart theme preview.
-- Dark and compact mode are token/dataset-level foundations, not a full density/dark styling pass.
-- Chart theme following is implemented through `@visactor/vchart-arco-theme`, but should be visually regression-tested after each theme expansion.
+- Enable/default management is currently displayed from the backend whitelist but not editable in the admin UI.
+- Dark and compact mode are token/dataset-level foundations, not a complete density/dark styling pass for every screen.
+- Theme expansion should continue to include visual regression testing for dashboard charts and admin pages.
 
 ## Dashboard And Chart State
 
@@ -249,8 +255,8 @@ Recommended order:
 
 1. Lock the product shell: rename product surfaces, add enterprise module navigation, and make unavailable modules show "模块建设中".
 2. Continue the direction 1 "稳态指挥台" visual refinement across audit detail, admin settings, and responsive states.
-3. Expand the theme settings page with apply-scope editing, default/enabled management, and chart theme preview.
-4. Harden production security flags: explicit dev fallback, required secret in production, tighter route policy, and role/permission coverage.
+3. Harden production security flags: explicit dev fallback, required secret in production, tighter route policy, and role/permission coverage.
+4. Implement editable theme whitelist management only if business administrators are allowed to manage enable/default state.
 5. Implement the PostgreSQL adapter/import command after the SQLite backup and restore baseline is accepted.
 6. Continue chunk optimization after chart, admin, gantt, and attachment modules settle.
 

@@ -5,7 +5,7 @@
       <p class="page-desc">管理系统全局参数，包括注册开关、登录规则等</p>
     </div>
 
-    <t-card class="settings-card" title="主题外观" :bordered="true">
+    <t-card class="settings-card theme-card" title="主题外观" :bordered="true">
       <template #actions>
         <t-button size="small" variant="outline" :loading="savingTheme" @click="resetTheme">恢复默认</t-button>
       </template>
@@ -43,6 +43,74 @@
           <span class="theme-package">{{ theme.packageName }}</span>
           <span class="theme-meta">{{ theme.isDefault ? '默认主题' : theme.isEnabled ? '可切换' : '未启用' }}</span>
         </button>
+      </div>
+
+      <div class="theme-scope-panel">
+        <div>
+          <span class="field-label">应用范围</span>
+          <strong>{{ applyScopeLabel }}</strong>
+          <em>当前版本按配置落库，后续模块可按范围读取主题策略。</em>
+        </div>
+        <div class="scope-switch" role="group" aria-label="主题应用范围">
+          <button
+            v-for="scope in applyScopeOptions"
+            :key="scope.value"
+            type="button"
+            :class="{ active: themeSettings.applyScope === scope.value }"
+            :disabled="savingTheme"
+            @click="selectApplyScope(scope.value)"
+          >
+            {{ scope.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="theme-preview-board">
+        <section class="theme-preview-card">
+          <div class="preview-head">
+            <span>当前主题预览</span>
+            <strong>{{ currentThemeName }}</strong>
+          </div>
+          <div class="preview-shell" :style="previewStyle">
+            <div class="preview-sidebar">
+              <i />
+              <span>工程管理</span>
+            </div>
+            <div class="preview-main">
+              <div class="preview-toolbar">
+                <span />
+                <em />
+              </div>
+              <div class="preview-kpis">
+                <b>10</b>
+                <b>4</b>
+                <b>2</b>
+              </div>
+              <div class="preview-list">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          </div>
+          <div class="theme-facts">
+            <span>主题 key：{{ activeTheme?.themeKey || themeSettings.themeKey }}</span>
+            <span>包标识：{{ activeTheme?.packageName || '-' }}</span>
+            <span>启用状态：{{ activeTheme?.isEnabled ? '已启用' : '未启用' }}</span>
+            <span>默认主题：{{ activeTheme?.isDefault ? '是' : '否' }}</span>
+          </div>
+        </section>
+
+        <section class="theme-preview-card">
+          <div class="preview-head">
+            <span>图表主题预览</span>
+            <strong>VChart + Arco Theme</strong>
+          </div>
+          <div class="chart-preview">
+            <VChartPanel :spec="chartPreviewSpec" />
+          </div>
+          <p class="preview-note">图表颜色来自当前白名单主题色板，并通过 VChart Arco 主题适配器保持基础风格一致。</p>
+        </section>
       </div>
     </t-card>
 
@@ -90,6 +158,7 @@
 
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from 'vue'
+import type { ISpec } from '@visactor/vchart/esm/core'
 import {
   getCurrentTheme,
   getSystemSetting,
@@ -98,6 +167,7 @@ import {
   setSystemSetting,
   updateCurrentTheme,
 } from '@/api/system'
+import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import { applyTheme } from '@/ui/theme'
@@ -120,9 +190,68 @@ const themeSettings = reactive<ThemeSetting>({
   applyScope: 'global',
 })
 
+const applyScopeOptions = [
+  { label: '全局', value: 'global' },
+  { label: '首页数据看板', value: 'dashboard' },
+  { label: '审计看板', value: 'audit' },
+  { label: '后台管理', value: 'admin' },
+]
+
 const currentThemeName = computed(() => {
   return themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey)?.themeName || 'Arco 官方默认主题'
 })
+
+const activeTheme = computed(() => themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey) || null)
+
+const activePreviewColors = computed(() => {
+  const colors = activeTheme.value?.previewColors || []
+  return colors.length ? colors : ['#165DFF', '#14C9C9', '#00B42A', '#FF7D00']
+})
+
+const applyScopeLabel = computed(() => {
+  return applyScopeOptions.find((item) => item.value === themeSettings.applyScope)?.label || '全局'
+})
+
+const previewStyle = computed(() => {
+  const [brand, cyan, green, warning] = activePreviewColors.value
+  const dark = themeSettings.darkMode || themeSettings.themeKey === 'dark-command'
+  return {
+    '--preview-brand': brand,
+    '--preview-cyan': cyan || brand,
+    '--preview-green': green || '#00B42A',
+    '--preview-warning': warning || '#FF7D00',
+    '--preview-bg': dark ? '#0B1220' : '#F5F8FC',
+    '--preview-surface': dark ? '#111827' : '#FFFFFF',
+    '--preview-text': dark ? '#F8FAFC' : '#172033',
+    '--preview-border': dark ? '#26344D' : '#D7E0E7',
+  }
+})
+
+const chartPreviewSpec = computed<ISpec>(() => ({
+  type: 'bar',
+  background: 'transparent',
+  color: activePreviewColors.value,
+  data: [{
+    id: 'themePreview',
+    values: [
+      { stage: '送审', count: 10 },
+      { stage: '一审', count: 4 },
+      { stage: '二审', count: 3 },
+      { stage: '归档', count: 2 },
+    ],
+  }],
+  xField: 'stage',
+  yField: 'count',
+  seriesField: 'stage',
+  padding: { top: 14, right: 12, bottom: 32, left: 34 },
+  tooltip: { visible: true },
+  animationAppear: { duration: 720, easing: 'cubicOut' },
+  bar: { style: { cornerRadius: [3, 3, 0, 0] } },
+  axes: [
+    { orient: 'bottom', label: { autoHide: true } },
+    { orient: 'left', min: 0, tick: { tickCount: 4 } },
+  ],
+} as ISpec))
 
 onMounted(async () => {
   try {
@@ -148,6 +277,12 @@ onMounted(async () => {
 async function selectTheme(theme: ThemeOption) {
   if (!theme.isEnabled || theme.themeKey === themeSettings.themeKey) return
   themeSettings.themeKey = theme.themeKey
+  await saveTheme()
+}
+
+async function selectApplyScope(scope: string) {
+  if (themeSettings.applyScope === scope) return
+  themeSettings.applyScope = scope
   await saveTheme()
 }
 
@@ -209,7 +344,7 @@ async function saveLoginRules() {
 </script>
 
 <style scoped>
-.admin-settings { max-width: 980px; }
+.admin-settings { max-width: 1120px; }
 .page-header { margin-bottom: var(--space-8); }
 .page-title { font-size: var(--text-2xl); font-weight: 700; color: var(--text-primary); margin: 0 0 var(--space-1); }
 .page-desc { font-size: var(--text-sm); color: var(--text-secondary); margin: 0; }
@@ -294,8 +429,171 @@ async function saveLoginRules() {
   font-weight: 700;
   color: var(--text-primary);
 }
+.theme-scope-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) minmax(320px, 1.25fr);
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+.theme-scope-panel strong {
+  display: block;
+  margin: 2px 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+.theme-scope-panel em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.scope-switch {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  align-self: center;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+}
+.scope-switch button {
+  min-height: 36px;
+  border: 0;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+.scope-switch button.active {
+  background: var(--color-brand-500);
+  color: #fff;
+}
+.theme-preview-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr);
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.theme-preview-card {
+  min-height: 286px;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+.preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.preview-head span,
+.preview-note {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.preview-head strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.preview-shell {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  min-height: 150px;
+  overflow: hidden;
+  background: var(--preview-bg);
+  border: 1px solid var(--preview-border);
+  color: var(--preview-text);
+}
+.preview-sidebar {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--preview-brand), #0b1220 68%), #0b1220);
+  color: #fff;
+}
+.preview-sidebar i {
+  width: 28px;
+  height: 18px;
+  background: linear-gradient(90deg, var(--preview-green), var(--preview-cyan));
+}
+.preview-sidebar span {
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.preview-main {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--preview-surface);
+}
+.preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.preview-toolbar span,
+.preview-toolbar em {
+  height: 10px;
+  background: var(--preview-border);
+}
+.preview-toolbar span { width: 42%; }
+.preview-toolbar em { width: 22%; }
+.preview-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.preview-kpis b {
+  min-height: 46px;
+  display: grid;
+  place-items: center;
+  color: var(--preview-text);
+  background: color-mix(in srgb, var(--preview-brand), transparent 88%);
+  border: 1px solid var(--preview-border);
+}
+.preview-list {
+  display: grid;
+  gap: var(--space-2);
+}
+.preview-list span {
+  height: 10px;
+  background: linear-gradient(90deg, var(--preview-cyan), transparent);
+}
+.theme-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.theme-facts span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.chart-preview {
+  height: 190px;
+}
+.chart-preview :deep(.vchart-panel) {
+  min-height: 190px;
+}
+.preview-note {
+  margin: var(--space-3) 0 0;
+  line-height: 1.6;
+}
 @media (max-width: 860px) {
   .theme-grid { grid-template-columns: 1fr; }
   .theme-current { align-items: flex-start; flex-direction: column; }
+  .theme-scope-panel,
+  .theme-preview-board { grid-template-columns: 1fr; }
+  .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .preview-shell { grid-template-columns: 88px minmax(0, 1fr); }
+  .theme-facts { grid-template-columns: 1fr; }
 }
 </style>
