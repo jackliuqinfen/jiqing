@@ -11,9 +11,56 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/',
-    name: 'Kanban',
-    component: () => import('@/views/KanbanView.vue'),
+    component: () => import('@/views/AppLayout.vue'),
     meta: { requiresAuth: false, allowGuest: true },
+    children: [
+      {
+        path: '',
+        name: 'HomeDashboard',
+        component: () => import('@/views/HomeDashboard.vue'),
+        meta: { title: '首页数据看板', subtitle: '稳态指挥台 · 工程经营与审计协同' },
+      },
+      {
+        path: 'audit',
+        name: 'Kanban',
+        component: () => import('@/views/KanbanView.vue'),
+        props: { embedded: true },
+        meta: { title: '审计看板', subtitle: '当前已启用业务模块 · 看板 / 甘特 / 表格' },
+      },
+      {
+        path: 'project-management',
+        name: 'ProjectManagement',
+        component: () => import('@/views/ModulePlaceholder.vue'),
+        meta: {
+          title: '项目管理',
+          subtitle: '模块建设中',
+          icon: 'task',
+          description: '项目管理模块将承载工程立项、进度节点、责任人协同和跨模块风险联动。',
+        },
+      },
+      {
+        path: 'bidding',
+        name: 'BiddingDashboard',
+        component: () => import('@/views/ModulePlaceholder.vue'),
+        meta: {
+          title: '招投标看板',
+          subtitle: '模块建设中',
+          icon: 'file-paste',
+          description: '招投标看板将用于跟踪招标计划、投标过程、合同归档和异常提醒。',
+        },
+      },
+      {
+        path: 'finance',
+        name: 'FinanceDashboard',
+        component: () => import('@/views/ModulePlaceholder.vue'),
+        meta: {
+          title: '财务看板',
+          subtitle: '模块建设中',
+          icon: 'list',
+          description: '财务看板将聚合付款计划、审减金额、回款进度和经营分析指标。',
+        },
+      },
+    ],
   },
   {
     path: '/admin',
@@ -76,13 +123,13 @@ router.beforeEach((to, _from, next) => {
 
   // 目标页需要管理员权限但用户不是 admin → 跳转看板
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
-    next({ name: 'Kanban' })
+    next({ name: 'HomeDashboard' })
     return
   }
 
   // 已登录用户访问登录页 → 重定向到看板
   if (to.name === 'Login' && authStore.isAuthenticated) {
-    next({ name: 'Kanban' })
+    next({ name: 'HomeDashboard' })
     return
   }
 

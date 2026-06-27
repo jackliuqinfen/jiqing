@@ -1,7 +1,7 @@
 <template>
-  <div class="audit-shell" :class="`layout-${layoutMode}`">
-    <header class="audit-header">
-      <div class="brand">
+  <div class="audit-shell" :class="[`layout-${layoutMode}`, { 'audit-shell--embedded': embedded }]">
+    <header class="audit-header" :class="{ 'audit-header--embedded': embedded }">
+      <div v-if="!embedded" class="brand">
         <div class="brand-mark"><t-icon name="layers" /></div>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
@@ -36,12 +36,14 @@
           <template #icon><t-icon name="refresh" /></template>
           刷新
         </t-button>
-        <t-button v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
-          <template #icon><t-icon name="setting" /></template>
-          后台
-        </t-button>
-        <t-button v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</t-button>
-        <t-button v-else theme="primary" size="small" @click="router.push('/login')">登录</t-button>
+        <template v-if="!embedded">
+          <t-button v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
+            <template #icon><t-icon name="setting" /></template>
+            后台
+          </t-button>
+          <t-button v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</t-button>
+          <t-button v-else theme="primary" size="small" @click="router.push('/login')">登录</t-button>
+        </template>
       </div>
     </header>
 
@@ -315,6 +317,7 @@ import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttac
 const router = useRouter()
 const store = useAuditStore()
 const authStore = useAuthStore()
+defineProps<{ embedded?: boolean }>()
 const viewMode = ref<AuditViewMode>('kanban')
 const layoutMode = ref<AuditLayoutMode>('horizontal')
 const detailVisible = ref(false)
@@ -672,6 +675,10 @@ async function logout() {
   background: var(--bg-page);
   color: var(--text-primary);
 }
+.audit-shell--embedded {
+  min-height: auto;
+  background: transparent;
+}
 
 .audit-header {
   height: 64px;
@@ -682,6 +689,13 @@ async function logout() {
   padding: 0 var(--space-6);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color-strong);
+}
+.audit-header--embedded {
+  height: auto;
+  justify-content: flex-end;
+  padding: 0 0 var(--space-4);
+  background: transparent;
+  border-bottom: 0;
 }
 
 .brand, .header-actions, .segmented, .card-title-row, .card-footer, .detail-status, .drawer-actions, .stage-actions, .section-title-row, .attachment-actions {
@@ -719,6 +733,7 @@ async function logout() {
 .segmented button.active { background: var(--color-brand-500); color: #fff; }
 
 .audit-main { padding: var(--space-5); }
+.audit-shell--embedded .audit-main { padding: 0; }
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(160px, 1fr));
