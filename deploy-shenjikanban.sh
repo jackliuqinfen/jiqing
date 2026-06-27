@@ -85,6 +85,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now audit-kanban
+systemctl restart audit-kanban
 sleep 1
 
 cat >/etc/nginx/conf.d/shenjikanban.conf <<'EOF'
