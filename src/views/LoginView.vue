@@ -6,7 +6,7 @@
     <section class="login-command">
       <div class="brand-block">
         <span class="brand-mark">
-          <t-icon name="layers" size="28px" />
+          <img :src="jiqingLogo" alt="江苏集庆建设" />
         </span>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
@@ -41,6 +41,9 @@
 
     <section class="login-panel" aria-label="登录">
       <div class="panel-card">
+        <div class="panel-logo">
+          <img :src="jiqingLogo" alt="江苏集庆建设" />
+        </div>
         <div class="form-header">
           <span>内部系统登录</span>
           <h2>欢迎回来</h2>
@@ -132,6 +135,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
+import jiqingLogo from '@/assets/jiqing-construction-logo.jpg'
 
 type Particle = {
   x: number
@@ -342,13 +346,23 @@ onBeforeUnmount(stopBackgroundAnimation)
 }
 
 .brand-mark {
-  width: 54px;
+  width: 128px;
   height: 54px;
   display: grid;
   place-items: center;
-  background: var(--color-brand-500);
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, .96);
   border: 1px solid rgba(255, 255, 255, .18);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  overflow: hidden;
+}
+
+.brand-mark img,
+.panel-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .brand-block h1 {
@@ -452,6 +466,17 @@ onBeforeUnmount(stopBackgroundAnimation)
   background: var(--bg-surface);
   border: 1px solid var(--border-color-strong);
   box-shadow: 0 18px 48px rgba(15, 31, 61, .12);
+}
+
+.panel-logo {
+  width: 198px;
+  height: 78px;
+  margin: 0 0 var(--space-5);
+  display: grid;
+  place-items: center;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid var(--border-color);
 }
 
 .form-header {
@@ -593,12 +618,12 @@ onBeforeUnmount(stopBackgroundAnimation)
   }
 
   .brand-block {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .brand-mark {
-    width: 44px;
-    height: 44px;
+    width: 108px;
+    height: 46px;
   }
 
   .brand-block h1 {
@@ -619,6 +644,12 @@ onBeforeUnmount(stopBackgroundAnimation)
 
   .panel-card {
     padding: var(--space-5);
+  }
+
+  .panel-logo {
+    width: 168px;
+    height: 66px;
+    margin-bottom: var(--space-4);
   }
 }
 </style>

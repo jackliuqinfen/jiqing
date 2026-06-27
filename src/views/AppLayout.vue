@@ -2,7 +2,7 @@
   <div class="system-shell">
     <aside class="system-sidebar">
       <router-link to="/" class="system-brand" aria-label="江苏集庆·工程管理系统">
-        <span class="brand-icon"><t-icon name="layers" /></span>
+        <span class="brand-icon"><img :src="jiqingLogo" alt="" /></span>
         <span>
           <strong>江苏集庆</strong>
           <em>工程管理系统</em>
@@ -84,6 +84,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
+import jiqingLogo from '@/assets/jiqing-construction-logo.jpg'
 
 const router = useRouter()
 const route = useRoute()
@@ -140,13 +141,22 @@ async function logout() {
 }
 
 .brand-icon {
-  width: 38px;
+  width: 58px;
   height: 38px;
   display: grid;
   place-items: center;
-  background: var(--color-brand-500);
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, .96);
   border: 1px solid rgba(255, 255, 255, .16);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  overflow: hidden;
+}
+
+.brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .system-brand strong,
@@ -286,7 +296,12 @@ async function logout() {
   .nav-group p,
   .system-status strong,
   .system-status em { display: none; }
-  .module-link { justify-content: center; padding: 0; }
+  .brand-icon {
+    width: 48px;
+    height: 34px;
+    padding: 4px;
+  }
+  .module-link { justify-content: center; padding: 0; min-height: 42px; }
   .system-content { padding: var(--space-3); }
 }
 
@@ -299,15 +314,52 @@ async function logout() {
     min-height: auto;
     grid-template-columns: auto 1fr;
     grid-template-rows: auto auto;
+    gap: var(--space-3);
+    padding: var(--space-3);
   }
+  .system-brand span:not(.brand-icon) { display: block; }
+  .system-brand {
+    min-height: 44px;
+    max-width: 240px;
+  }
+  .brand-icon {
+    width: 64px;
+    height: 40px;
+  }
+  .system-brand strong { font-size: var(--text-md); }
+  .system-brand em { font-size: 11px; }
   .module-nav {
     grid-column: 1 / -1;
     display: flex;
     overflow-x: auto;
+    gap: var(--space-2);
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .module-nav::-webkit-scrollbar { display: none; }
+  .module-link {
+    flex: 0 0 auto;
+    min-width: 118px;
+    justify-content: flex-start;
+    padding: 0 var(--space-3);
+  }
+  .module-link span,
+  .module-link small {
+    display: inline;
+  }
+  .module-link small {
+    margin-left: auto;
   }
   .nav-group,
   .sidebar-foot { display: none; }
   .system-main { min-height: auto; grid-template-rows: auto minmax(0, 1fr); }
-  .system-topbar { align-items: flex-start; flex-direction: column; padding: var(--space-3); }
+  .system-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: var(--space-3);
+  }
+  .system-topbar h1 { font-size: var(--text-lg); }
+  .system-topbar p { max-width: 100%; }
+  .topbar-actions { width: 100%; justify-content: flex-end; }
 }
 </style>

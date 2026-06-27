@@ -766,11 +766,12 @@ const moduleStatus = [
 
 @media (max-width: 720px) {
   .command-hero { padding: var(--space-4); }
-  .hero-copy h2 { font-size: var(--text-4xl); }
+  .hero-copy h2 { font-size: var(--text-3xl); }
+  .hero-copy p { font-size: var(--text-sm); }
   .hero-console { padding: var(--space-3); }
   .range-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .hero-signals,
-  .console-health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-signals { grid-template-columns: 1fr; }
+  .console-health-grid { grid-template-columns: 1fr; }
   .hero-signals span,
   .console-health-grid article { padding: var(--space-2); }
   .kpi-grid { grid-template-columns: 1fr; }
@@ -778,5 +779,22 @@ const moduleStatus = [
   .mission-strip strong { grid-row: auto; }
   .chart-panel,
   .module-panel { min-height: 320px; }
+  .panel-head {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .panel-head > span {
+    width: fit-content;
+  }
+  .risk-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: var(--space-3);
+  }
+  .risk-row em {
+    grid-column: 2;
+  }
+  .donut-center {
+    top: 40%;
+  }
 }
 </style>
