@@ -54,9 +54,37 @@ import sys
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8-sig")
 text = text.replace("\r\n", "\n").replace("\r", "\n")
-if text and not text.endswith("\n"):
-    text += "\n"
-path.write_text(text, encoding="utf-8")
+lines = [line for line in text.split("\n") if line.strip()]
+last_for_key = {}
+plain_lines = []
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("#") or "=" not in stripped:
+        plain_lines.append(line)
+        continue
+    key = stripped.split("=", 1)[0]
+    last_for_key[key] = line
+
+ordered_keys = [
+    "SESSION_SECRET",
+    "TOKEN_SECRET",
+    "ADMIN_INIT_USERNAME",
+    "ADMIN_INIT_PASSWORD",
+    "ADMIN_INIT_DISPLAY_NAME",
+    "APP_ENV",
+    "ENABLE_DEV_ADMIN_FALLBACK",
+    "UPLOAD_ROOT",
+    "MAX_UPLOAD_SIZE",
+    "DEFAULT_THEME_KEY",
+    "CHART_LIBRARY",
+]
+output = plain_lines[:]
+for key in ordered_keys:
+    if key in last_for_key:
+        output.append(last_for_key.pop(key))
+for key in sorted(last_for_key):
+    output.append(last_for_key[key])
+path.write_text("\n".join(output) + ("\n" if output else ""), encoding="utf-8")
 PY
 }
 
