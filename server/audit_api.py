@@ -26,6 +26,11 @@ STAGES = [
 ]
 
 
+def is_production():
+    env = (os.environ.get("APP_ENV") or os.environ.get("NODE_ENV") or os.environ.get("JIQING_ENV") or "").lower()
+    return env in {"prod", "production"}
+
+
 def now_iso():
     return datetime.now().replace(microsecond=0).isoformat()
 
@@ -39,7 +44,12 @@ def new_id():
 
 
 def token_secret():
-    return os.environ.get("TOKEN_SECRET") or os.environ.get("SESSION_SECRET") or "dev-only-change-me"
+    secret = os.environ.get("TOKEN_SECRET") or os.environ.get("SESSION_SECRET")
+    if secret:
+        return secret
+    if is_production():
+        raise RuntimeError("SESSION_SECRET or TOKEN_SECRET is required in production")
+    return "dev-only-change-me"
 
 
 def hash_password(password, salt=None):
@@ -280,6 +290,9 @@ def seed_admin_user(conn):
     if not username and allow_dev_fallback:
         username = "admin"
         password = os.environ.get("VITE_LOCAL_ADMIN_PASSWORD") or "admin"
+    if is_production() and username == "admin" and password == "admin":
+        print("Refusing to create admin/admin in production. Set a secure ADMIN_INIT_PASSWORD.", flush=True)
+        return
     if not username or not password:
         print("No system admin created. Set ADMIN_INIT_USERNAME and ADMIN_INIT_PASSWORD before first production start.", flush=True)
         return

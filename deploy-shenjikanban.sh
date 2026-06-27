@@ -3,7 +3,10 @@ set -euo pipefail
 
 APP_ROOT=/www/wwwroot/shenjikanban
 API_ROOT=/opt/shenjikanban/server
+SCRIPT_ROOT=/opt/shenjikanban/scripts
 DB_DIR=/var/lib/shenjikanban
+UPLOAD_ROOT=${UPLOAD_ROOT:-/data/jiqing-engineering/uploads}
+MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-26214400}
 ENV_DIR=/etc/jiqing-engineering
 ENV_FILE=${ENV_DIR}/audit-kanban.env
 BACKUP_DIR=/var/backups/shenjikanban
@@ -21,8 +24,9 @@ if [ -d "$APP_ROOT" ]; then
   cp -a "$APP_ROOT" "${APP_ROOT}.bak.${STAMP}"
 fi
 
-mkdir -p "$APP_ROOT" "$API_ROOT" "$DB_DIR" "$ENV_DIR" "$BACKUP_DIR"
+mkdir -p "$APP_ROOT" "$API_ROOT" "$SCRIPT_ROOT" "$DB_DIR" "$ENV_DIR" "$BACKUP_DIR" "$UPLOAD_ROOT/audit-projects"
 chmod 700 "$ENV_DIR"
+chmod 750 "$UPLOAD_ROOT" "$UPLOAD_ROOT/audit-projects"
 
 if [ -f "$DB_DIR/audit-kanban.sqlite3" ]; then
   cp -a "$DB_DIR/audit-kanban.sqlite3" "$BACKUP_DIR/audit-kanban.${STAMP}.sqlite3"
@@ -51,6 +55,12 @@ PY
       write_env_line ADMIN_INIT_PASSWORD "$ADMIN_INIT_PASSWORD"
     fi
     write_env_line ADMIN_INIT_DISPLAY_NAME "${ADMIN_INIT_DISPLAY_NAME:-系统管理员}"
+    write_env_line APP_ENV production
+    write_env_line ENABLE_DEV_ADMIN_FALLBACK 0
+    write_env_line UPLOAD_ROOT "$UPLOAD_ROOT"
+    write_env_line MAX_UPLOAD_SIZE "$MAX_UPLOAD_SIZE"
+    write_env_line DEFAULT_THEME_KEY arco-theme-0000
+    write_env_line CHART_LIBRARY vchart
   } >"$ENV_FILE"
   chmod 600 "$ENV_FILE"
 elif [ -n "${ADMIN_INIT_PASSWORD:-}" ] && ! grep -q '^ADMIN_INIT_PASSWORD=' "$ENV_FILE"; then
@@ -58,9 +68,39 @@ elif [ -n "${ADMIN_INIT_PASSWORD:-}" ] && ! grep -q '^ADMIN_INIT_PASSWORD=' "$EN
   chmod 600 "$ENV_FILE"
 fi
 
+ensure_env_line() {
+  local key="$1"
+  local value="$2"
+  if ! grep -q "^${key}=" "$ENV_FILE"; then
+    write_env_line "$key" "$value" >>"$ENV_FILE"
+  fi
+}
+
+if ! grep -Eq '^(SESSION_SECRET|TOKEN_SECRET)=' "$ENV_FILE"; then
+  SESSION_SECRET=$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+)
+  write_env_line SESSION_SECRET "$SESSION_SECRET" >>"$ENV_FILE"
+fi
+
+ensure_env_line APP_ENV production
+ensure_env_line ENABLE_DEV_ADMIN_FALLBACK 0
+ensure_env_line UPLOAD_ROOT "$UPLOAD_ROOT"
+ensure_env_line MAX_UPLOAD_SIZE "$MAX_UPLOAD_SIZE"
+ensure_env_line DEFAULT_THEME_KEY arco-theme-0000
+ensure_env_line CHART_LIBRARY vchart
+chmod 600 "$ENV_FILE"
+
 find "$APP_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 cp -a "$RELEASE_DIR/dist/." "$APP_ROOT/"
 cp -a "$RELEASE_DIR/server/." "$API_ROOT/"
+if [ -d "$RELEASE_DIR/scripts" ]; then
+  find "$SCRIPT_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  cp -a "$RELEASE_DIR/scripts/." "$SCRIPT_ROOT/"
+  chmod +x "$SCRIPT_ROOT"/*.sh 2>/dev/null || true
+fi
 
 cat >/etc/systemd/system/audit-kanban.service <<'EOF'
 [Unit]
@@ -94,6 +134,7 @@ server {
     server_name _;
     root /www/wwwroot/shenjikanban;
     index index.html;
+    client_max_body_size 25m;
 
     location /api/ {
         proxy_pass http://127.0.0.1:3008/api/;
