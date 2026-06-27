@@ -112,7 +112,9 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  background: #eef2f7;
+  background:
+    linear-gradient(180deg, rgba(22, 93, 255, .05), transparent 280px),
+    var(--bg-page);
   color: var(--text-primary);
 }
 
@@ -122,7 +124,8 @@ async function logout() {
   grid-template-rows: auto auto 1fr auto;
   gap: var(--space-4);
   padding: var(--space-4);
-  background: #0f1f3d;
+  background:
+    linear-gradient(180deg, #0b1a33 0%, #0f1f3d 54%, #0b1628 100%);
   border-right: 1px solid rgba(255, 255, 255, .08);
   color: #fff;
 }
@@ -143,6 +146,7 @@ async function logout() {
   place-items: center;
   background: var(--color-brand-500);
   border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
 }
 
 .system-brand strong,
@@ -192,8 +196,8 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(51, 102, 255, .18);
-  border-color: rgba(92, 133, 255, .36);
+  background: rgba(22, 93, 255, .22);
+  border-color: rgba(20, 201, 201, .34);
   color: #fff;
 }
 
@@ -244,7 +248,7 @@ async function logout() {
   justify-content: space-between;
   gap: var(--space-4);
   padding: 0 var(--space-6);
-  background: rgba(255, 255, 255, .92);
+  background: rgba(255, 255, 255, .94);
   border-bottom: 1px solid var(--border-color);
 }
 

@@ -1,50 +1,131 @@
 <template>
   <div class="command-dashboard">
-    <section class="hero-band">
-      <div>
+    <section class="command-hero" aria-label="首页数据看板">
+      <div class="hero-copy">
+        <span class="hero-state"><i /> 系统稳态运行</span>
         <h2>稳态指挥台</h2>
-        <p>聚合审计项目、时限风险、金额变化和模块建设状态，为工程管理系统提供首页总览。</p>
+        <p>面向工程管理内网的首页运行台，聚合审计项目吞吐、时限风险、阶段分布和模块建设状态。</p>
+        <div class="hero-signals">
+          <span>SQLite API</span>
+          <span>VChart 动画图表</span>
+          <span>Arco 主题联动</span>
+        </div>
       </div>
-      <div class="hero-meta">
-        <span>数据源：SQLite API</span>
-        <strong>{{ todayText }}</strong>
+
+      <div class="hero-console">
+        <div class="console-date">
+          <span>当前工作日历</span>
+          <strong>{{ todayText }}</strong>
+        </div>
+        <div class="range-switch" role="group" aria-label="日期范围">
+          <button
+            v-for="item in rangeOptions"
+            :key="item"
+            type="button"
+            :class="{ active: selectedRange === item }"
+            @click="selectedRange = item"
+          >
+            {{ item }}
+          </button>
+        </div>
+        <div class="console-metrics">
+          <span>运行负载</span>
+          <strong>{{ operationalLoad }}%</strong>
+          <i :style="{ width: `${operationalLoad}%` }" />
+        </div>
       </div>
     </section>
 
-    <section class="kpi-grid">
-      <article v-for="card in kpiCards" :key="card.label" class="kpi-card">
-        <span>{{ card.label }}</span>
+    <section class="mission-strip" aria-label="运行关注">
+      <article v-for="item in missionItems" :key="item.label">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+        <em>{{ item.hint }}</em>
+      </article>
+    </section>
+
+    <section class="kpi-grid" aria-label="核心指标">
+      <article v-for="card in kpiCards" :key="card.label" class="kpi-card" :data-level="card.level">
+        <div class="kpi-head">
+          <span>{{ card.label }}</span>
+          <em>{{ card.hint }}</em>
+        </div>
         <strong>{{ card.value }}</strong>
-        <em>{{ card.hint }}</em>
+        <div class="sparkline" aria-hidden="true">
+          <i v-for="(point, index) in card.sparkline" :key="index" :style="{ height: `${point}%` }" />
+        </div>
       </article>
     </section>
 
     <section class="dashboard-grid">
-      <article class="chart-card chart-card--wide">
-        <div class="card-head">
-          <h3>审计阶段分布</h3>
-          <span>当前已启用模块</span>
+      <article class="chart-panel chart-panel--status">
+        <div class="panel-head">
+          <div>
+            <h3>项目状态构成</h3>
+            <p>未开始 / 进行中 / 延期 / 已完成 / 暂停</p>
+          </div>
+          <span>实时</span>
+        </div>
+        <div class="donut-stage">
+          <VChartPanel :spec="statusDonutSpec" />
+          <div class="donut-center">
+            <span>总项目</span>
+            <strong>{{ store.summary.totalProjects }}</strong>
+            <em>完成率 {{ completionRate }}%</em>
+          </div>
+        </div>
+      </article>
+
+      <article class="chart-panel chart-panel--wide">
+        <div class="panel-head">
+          <div>
+            <h3>审计阶段吞吐</h3>
+            <p>按当前业务阶段统计项目数量</p>
+          </div>
+          <span>{{ store.meta.stages.length }} 个阶段</span>
         </div>
         <VChartPanel :spec="stageBarSpec" />
       </article>
-      <article class="chart-card">
-        <div class="card-head">
-          <h3>项目状态构成</h3>
-          <span>归档 / 在审 / 督办</span>
+
+      <article class="chart-panel chart-panel--wide">
+        <div class="panel-head">
+          <div>
+            <h3>新增 / 完成趋势</h3>
+            <p>近 6 个月项目流入与归档观察</p>
+          </div>
+          <span>{{ selectedRange }}</span>
         </div>
-        <VChartPanel :spec="statusPieSpec" />
+        <VChartPanel :spec="trendLineSpec" />
       </article>
-      <article class="chart-card chart-card--wide">
-        <div class="card-head">
-          <h3>送审金额观察</h3>
-          <span>按项目排序 · Top 8</span>
+
+      <article class="chart-panel">
+        <div class="panel-head">
+          <div>
+            <h3>风险队列</h3>
+            <p>延期与即将到期项目优先关注</p>
+          </div>
+          <span>{{ riskQueue.length }} 项</span>
         </div>
-        <VChartPanel :spec="amountLineSpec" />
+        <div class="risk-list">
+          <div v-for="project in riskQueue" :key="project.id" class="risk-row">
+            <i :class="{ urgent: project.isDelayed }" />
+            <div>
+              <strong>{{ project.projectName }}</strong>
+              <span>{{ project.managerName || '未分配' }} · {{ project.deadline.auditDeadline || '未设期限' }}</span>
+            </div>
+            <em>{{ project.isDelayed ? `延期 ${project.delayDays || 0} 天` : '即将到期' }}</em>
+          </div>
+          <div v-if="!riskQueue.length" class="empty-risk">当前无高优先级时限风险</div>
+        </div>
       </article>
-      <article class="module-card">
-        <div class="card-head">
-          <h3>模块建设状态</h3>
-          <span>1.0 阶段</span>
+
+      <article class="module-panel">
+        <div class="panel-head">
+          <div>
+            <h3>模块建设状态</h3>
+            <p>工程管理系统 1.0 范围</p>
+          </div>
+          <span>路线图</span>
         </div>
         <div class="module-list">
           <div v-for="item in moduleStatus" :key="item.name" class="module-row">
@@ -54,17 +135,30 @@
           </div>
         </div>
       </article>
+
+      <article class="chart-panel chart-panel--amount">
+        <div class="panel-head">
+          <div>
+            <h3>送审金额观察</h3>
+            <p>按当前项目列表排序 · Top 8</p>
+          </div>
+          <span>万元</span>
+        </div>
+        <VChartPanel :spec="amountLineSpec" />
+      </article>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { ISpec } from '@visactor/vchart/esm/core'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuditStore } from '@/store/audit'
 
 const store = useAuditStore()
+const selectedRange = ref('本月')
+const rangeOptions = ['本月', '本季度', '本年', '自定义日期']
 
 onMounted(() => {
   store.refreshAll()
@@ -84,19 +178,107 @@ function money(value: number) {
   return value.toLocaleString('zh-CN')
 }
 
+function clamp(value: number, min = 0, max = 100) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function toMonth(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function isUpcoming(dateText?: string) {
+  if (!dateText) return false
+  const today = new Date()
+  const due = new Date(dateText)
+  if (Number.isNaN(due.getTime())) return false
+  const diff = due.getTime() - today.getTime()
+  return diff >= 0 && diff <= 7 * 24 * 60 * 60 * 1000
+}
+
+function sparkline(seed: number, points = 8) {
+  const base = Math.max(seed, 1)
+  return Array.from({ length: points }, (_, index) => {
+    const wave = Math.sin((index + 1) * 1.35 + base * 0.13)
+    return clamp(34 + wave * 18 + ((base + index * 7) % 26), 18, 92)
+  })
+}
+
+const pausedProjects = computed(() =>
+  store.projects.filter((project) => project.status?.includes('暂停') || project.status?.includes('停')).length
+)
+
+const otherProjects = computed(() =>
+  Math.max(
+    store.summary.totalProjects -
+      store.summary.inAuditProjects -
+      store.summary.completedProjects -
+      store.summary.overdueProjects -
+      pausedProjects.value,
+    0
+  )
+)
+
+const completionRate = computed(() => {
+  if (!store.summary.totalProjects) return 0
+  return Math.round((store.summary.completedProjects / store.summary.totalProjects) * 100)
+})
+
+const operationalLoad = computed(() => {
+  if (!store.summary.totalProjects) return 0
+  const active = store.summary.inAuditProjects + store.summary.overdueProjects + store.summary.upcomingDueProjects
+  return clamp(Math.round((active / store.summary.totalProjects) * 100), 8, 100)
+})
+
 const kpiCards = computed(() => [
-  { label: '总项目', value: store.summary.totalProjects, hint: '审计模块实时统计' },
-  { label: '在审项目', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中' },
-  { label: '超期督办', value: store.summary.overdueProjects, hint: '需管理层关注' },
-  { label: '送审金额', value: money(store.summary.totalSubmittedAmount), hint: '全部项目合计' },
+  { label: '审计项目总数', value: store.summary.totalProjects, hint: '数据库实时统计', level: 'normal', sparkline: sparkline(store.summary.totalProjects) },
+  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: sparkline(store.summary.inAuditProjects + 8) },
+  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: sparkline(store.summary.completedProjects + 16) },
+  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: sparkline(store.summary.overdueProjects + 24) },
+  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: sparkline(store.summary.monthlyNewProjects + 32) },
+  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: sparkline(store.summary.upcomingDueProjects + 40) },
+])
+
+const missionItems = computed(() => [
+  { label: '风险守望', value: `${store.summary.overdueProjects + store.summary.upcomingDueProjects} 项`, hint: '延期与到期提醒' },
+  { label: '审计吞吐', value: `${store.summary.inAuditProjects}/${store.summary.completedProjects}`, hint: '进行中 / 已完成' },
+  { label: '金额口径', value: money(store.summary.totalSubmittedAmount), hint: '累计送审金额' },
 ])
 
 const stageRows = computed(() =>
   store.meta.stages.map((stage) => ({
     stage: stage.title,
     count: store.summary.stageCounts?.[stage.code] || 0,
-    color: stage.color,
   }))
+)
+
+const statusRows = computed(() => [
+  { type: '未开始', value: otherProjects.value },
+  { type: '进行中', value: store.summary.inAuditProjects },
+  { type: '延期', value: store.summary.overdueProjects },
+  { type: '已完成', value: store.summary.completedProjects },
+  { type: '暂停', value: pausedProjects.value },
+])
+
+const lastSixMonths = computed(() => {
+  const now = new Date()
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  })
+})
+
+const trendRows = computed(() =>
+  lastSixMonths.value.flatMap((month) => {
+    const created = store.projects.filter((project) => toMonth(project.createdAt) === month).length
+    const completed = store.projects.filter((project) => toMonth(project.actualEndDate || project.updatedAt) === month && project.stage === 'archived').length
+    return [
+      { month, type: '新增', count: created },
+      { month, type: '完成', count: completed },
+    ]
+  })
 )
 
 const amountRows = computed(() =>
@@ -109,43 +291,68 @@ const amountRows = computed(() =>
     }))
 )
 
+const riskQueue = computed(() =>
+  store.projects
+    .filter((project) => project.isDelayed || isUpcoming(project.deadline.auditDeadline))
+    .sort((a, b) => Number(b.isDelayed) - Number(a.isDelayed) || (b.delayDays || 0) - (a.delayDays || 0))
+    .slice(0, 5)
+)
+
+const baseChart = {
+  background: 'transparent',
+  color: ['#165DFF', '#14C9C9', '#00B42A', '#FF7D00', '#86909C'],
+  tooltip: { visible: true },
+}
+
 const stageBarSpec = computed<ISpec>(() => ({
+  ...baseChart,
   type: 'bar',
   data: [{ id: 'stage', values: stageRows.value }],
   xField: 'stage',
   yField: 'count',
   seriesField: 'stage',
   padding: { top: 18, right: 18, bottom: 42, left: 42 },
-  animationAppear: { duration: 680, easing: 'cubicOut' },
+  animationAppear: { duration: 760, easing: 'cubicOut' },
+  bar: { style: { cornerRadius: [3, 3, 0, 0] } },
   axes: [
     { orient: 'bottom', label: { autoHide: true, autoRotate: false } },
     { orient: 'left', min: 0, tick: { tickCount: 5 } },
   ],
-  tooltip: { visible: true },
 } as ISpec))
 
-const statusPieSpec = computed<ISpec>(() => ({
+const statusDonutSpec = computed<ISpec>(() => ({
+  ...baseChart,
   type: 'pie',
-  data: [
-    {
-      id: 'status',
-      values: [
-        { type: '在审', value: store.summary.inAuditProjects },
-        { type: '已完成', value: store.summary.completedProjects },
-        { type: '超期', value: store.summary.overdueProjects },
-        { type: '其他', value: Math.max(store.summary.totalProjects - store.summary.inAuditProjects - store.summary.completedProjects, 0) },
-      ],
-    },
-  ],
+  data: [{ id: 'status', values: statusRows.value }],
   categoryField: 'type',
   valueField: 'value',
   outerRadius: 0.82,
-  innerRadius: 0.56,
+  innerRadius: 0.62,
   legends: { visible: true, orient: 'bottom' },
-  animationAppear: { duration: 760, easing: 'cubicOut' },
+  label: { visible: false },
+  animationAppear: { duration: 860, easing: 'cubicOut' },
+} as ISpec))
+
+const trendLineSpec = computed<ISpec>(() => ({
+  ...baseChart,
+  type: 'line',
+  data: [{ id: 'trend', values: trendRows.value }],
+  xField: 'month',
+  yField: 'count',
+  seriesField: 'type',
+  point: { visible: true, style: { size: 7 } },
+  line: { style: { lineWidth: 3 } },
+  padding: { top: 20, right: 24, bottom: 42, left: 42 },
+  legends: { visible: true, orient: 'top', position: 'end' },
+  axes: [
+    { orient: 'bottom', label: { autoHide: true, autoRotate: false } },
+    { orient: 'left', min: 0, tick: { tickCount: 5 } },
+  ],
+  animationAppear: { duration: 820, easing: 'cubicOut' },
 } as ISpec))
 
 const amountLineSpec = computed<ISpec>(() => ({
+  ...baseChart,
   type: 'line',
   data: [{ id: 'amount', values: amountRows.value }],
   xField: 'name',
@@ -158,7 +365,6 @@ const amountLineSpec = computed<ISpec>(() => ({
     { orient: 'left', title: { visible: true, text: '万元' } },
   ],
   animationAppear: { duration: 820, easing: 'cubicOut' },
-  tooltip: { visible: true },
 } as ISpec))
 
 const moduleStatus = [
@@ -176,136 +382,326 @@ const moduleStatus = [
   gap: var(--space-5);
 }
 
-.hero-band {
-  min-height: 150px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-6);
+.command-hero {
+  min-height: 198px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--space-5);
   padding: var(--space-6);
-  background: #fff;
-  border: 1px solid var(--border-color);
+  color: #fff;
+  background:
+    linear-gradient(90deg, rgba(9, 29, 66, .96), rgba(16, 57, 110, .94)),
+    radial-gradient(circle at 84% 26%, rgba(20, 201, 201, .28), transparent 34%);
+  border: 1px solid rgba(255, 255, 255, .12);
+  overflow: hidden;
+  position: relative;
 }
 
-.hero-band h2 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-4xl);
-  line-height: 1.15;
+.command-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(90deg, transparent, #000 28%, #000 100%);
 }
 
-.hero-band p {
-  max-width: 640px;
-  margin: 0;
-  color: var(--text-secondary);
+.hero-copy,
+.hero-console {
+  position: relative;
+  z-index: 1;
 }
 
-.hero-meta {
-  min-width: 170px;
+.hero-copy {
   display: grid;
-  gap: 5px;
-  padding: var(--space-4);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
-}
-
-.hero-meta span,
-.hero-meta strong {
-  display: block;
-}
-
-.hero-meta span { color: var(--text-secondary); font-size: var(--text-xs); }
-.hero-meta strong { font-size: var(--text-lg); }
-
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: center;
   gap: var(--space-3);
 }
 
+.hero-state {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: rgba(255, 255, 255, .76);
+  font-size: var(--text-xs);
+}
+
+.hero-state i {
+  width: 8px;
+  height: 8px;
+  background: var(--color-success);
+  box-shadow: 0 0 0 4px rgba(0, 180, 42, .16);
+}
+
+.hero-copy h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.12;
+}
+
+.hero-copy p {
+  max-width: 680px;
+  margin: 0;
+  color: rgba(255, 255, 255, .7);
+  font-size: var(--text-md);
+}
+
+.hero-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.hero-signals span {
+  padding: 5px 9px;
+  color: rgba(255, 255, 255, .72);
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .12);
+  font-size: var(--text-xs);
+}
+
+.hero-console {
+  display: grid;
+  gap: var(--space-3);
+  align-content: center;
+  padding: var(--space-4);
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .14);
+}
+
+.console-date span,
+.console-metrics span {
+  display: block;
+  color: rgba(255, 255, 255, .58);
+  font-size: var(--text-xs);
+}
+
+.console-date strong {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xl);
+}
+
+.range-switch {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: rgba(255, 255, 255, .14);
+  border: 1px solid rgba(255, 255, 255, .14);
+}
+
+.range-switch button {
+  min-height: 32px;
+  border: 0;
+  background: rgba(11, 18, 32, .24);
+  color: rgba(255, 255, 255, .72);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.range-switch button.active {
+  background: var(--color-brand-500);
+  color: #fff;
+}
+
+.console-metrics {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.console-metrics strong {
+  font-size: var(--text-3xl);
+  line-height: 1;
+}
+
+.console-metrics i {
+  display: block;
+  height: 6px;
+  background: var(--color-success);
+}
+
+.mission-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.mission-strip article,
 .kpi-card,
-.chart-card,
-.module-card {
-  background: #fff;
+.chart-panel,
+.module-panel {
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
 }
 
-.kpi-card {
-  min-height: 118px;
+.mission-strip article {
+  min-height: 86px;
   padding: var(--space-4);
   display: grid;
-  align-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-3);
+  align-items: center;
 }
 
+.mission-strip span,
+.mission-strip em,
 .kpi-card span,
-.kpi-card em {
+.kpi-card em,
+.panel-head p,
+.panel-head span,
+.risk-row span,
+.risk-row em,
+.module-row em {
   color: var(--text-secondary);
   font-size: var(--text-xs);
   font-style: normal;
 }
 
+.mission-strip strong {
+  grid-row: span 2;
+  font-size: var(--text-2xl);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.kpi-card {
+  min-height: 136px;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--color-brand-500);
+}
+
+.kpi-card[data-level='success']::before { background: var(--color-success); }
+.kpi-card[data-level='warning']::before { background: var(--color-warning); }
+.kpi-card[data-level='danger']::before { background: var(--color-danger); }
+.kpi-card[data-level='active']::before { background: #14C9C9; }
+
+.kpi-head {
+  display: grid;
+  gap: 2px;
+}
+
 .kpi-card strong {
   font-size: var(--text-3xl);
-  line-height: 1.2;
+  line-height: 1.1;
+}
+
+.sparkline {
+  height: 28px;
+  display: flex;
+  align-items: end;
+  gap: 3px;
+}
+
+.sparkline i {
+  width: 100%;
+  min-width: 4px;
+  background: var(--color-brand-100);
+  border-top: 2px solid var(--color-brand-500);
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+  grid-template-columns: minmax(300px, .82fr) minmax(0, 1.18fr) minmax(300px, .8fr);
   gap: var(--space-4);
 }
 
-.chart-card,
-.module-card {
-  min-height: 338px;
+.chart-panel,
+.module-panel {
+  min-height: 352px;
   padding: var(--space-4);
-}
-
-.chart-card {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.chart-card--wide {
-  min-height: 360px;
+.chart-panel--wide {
+  grid-column: span 2;
 }
 
-.chart-card :deep(.vchart-panel) {
-  flex: none;
-  height: 270px;
-  min-height: 270px;
-  overflow: hidden;
+.chart-panel--amount {
+  grid-column: span 2;
 }
 
-.chart-card--wide :deep(.vchart-panel) {
-  height: 292px;
-  min-height: 292px;
-}
-
-.card-head {
+.panel-head {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
 
-.card-head h3 {
-  margin: 0;
+.panel-head h3 {
+  margin: 0 0 2px;
   font-size: var(--text-lg);
 }
 
-.card-head span {
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
+.panel-head > span {
+  align-self: start;
+  padding: 4px 8px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
 }
 
+.chart-panel :deep(.vchart-panel) {
+  flex: 1;
+  min-height: 270px;
+}
+
+.donut-stage {
+  min-height: 270px;
+  position: relative;
+  flex: 1;
+}
+
+.donut-center {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.donut-center span,
+.donut-center em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.donut-center strong {
+  font-size: var(--text-3xl);
+  line-height: 1.1;
+}
+
+.risk-list,
 .module-list {
   display: grid;
   gap: var(--space-2);
 }
 
-.module-row {
-  min-height: 46px;
+.risk-row {
+  min-height: 52px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -315,22 +711,86 @@ const moduleStatus = [
   border: 1px solid var(--border-color);
 }
 
-.module-row strong { font-size: var(--text-sm); }
-.module-row em { color: var(--text-secondary); font-size: var(--text-xs); font-style: normal; }
-.dot { width: 8px; height: 8px; background: var(--color-gray-300); }
-.dot--live { background: var(--color-success); }
+.risk-row i {
+  width: 8px;
+  height: 30px;
+  background: var(--color-warning);
+}
 
-@media (max-width: 1080px) {
-  .kpi-grid,
+.risk-row i.urgent {
+  background: var(--color-danger);
+}
+
+.risk-row strong,
+.risk-row span {
+  display: block;
+}
+
+.risk-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.empty-risk {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-color);
+  font-size: var(--text-sm);
+}
+
+.module-row {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+
+.module-row strong {
+  font-size: var(--text-sm);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: var(--color-gray-300);
+}
+
+.dot--live {
+  background: var(--color-success);
+  box-shadow: 0 0 0 4px rgba(0, 180, 42, .12);
+}
+
+@media (max-width: 1280px) {
+  .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chart-panel--wide,
+  .chart-panel--amount { grid-column: span 1; }
+}
+
+@media (max-width: 900px) {
+  .command-hero { grid-template-columns: 1fr; }
+  .mission-strip { grid-template-columns: 1fr; }
+  .dashboard-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
-  .hero-band { align-items: flex-start; flex-direction: column; }
-  .kpi-grid,
-  .dashboard-grid { grid-template-columns: 1fr; }
-  .chart-card,
-  .chart-card--wide,
-  .module-card { min-height: 300px; }
+  .command-hero { padding: var(--space-4); }
+  .hero-copy h2 { font-size: var(--text-4xl); }
+  .hero-console { padding: var(--space-3); }
+  .range-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .mission-strip article { grid-template-columns: 1fr; }
+  .mission-strip strong { grid-row: auto; }
+  .chart-panel,
+  .module-panel { min-height: 320px; }
 }
 </style>
