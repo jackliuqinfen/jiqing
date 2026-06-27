@@ -64,7 +64,7 @@
         <router-link to="/" class="action-card">
           <t-icon name="view-module" size="22px" />
           <span class="action-title">进入看板</span>
-          <span class="action-desc">返回造价结算审计主看板</span>
+          <span class="action-desc">返回江苏集庆工程管理工作台</span>
         </router-link>
       </div>
     </div>

@@ -462,7 +462,7 @@ INSERT INTO ${SYSTEM_SETTINGS_TABLE} (key, value, updated_by)
 VALUES 
   ('registration_open', '{"enabled": false, "requireApproval": true}'::jsonb, 'system'),
   ('login_rules', '{"minPasswordLength": 1, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": true}'::jsonb, 'system'),
-  ('system_name', '"造价结算审计看板"'::jsonb, 'system')
+  ('system_name', '"江苏集庆·工程管理系统"'::jsonb, 'system')
 ON CONFLICT (key) DO NOTHING;
 
 -- ============================================================

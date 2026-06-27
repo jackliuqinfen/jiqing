@@ -8,17 +8,17 @@
             <t-icon name="layers" size="28px" />
           </div>
           <div class="brand-text">
-            <h1 class="brand-title">造价结算审计看板</h1>
-            <p class="brand-subtitle">Construction Cost Audit Kanban</p>
+            <h1 class="brand-title">江苏集庆·工程管理系统</h1>
+            <p class="brand-subtitle">Engineering Management Console</p>
           </div>
         </div>
-        <p class="brand-desc">施工单位造价审核全流程管理系统</p>
+        <p class="brand-desc">工程审计、项目协同与经营看板一体化平台</p>
         <div class="brand-features">
           <div class="feature-item">
             <div class="feature-icon-box">
               <t-icon name="check" size="14px" />
             </div>
-            <span>5 列看板拖拽流转</span>
+              <span>审计看板流程流转</span>
           </div>
           <div class="feature-item">
             <div class="feature-icon-box">
@@ -36,7 +36,7 @@
             <div class="feature-icon-box">
               <t-icon name="check" size="14px" />
             </div>
-            <span>云端持久化 + 离线降级</span>
+              <span>主题配置 + 附件留痕</span>
           </div>
         </div>
       </div>
@@ -122,7 +122,7 @@
         </div>
       </div>
 
-      <p class="login-footer">© 2026 江苏集庆建设 · 造价管理系统</p>
+      <p class="login-footer">© 2026 江苏集庆建设 · 工程管理系统</p>
     </div>
   </div>
 </template>

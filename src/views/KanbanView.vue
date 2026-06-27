@@ -4,8 +4,8 @@
       <div class="brand">
         <div class="brand-mark"><t-icon name="layers" /></div>
         <div>
-          <h1>审计工程看板</h1>
-          <p>Audit Project Workspace</p>
+          <h1>江苏集庆·工程管理系统</h1>
+          <p>审计看板 · 工程管理工作台</p>
         </div>
       </div>
       <div class="header-actions">
