@@ -135,7 +135,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
-import jiqingLogo from '@/assets/jiqing-construction-logo.jpg'
+import jiqingLogo from '@/assets/jiqing-construction-logo-cropped.jpg'
 
 type Particle = {
   x: number
@@ -346,8 +346,8 @@ onBeforeUnmount(stopBackgroundAnimation)
 }
 
 .brand-mark {
-  width: 128px;
-  height: 54px;
+  width: 78px;
+  height: 62px;
   display: grid;
   place-items: center;
   padding: 6px 10px;
@@ -469,8 +469,8 @@ onBeforeUnmount(stopBackgroundAnimation)
 }
 
 .panel-logo {
-  width: 198px;
-  height: 78px;
+  width: 164px;
+  height: 128px;
   margin: 0 0 var(--space-5);
   display: grid;
   place-items: center;
@@ -622,8 +622,8 @@ onBeforeUnmount(stopBackgroundAnimation)
   }
 
   .brand-mark {
-    width: 108px;
-    height: 46px;
+    width: 70px;
+    height: 56px;
   }
 
   .brand-block h1 {
@@ -647,8 +647,8 @@ onBeforeUnmount(stopBackgroundAnimation)
   }
 
   .panel-logo {
-    width: 168px;
-    height: 66px;
+    width: 138px;
+    height: 108px;
     margin-bottom: var(--space-4);
   }
 }

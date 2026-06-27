@@ -84,7 +84,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
-import jiqingLogo from '@/assets/jiqing-construction-logo.jpg'
+import jiqingLogo from '@/assets/jiqing-construction-logo-cropped.jpg'
 
 const router = useRouter()
 const route = useRoute()
@@ -141,7 +141,7 @@ async function logout() {
 }
 
 .brand-icon {
-  width: 58px;
+  width: 46px;
   height: 38px;
   display: grid;
   place-items: center;
@@ -297,7 +297,7 @@ async function logout() {
   .system-status strong,
   .system-status em { display: none; }
   .brand-icon {
-    width: 48px;
+    width: 42px;
     height: 34px;
     padding: 4px;
   }
@@ -323,7 +323,7 @@ async function logout() {
     max-width: 240px;
   }
   .brand-icon {
-    width: 64px;
+    width: 48px;
     height: 40px;
   }
   .system-brand strong { font-size: var(--text-md); }
