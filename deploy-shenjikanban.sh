@@ -4,6 +4,7 @@ set -euo pipefail
 APP_ROOT=/www/wwwroot/shenjikanban
 API_ROOT=/opt/shenjikanban/server
 SCRIPT_ROOT=/opt/shenjikanban/scripts
+DOC_ROOT=/opt/shenjikanban/docs
 DB_DIR=/var/lib/shenjikanban
 UPLOAD_ROOT=${UPLOAD_ROOT:-/data/jiqing-engineering/uploads}
 MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-26214400}
@@ -24,7 +25,7 @@ if [ -d "$APP_ROOT" ]; then
   cp -a "$APP_ROOT" "${APP_ROOT}.bak.${STAMP}"
 fi
 
-mkdir -p "$APP_ROOT" "$API_ROOT" "$SCRIPT_ROOT" "$DB_DIR" "$ENV_DIR" "$BACKUP_DIR" "$UPLOAD_ROOT/audit-projects"
+mkdir -p "$APP_ROOT" "$API_ROOT" "$SCRIPT_ROOT" "$DOC_ROOT" "$DB_DIR" "$ENV_DIR" "$BACKUP_DIR" "$UPLOAD_ROOT/audit-projects"
 chmod 700 "$ENV_DIR"
 chmod 750 "$UPLOAD_ROOT" "$UPLOAD_ROOT/audit-projects"
 
@@ -100,6 +101,10 @@ if [ -d "$RELEASE_DIR/scripts" ]; then
   find "$SCRIPT_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   cp -a "$RELEASE_DIR/scripts/." "$SCRIPT_ROOT/"
   chmod +x "$SCRIPT_ROOT"/*.sh 2>/dev/null || true
+fi
+if [ -d "$RELEASE_DIR/docs" ]; then
+  find "$DOC_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  cp -a "$RELEASE_DIR/docs/." "$DOC_ROOT/"
 fi
 
 cat >/etc/systemd/system/audit-kanban.service <<'EOF'

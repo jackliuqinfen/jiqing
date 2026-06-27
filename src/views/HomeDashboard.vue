@@ -4,11 +4,12 @@
       <div class="hero-copy">
         <span class="hero-state"><i /> 系统稳态运行</span>
         <h2>稳态指挥台</h2>
-        <p>面向工程管理内网的首页运行台，聚合审计项目吞吐、时限风险、阶段分布和模块建设状态。</p>
+        <p>面向工程管理内网的运行中枢，聚合审计吞吐、时限风险、金额口径和模块建设状态。</p>
         <div class="hero-signals">
-          <span>SQLite API</span>
-          <span>VChart 动画图表</span>
-          <span>Arco 主题联动</span>
+          <span v-for="signal in heroSignals" :key="signal.label">
+            <em>{{ signal.label }}</em>
+            <strong>{{ signal.value }}</strong>
+          </span>
         </div>
       </div>
 
@@ -28,10 +29,22 @@
             {{ item }}
           </button>
         </div>
-        <div class="console-metrics">
-          <span>运行负载</span>
-          <strong>{{ operationalLoad }}%</strong>
-          <i :style="{ width: `${operationalLoad}%` }" />
+        <div class="console-health-grid">
+          <article>
+            <span>运行负载</span>
+            <strong>{{ operationalLoad }}%</strong>
+            <i :style="{ width: `${operationalLoad}%` }" />
+          </article>
+          <article>
+            <span>风险队列</span>
+            <strong>{{ riskQueue.length }}</strong>
+            <i :style="{ width: `${clamp(riskQueue.length * 18, 8, 100)}%` }" />
+          </article>
+          <article>
+            <span>完成率</span>
+            <strong>{{ completionRate }}%</strong>
+            <i :style="{ width: `${clamp(completionRate, 8, 100)}%` }" />
+          </article>
         </div>
       </div>
     </section>
@@ -247,6 +260,12 @@ const missionItems = computed(() => [
   { label: '金额口径', value: money(store.summary.totalSubmittedAmount), hint: '累计送审金额' },
 ])
 
+const heroSignals = computed(() => [
+  { label: '项目池', value: `${store.summary.totalProjects} 项` },
+  { label: '进行中', value: `${store.summary.inAuditProjects} 项` },
+  { label: '送审金额', value: money(store.summary.totalSubmittedAmount) },
+])
+
 const stageRows = computed(() =>
   store.meta.stages.map((stage) => ({
     stage: stage.title,
@@ -379,19 +398,17 @@ const moduleStatus = [
 <style scoped>
 .command-dashboard {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .command-hero {
-  min-height: 198px;
+  min-height: 218px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: var(--space-4);
   padding: var(--space-6);
   color: #fff;
-  background:
-    linear-gradient(90deg, rgba(9, 29, 66, .96), rgba(16, 57, 110, .94)),
-    radial-gradient(circle at 84% 26%, rgba(20, 201, 201, .28), transparent 34%);
+  background: #0b1a33;
   border: 1px solid rgba(255, 255, 255, .12);
   overflow: hidden;
   position: relative;
@@ -405,8 +422,8 @@ const moduleStatus = [
   background-image:
     linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(90deg, transparent, #000 28%, #000 100%);
+  background-size: 40px 40px;
+  mask-image: linear-gradient(90deg, transparent, #000 24%, #000 100%);
 }
 
 .hero-copy,
@@ -418,7 +435,7 @@ const moduleStatus = [
 .hero-copy {
   display: grid;
   align-content: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .hero-state {
@@ -439,7 +456,7 @@ const moduleStatus = [
 
 .hero-copy h2 {
   margin: 0;
-  font-size: 34px;
+  font-size: 32px;
   line-height: 1.12;
 }
 
@@ -451,17 +468,30 @@ const moduleStatus = [
 }
 
 .hero-signals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 160px));
+  gap: var(--space-3);
 }
 
 .hero-signals span {
-  padding: 5px 9px;
-  color: rgba(255, 255, 255, .72);
-  background: rgba(255, 255, 255, .08);
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 0 var(--space-3);
+  background: rgba(255, 255, 255, .07);
   border: 1px solid rgba(255, 255, 255, .12);
+}
+
+.hero-signals em {
+  color: rgba(255, 255, 255, .56);
   font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.hero-signals strong {
+  font-size: var(--text-lg);
+  line-height: 1.25;
 }
 
 .hero-console {
@@ -469,12 +499,12 @@ const moduleStatus = [
   gap: var(--space-3);
   align-content: center;
   padding: var(--space-4);
-  background: rgba(255, 255, 255, .08);
+  background: rgba(5, 13, 28, .74);
   border: 1px solid rgba(255, 255, 255, .14);
 }
 
 .console-date span,
-.console-metrics span {
+.console-health-grid span {
   display: block;
   color: rgba(255, 255, 255, .58);
   font-size: var(--text-xs);
@@ -509,20 +539,31 @@ const moduleStatus = [
   color: #fff;
 }
 
-.console-metrics {
+.console-health-grid {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
-.console-metrics strong {
-  font-size: var(--text-3xl);
-  line-height: 1;
+.console-health-grid article {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 72px;
+  padding: var(--space-3);
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .1);
 }
 
-.console-metrics i {
+.console-health-grid strong {
+  font-size: var(--text-xl);
+  line-height: 1.1;
+}
+
+.console-health-grid i {
   display: block;
   height: 6px;
-  background: var(--color-success);
+  max-width: 100%;
+  background: #14C9C9;
 }
 
 .mission-strip {
@@ -778,6 +819,7 @@ const moduleStatus = [
 
 @media (max-width: 900px) {
   .command-hero { grid-template-columns: 1fr; }
+  .hero-signals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mission-strip { grid-template-columns: 1fr; }
   .dashboard-grid { grid-template-columns: 1fr; }
 }
@@ -787,6 +829,10 @@ const moduleStatus = [
   .hero-copy h2 { font-size: var(--text-4xl); }
   .hero-console { padding: var(--space-3); }
   .range-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-signals,
+  .console-health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-signals span,
+  .console-health-grid article { padding: var(--space-2); }
   .kpi-grid { grid-template-columns: 1fr; }
   .mission-strip article { grid-template-columns: 1fr; }
   .mission-strip strong { grid-row: auto; }

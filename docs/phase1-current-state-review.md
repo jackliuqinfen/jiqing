@@ -10,7 +10,7 @@ This review is based on the current repository, production HTTP checks, producti
 
 The system is currently runnable as a database-backed internal audit project application. It has already moved beyond a static demo: login, SQLite persistence, audit project list/detail, kanban/gantt/table views, field configuration, option library, admin users, operation logs, Arco Design Vue runtime, and a theme whitelist/current-theme API are present.
 
-It is not yet the full "江苏集庆·工程管理系统" target. The product shell still presents the app as an audit kanban, the login page is not redesigned, there is no animated dashboard, no chart library, no real upload/preview/download/delete attachment workflow, no module navigation for project/bidding/finance placeholders, and the Arco migration still relies on a TDesign-compatible adapter layer.
+It is not yet the full "江苏集庆·工程管理系统" target. The product shell and login page have moved toward the engineering management system target, and the home dashboard now uses VChart. Remaining gaps include real upload/preview/download/delete attachment workflow, deeper module implementations beyond placeholders, and removal of the TDesign-compatible adapter layer.
 
 ## Technology Stack
 
@@ -21,8 +21,8 @@ Frontend:
 - UI library: Arco Design Vue is installed and used through `@arco-design/web-vue`.
 - Theme package: `@arco-themes/vue-0000` is installed and globally imported.
 - TDesign package: no TDesign dependency remains in `package.json`; however, source templates still use `t-*` component names through `src/ui/tdesignCompat.ts`.
-- Chart libraries: no VChart, `@visactor/vchart-arco-theme`, ECharts, or vue-echarts dependency is installed.
-- jQuery: not installed.
+- Chart libraries: VChart and `@visactor/vchart-arco-theme` are installed; ECharts/vue-echarts are not used.
+- jQuery: installed and used by the scoped login background animation.
 - Drag/drop: `sortablejs`.
 
 Backend:
@@ -127,7 +127,7 @@ Remaining gap:
 
 - Theme settings page does not yet expose full theme management fields such as apply-scope editing, enable/default management, or chart theme preview.
 - Dark and compact mode are token/dataset-level foundations, not a full density/dark styling pass.
-- Chart theme following cannot be verified because no chart library is installed yet.
+- Chart theme following is implemented through `@visactor/vchart-arco-theme`, but should be visually regression-tested after each theme expansion.
 
 ## Dashboard And Chart State
 
@@ -167,8 +167,8 @@ Missing:
 - No delete API.
 - No front-end upload control.
 - No file validation for compressed files or folders.
-- No `UPLOAD_ROOT` environment variable.
-- No cloud-disk upload directory exists in service config.
+- `UPLOAD_ROOT` and `MAX_UPLOAD_SIZE` are now provisioned by the deployment script.
+- Cloud-disk upload root defaults to `/data/jiqing-engineering/uploads`.
 - No server-side MIME/ext/size validation.
 - No secure relative-path storage model.
 - No authenticated attachment streaming implementation.
@@ -203,11 +203,12 @@ Current state:
 
 Gaps:
 
-- No standalone backup script.
-- No PostgreSQL migration SQL or migration notes.
-- No attachment metadata final schema.
-- No documented restore command.
-- No attachment backup policy.
+- Standalone SQLite backup script exists at `scripts/backup-sqlite.sh`.
+- Guarded SQLite restore script exists at `scripts/restore-sqlite.sh`.
+- PostgreSQL target schema exists at `server/postgres_schema.sql`.
+- Migration notes are documented in `docs/postgresql-migration-plan.md`.
+- Attachment metadata schema is represented in SQLite and PostgreSQL schema files.
+- Restore and attachment backup policy is documented in `docs/backup-restore-runbook.md`.
 
 ## Tencent Cloud / Nginx State
 
@@ -221,9 +222,9 @@ Current state:
 
 Gaps:
 
-- No `client_max_body_size` upload limit is configured.
-- No `UPLOAD_ROOT`/`MAX_UPLOAD_SIZE` service env exists.
-- No `/data/jiqing-engineering/uploads` or equivalent upload root is configured in service.
+- `client_max_body_size 25m` is configured in the generated Nginx app config.
+- `UPLOAD_ROOT`/`MAX_UPLOAD_SIZE` service env defaults are created by the deployment script.
+- `/data/jiqing-engineering/uploads/audit-projects` is created with restricted permissions.
 - gzip/brotli was not explicitly configured in the app-specific Nginx conf.
 
 ## Build And Chunk State
@@ -257,11 +258,11 @@ Recommended order:
 3. Implement the attachment backend properly before polishing attachment UI.
 4. Redesign login page with a scoped jQuery animation background after visual direction is approved.
 5. Harden production security flags: explicit dev fallback, required secret in production, tighter route policy, and role/permission coverage.
-6. Add backup/restore scripts and PostgreSQL migration notes.
+6. Implement the PostgreSQL adapter/import command after the SQLite backup and restore baseline is accepted.
 7. Continue chunk optimization after chart and attachment modules land.
 
 ## Product Design Brief Playback
 
 The next visual pass should treat this as a formal B-end engineering management platform, not a single audit kanban. The design direction is professional, restrained, engineering-oriented, and Arco-theme-driven: blue/cyan/green, dense but readable enterprise navigation, animated data dashboard, usable audit workspace, and a more polished login page with lightweight jQuery background motion.
 
-Because there is no external Figma/screenshot target, the Product Design workflow should generate three visual directions before implementing the major UI redesign.
+Visual direction selected: direction 1, "稳态指挥台". The UI should prioritize dense but readable operations telemetry, muted enterprise surfaces, clear risk queues, and low-noise chart motion.
