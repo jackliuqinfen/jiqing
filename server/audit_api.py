@@ -195,7 +195,12 @@ def parse_multipart_file(handler):
         raise ValueError("上传内容为空")
     if length > limit:
         raise ValueError(f"文件不能超过 {limit // 1024 // 1024}MB")
-    raw = handler.rfile.read(length)
+    try:
+        raw = handler.rfile.read(length)
+    except TimeoutError as exc:
+        raise ValueError("上传读取超时，请重试") from exc
+    if len(raw) != length:
+        raise ValueError("上传内容不完整，请重试")
     delimiter = b"--" + boundary
     for part in raw.split(delimiter):
         part = part.strip(b"\r\n")
@@ -842,6 +847,10 @@ def project_columns_from_payload(data):
 class Handler(BaseHTTPRequestHandler):
     server_version = "AuditKanbanAPI/1.0"
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(30)
+
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
@@ -857,8 +866,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+        self.close_connection = True
 
     def respond_file(self, path, content_type, filename, inline=True):
         disposition = "inline" if inline else "attachment"
@@ -868,6 +879,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(path.stat().st_size))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
+        self.send_header("Connection", "close")
         self.end_headers()
         with path.open("rb") as fh:
             while True:
@@ -875,6 +887,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not chunk:
                     break
                 self.wfile.write(chunk)
+        self.close_connection = True
 
     def not_found(self):
         self.respond(404, {"success": False, "error": "Not found"})
