@@ -344,7 +344,10 @@ async function saveLoginRules() {
 </script>
 
 <style scoped>
-.admin-settings { max-width: 1120px; }
+.admin-settings {
+  max-width: 1120px;
+  min-width: 0;
+}
 .page-header { margin-bottom: var(--space-8); }
 .page-title { font-size: var(--text-2xl); font-weight: 700; color: var(--text-primary); margin: 0 0 var(--space-1); }
 .page-desc { font-size: var(--text-sm); color: var(--text-secondary); margin: 0; }
@@ -471,12 +474,14 @@ async function saveLoginRules() {
   color: #fff;
 }
 .theme-preview-board {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr);
   gap: var(--space-4);
   margin-top: var(--space-4);
 }
 .theme-preview-card {
+  min-width: 0;
   min-height: 286px;
   padding: var(--space-4);
   background: var(--bg-surface);
@@ -499,6 +504,7 @@ async function saveLoginRules() {
   font-size: var(--text-sm);
 }
 .preview-shell {
+  min-width: 0;
   display: grid;
   grid-template-columns: 128px minmax(0, 1fr);
   min-height: 150px;
@@ -525,6 +531,7 @@ async function saveLoginRules() {
   font-weight: 700;
 }
 .preview-main {
+  min-width: 0;
   display: grid;
   gap: var(--space-3);
   padding: var(--space-3);
@@ -578,7 +585,9 @@ async function saveLoginRules() {
   font-size: var(--text-xs);
 }
 .chart-preview {
+  min-width: 0;
   height: 190px;
+  overflow: hidden;
 }
 .chart-preview :deep(.vchart-panel) {
   min-height: 190px;
@@ -593,7 +602,8 @@ async function saveLoginRules() {
   .theme-scope-panel,
   .theme-preview-board { grid-template-columns: 1fr; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .preview-shell { grid-template-columns: 88px minmax(0, 1fr); }
+  .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
+  .theme-preview-card { padding: var(--space-3); }
   .theme-facts { grid-template-columns: 1fr; }
 }
 </style>
