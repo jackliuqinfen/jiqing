@@ -117,8 +117,11 @@ const filteredLogs = computed(() => {
     list = list.filter((log) =>
       [
         log.username,
+        roleLabel(log.role),
         log.action,
+        actionLabel(log.action),
         log.targetType,
+        targetLabel(log.targetType),
         log.targetId,
         log.ipAddress,
         detailText(log.detail),
