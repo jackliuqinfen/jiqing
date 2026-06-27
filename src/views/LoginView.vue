@@ -106,7 +106,7 @@
           <t-form-item>
             <t-button
               theme="primary"
-              type="submit"
+              type="button"
               block
               size="large"
               :loading="authStore.isAuthLoading"
@@ -157,14 +157,30 @@ const loginRules: Record<string, FormRule[]> = {
   ],
 }
 
-async function handleLogin(context?: { validateResult?: boolean }) {
-  let valid = context?.validateResult
-  if (valid === undefined) {
-    valid = (await loginFormRef.value?.validate()) === true
-  }
-  if (!valid) return
+function syncLoginFormFromDom() {
+  const usernameInput = document.querySelector<HTMLInputElement>('input[autocomplete="username"]')
+  const passwordInput = document.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')
+  if (usernameInput) loginForm.username = usernameInput.value
+  if (passwordInput) loginForm.password = passwordInput.value
+}
 
-  const ok = await authStore.login(loginForm.username, loginForm.password)
+async function handleLogin(context?: Event | { validateResult?: boolean }) {
+  if (context && 'preventDefault' in context) context.preventDefault()
+  if (authStore.isAuthLoading) return
+
+  syncLoginFormFromDom()
+  const username = loginForm.username.trim()
+  const password = loginForm.password
+  if (!username) {
+    MessagePlugin.warning('请输入账号')
+    return
+  }
+  if (!password) {
+    MessagePlugin.warning('请输入密码')
+    return
+  }
+
+  const ok = await authStore.login(username, password)
   if (ok) {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.replace(redirect)
