@@ -350,10 +350,10 @@ onBeforeUnmount(stopBackgroundAnimation)
   height: 62px;
   display: grid;
   place-items: center;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, .96);
-  border: 1px solid rgba(255, 255, 255, .18);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -475,9 +475,9 @@ onBeforeUnmount(stopBackgroundAnimation)
   margin: 0 0 var(--space-5);
   display: grid;
   place-items: center;
-  padding: 8px 10px;
-  background: #fff;
-  border: 1px solid var(--border-color);
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
 
 .form-header {

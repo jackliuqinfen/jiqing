@@ -145,10 +145,10 @@ async function logout() {
   height: 38px;
   display: grid;
   place-items: center;
-  padding: 4px 6px;
-  background: rgba(255, 255, 255, .96);
-  border: 1px solid rgba(255, 255, 255, .16);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
