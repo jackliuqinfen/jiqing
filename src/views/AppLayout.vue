@@ -123,7 +123,7 @@ async function logout() {
   grid-template-rows: auto auto 1fr auto;
   gap: var(--space-5);
   padding: var(--space-4) var(--space-3);
-  background: #4787F0;
+  background: var(--color-brand-500);
   border-right: 1px solid rgba(24, 80, 172, .18);
   color: #fff;
 }
@@ -132,7 +132,7 @@ async function logout() {
   display: grid;
   align-content: start;
   gap: var(--space-3);
-  min-height: 132px;
+  min-height: 204px;
   padding: var(--space-2) var(--space-2) var(--space-3);
   color: #fff;
   text-decoration: none;
@@ -140,10 +140,11 @@ async function logout() {
 }
 
 .brand-icon {
-  width: 156px;
-  height: 78px;
+  width: 200px;
+  height: 150px;
   display: grid;
-  place-items: center;
+  align-items: center;
+  justify-items: start;
   padding: 0;
   background: transparent;
   border: 0;
@@ -303,6 +304,7 @@ async function logout() {
   .brand-icon {
     width: 48px;
     height: 42px;
+    justify-items: center;
   }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
   .system-content { padding: var(--space-3); }
@@ -326,8 +328,9 @@ async function logout() {
     max-width: 240px;
   }
   .brand-icon {
-    width: 112px;
-    height: 56px;
+    width: 148px;
+    height: 110px;
+    justify-items: start;
   }
   .system-brand strong { font-size: var(--text-md); }
   .system-brand em { font-size: 11px; }

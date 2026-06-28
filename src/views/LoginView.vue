@@ -300,8 +300,8 @@ onBeforeUnmount(stopBackgroundAnimation)
   position: relative;
   color: #fff;
   background:
-    linear-gradient(135deg, rgba(71, 135, 240, .95), rgba(37, 102, 217, .98)),
-    #4787F0;
+    linear-gradient(135deg, color-mix(in srgb, var(--color-brand-500), #ffffff 6%), var(--color-brand-600)),
+    var(--color-brand-500);
 }
 
 .login-animation,

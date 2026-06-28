@@ -257,14 +257,31 @@ const amountRows = computed(() => store.overview.amountTop)
 
 const riskQueue = computed(() => store.overview.riskQueue)
 
-const baseChart = {
-  background: 'transparent',
-  color: ['#165DFF', '#14C9C9', '#00B42A', '#FF7D00', '#86909C'],
-  tooltip: { visible: true },
+function cssVar(name: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function chartColors() {
+  return [
+    cssVar('--color-brand-500', '#4787F0'),
+    '#14C9C9',
+    '#00B42A',
+    '#FF7D00',
+    '#86909C',
+  ]
+}
+
+function baseChart() {
+  return {
+    background: 'transparent',
+    color: chartColors(),
+    tooltip: { visible: true },
+  }
 }
 
 const stageBarSpec = computed<ISpec>(() => ({
-  ...baseChart,
+  ...baseChart(),
   type: 'bar',
   data: [{ id: 'stage', values: stageRows.value }],
   xField: 'stage',
@@ -280,7 +297,7 @@ const stageBarSpec = computed<ISpec>(() => ({
 } as ISpec))
 
 const statusDonutSpec = computed<ISpec>(() => ({
-  ...baseChart,
+  ...baseChart(),
   type: 'pie',
   data: [{ id: 'status', values: statusRows.value }],
   categoryField: 'type',
@@ -293,7 +310,7 @@ const statusDonutSpec = computed<ISpec>(() => ({
 } as ISpec))
 
 const trendLineSpec = computed<ISpec>(() => ({
-  ...baseChart,
+  ...baseChart(),
   type: 'line',
   data: [{ id: 'trend', values: trendRows.value }],
   xField: 'month',
@@ -311,7 +328,7 @@ const trendLineSpec = computed<ISpec>(() => ({
 } as ISpec))
 
 const amountLineSpec = computed<ISpec>(() => ({
-  ...baseChart,
+  ...baseChart(),
   type: 'line',
   data: [{ id: 'amount', values: amountRows.value }],
   xField: 'name',

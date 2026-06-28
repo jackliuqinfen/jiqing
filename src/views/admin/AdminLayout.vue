@@ -87,7 +87,7 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   width: 240px;
   display: flex;
   flex-direction: column;
-  background: #4787F0;
+  background: var(--color-brand-500);
   border-right: 1px solid rgba(24, 80, 172, .18);
   flex-shrink: 0;
   color: #fff;

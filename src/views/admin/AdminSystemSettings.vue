@@ -26,6 +26,32 @@
           </label>
         </div>
       </div>
+      <div class="brand-color-panel">
+        <div>
+          <span class="field-label">品牌主色</span>
+          <strong>{{ normalizedBrandColor }}</strong>
+          <em>输入 6 位 HEX 色号，保存后侧栏、按钮、激活态和主题预览会全局更新。</em>
+        </div>
+        <div class="brand-color-controls">
+          <input
+            :value="normalizedBrandColor"
+            class="brand-color-picker"
+            type="color"
+            :disabled="savingTheme"
+            aria-label="选择品牌主色"
+            @input="updateBrandColor"
+          />
+          <input
+            v-model.trim="themeSettings.brandColor"
+            class="brand-color-input"
+            placeholder="#4787F0"
+            :disabled="savingTheme"
+            @keyup.enter="saveTheme"
+          />
+          <t-button size="small" theme="primary" :loading="savingTheme" @click="saveTheme">应用品牌色</t-button>
+          <span v-if="brandColorError" class="brand-color-error">{{ brandColorError }}</span>
+        </div>
+      </div>
       <div class="theme-grid">
         <button
           v-for="theme in themeOptions"
@@ -188,6 +214,7 @@ const themeSettings = reactive<ThemeSetting>({
   darkMode: false,
   compactMode: false,
   applyScope: 'global',
+  brandColor: '#4787F0',
 })
 
 const applyScopeOptions = [
@@ -203,9 +230,26 @@ const currentThemeName = computed(() => {
 
 const activeTheme = computed(() => themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey) || null)
 
+function normalizeHexColor(value?: string) {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^#?([0-9a-fA-F]{6})$/)
+  return match ? `#${match[1].toUpperCase()}` : ''
+}
+
+function updateBrandColor(event: Event) {
+  themeSettings.brandColor = (event.target as HTMLInputElement).value
+}
+
+const normalizedBrandColor = computed(() => normalizeHexColor(themeSettings.brandColor) || '#4787F0')
+
+const brandColorError = computed(() => {
+  return normalizeHexColor(themeSettings.brandColor) ? '' : '请输入例如 #4787F0 的 6 位色号'
+})
+
 const activePreviewColors = computed(() => {
   const colors = activeTheme.value?.previewColors || []
-  return colors.length ? colors : ['#165DFF', '#14C9C9', '#00B42A', '#FF7D00']
+  const palette = colors.length ? colors : ['#165DFF', '#14C9C9', '#00B42A', '#FF7D00']
+  return [normalizedBrandColor.value, ...palette.slice(1)]
 })
 
 const applyScopeLabel = computed(() => {
@@ -269,6 +313,7 @@ onMounted(async () => {
       darkMode: currentTheme.darkMode,
       compactMode: currentTheme.compactMode,
       applyScope: currentTheme.applyScope,
+      brandColor: currentTheme.brandColor || '#4787F0',
     })
     applyTheme(currentTheme)
   } catch { /* 默认值 */ }
@@ -287,14 +332,19 @@ async function selectApplyScope(scope: string) {
 }
 
 async function saveTheme() {
+  if (brandColorError.value) {
+    MessagePlugin.warning(brandColorError.value)
+    return
+  }
   savingTheme.value = true
   try {
-    const next = await updateCurrentTheme({ ...themeSettings })
+    const next = await updateCurrentTheme({ ...themeSettings, brandColor: normalizedBrandColor.value })
     Object.assign(themeSettings, {
       themeKey: next.themeKey,
       darkMode: next.darkMode,
       compactMode: next.compactMode,
       applyScope: next.applyScope,
+      brandColor: next.brandColor || normalizedBrandColor.value,
     })
     applyTheme(next)
     MessagePlugin.success('主题已切换')
@@ -314,6 +364,7 @@ async function resetTheme() {
       darkMode: next.darkMode,
       compactMode: next.compactMode,
       applyScope: next.applyScope,
+      brandColor: next.brandColor || '#4787F0',
     })
     applyTheme(next)
     MessagePlugin.success('已恢复默认主题')
@@ -363,6 +414,60 @@ async function saveLoginRules() {
   margin-bottom: var(--space-4);
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
+}
+.brand-color-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) minmax(360px, 1.25fr);
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+.brand-color-panel strong {
+  display: block;
+  margin: 2px 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+.brand-color-panel em {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.brand-color-controls {
+  display: grid;
+  grid-template-columns: 44px minmax(150px, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+.brand-color-picker {
+  width: 44px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+.brand-color-input {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+.brand-color-input:focus {
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 2px var(--color-brand-50);
+}
+.brand-color-error {
+  grid-column: 2 / -1;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
 }
 .field-label,
 .theme-meta,
@@ -599,8 +704,11 @@ async function saveLoginRules() {
 @media (max-width: 860px) {
   .theme-grid { grid-template-columns: 1fr; }
   .theme-current { align-items: flex-start; flex-direction: column; }
+  .brand-color-panel,
   .theme-scope-panel,
   .theme-preview-board { grid-template-columns: 1fr; }
+  .brand-color-controls { grid-template-columns: 44px minmax(0, 1fr); }
+  .brand-color-controls :deep(.arco-btn) { grid-column: 1 / -1; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .theme-preview-card { padding: var(--space-3); }

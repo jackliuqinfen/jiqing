@@ -14,10 +14,39 @@ type ThemeTokens = {
   border: string
 }
 
+function normalizeHexColor(value?: string) {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^#?([0-9a-fA-F]{6})$/)
+  return match ? `#${match[1].toUpperCase()}` : ''
+}
+
+function hexToRgb(hex: string) {
+  const value = normalizeHexColor(hex).slice(1)
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16),
+  }
+}
+
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }) {
+  return `#${[r, g, b].map((n) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0')).join('').toUpperCase()}`
+}
+
+function mixColor(color: string, target: string, weight: number) {
+  const from = hexToRgb(color)
+  const to = hexToRgb(target)
+  return rgbToHex({
+    r: from.r * (1 - weight) + to.r * weight,
+    g: from.g * (1 - weight) + to.g * weight,
+    b: from.b * (1 - weight) + to.b * weight,
+  })
+}
+
 const themeTokens: Record<string, ThemeTokens> = {
   'arco-theme-0000': {
-    brand: '#165DFF',
-    brandDark: '#0E42D2',
+    brand: '#4787F0',
+    brandDark: '#2566D9',
     success: '#00B42A',
     warning: '#FF7D00',
     page: '#F2F3F7',
@@ -28,8 +57,8 @@ const themeTokens: Record<string, ThemeTokens> = {
     border: '#E5E7EB',
   },
   'arco-default': {
-    brand: '#165DFF',
-    brandDark: '#0E42D2',
+    brand: '#4787F0',
+    brandDark: '#2566D9',
     success: '#00B42A',
     warning: '#FF7D00',
     page: '#F2F3F7',
@@ -95,28 +124,33 @@ function setVar(name: string, value: string) {
 
 export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const tokens = themeTokens[setting.themeKey] || themeTokens['arco-theme-0000']
+  const brand = normalizeHexColor(setting.brandColor) || tokens.brand
+  const brandDark = mixColor(brand, '#000000', 0.22)
   document.documentElement.dataset.theme = setting.themeKey
   document.documentElement.dataset.compact = setting.compactMode ? 'true' : 'false'
   document.documentElement.dataset.dark = setting.darkMode || setting.themeKey === 'dark-command' ? 'true' : 'false'
 
-  setVar('--color-brand-50', `${tokens.brand}14`)
-  setVar('--color-brand-100', `${tokens.brand}24`)
-  setVar('--color-brand-500', tokens.brand)
-  setVar('--color-brand-600', tokens.brandDark)
-  setVar('--color-brand-700', tokens.brandDark)
+  setVar('--color-brand-50', `${brand}14`)
+  setVar('--color-brand-100', `${brand}24`)
+  setVar('--color-brand-200', mixColor(brand, '#FFFFFF', 0.64))
+  setVar('--color-brand-300', mixColor(brand, '#FFFFFF', 0.42))
+  setVar('--color-brand-400', mixColor(brand, '#FFFFFF', 0.22))
+  setVar('--color-brand-500', brand)
+  setVar('--color-brand-600', brandDark)
+  setVar('--color-brand-700', mixColor(brand, '#000000', 0.34))
   setVar('--color-success', tokens.success)
   setVar('--color-warning', tokens.warning)
   setVar('--bg-page', tokens.page)
   setVar('--bg-surface', tokens.surface)
   setVar('--bg-muted', tokens.muted)
   setVar('--bg-hover', tokens.muted)
-  setVar('--bg-active', `${tokens.brand}16`)
+  setVar('--bg-active', `${brand}16`)
   setVar('--text-primary', tokens.text)
   setVar('--text-secondary', tokens.secondary)
   setVar('--border-color', tokens.border)
   setVar('--divider-color', tokens.border)
-  setVar('--color-primary-6', tokens.brand)
-  setVar('--color-primary-7', tokens.brandDark)
+  setVar('--color-primary-6', brand)
+  setVar('--color-primary-7', brandDark)
 }
 
 export async function initThemePreference() {
@@ -127,4 +161,3 @@ export async function initThemePreference() {
     applyTheme({ themeKey: 'arco-theme-0000', darkMode: false, compactMode: false, applyScope: 'global' })
   }
 }
-
