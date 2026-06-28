@@ -22,7 +22,7 @@ function normalizeHexColor(value?: string) {
 
 export function normalizeArcoThemePackage(value?: string) {
   const raw = String(value || '').trim()
-  return /^@arco-design\/theme-[a-z0-9-]+$/i.test(raw) ? raw : ''
+  return /^@(arco-design\/theme|arco-themes\/vue)-[a-z0-9-]+$/i.test(raw) ? raw : ''
 }
 
 export function arcoThemeCssUrl(themePackage: string) {
@@ -49,7 +49,7 @@ function setArcoThemeLink(themePackage?: string) {
 
 export function loadArcoThemePackage(themePackage: string): Promise<void> {
   const normalized = normalizeArcoThemePackage(themePackage)
-  if (!normalized) return Promise.reject(new Error('请输入形如 @arco-design/theme-christmas 的主题字符'))
+  if (!normalized) return Promise.reject(new Error('请输入形如 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的主题字符'))
   const href = arcoThemeCssUrl(normalized)
   const existing = document.querySelector<HTMLLinkElement>(`link[data-arco-theme-test="${normalized}"]`)
   if (existing?.dataset.loaded === 'true') return Promise.resolve()

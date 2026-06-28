@@ -1301,8 +1301,8 @@ class Handler(BaseHTTPRequestHandler):
             brand_color = f"#{brand_color}"
         brand_color = brand_color.upper() or "#4787F0"
         theme_package = str(data.get("themePackage") or "").strip()
-        if theme_package and not re.match(r"^@arco-design/theme-[a-z0-9-]+$", theme_package, re.IGNORECASE):
-            self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 开头的主题包名"})
+        if theme_package and not re.match(r"^@(arco-design/theme|arco-themes/vue)-[a-z0-9-]+$", theme_package, re.IGNORECASE):
+            self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 或 @arco-themes/vue- 开头的主题包名"})
             return
         value = {
             "themeKey": theme_key,

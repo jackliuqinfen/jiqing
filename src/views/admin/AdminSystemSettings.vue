@@ -56,13 +56,13 @@
         <div>
           <span class="field-label">Arco 主题字符</span>
           <strong>{{ themePackageInput || '未设置主题包' }}</strong>
-          <em>从 Arco Design 主题商店复制类似 @arco-design/theme-christmas 的字符，加载成功后会自动刷新并返回首页。</em>
+          <em>从 Arco Design 主题商店复制类似 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的字符，加载成功后会自动刷新并返回首页。</em>
         </div>
         <div class="theme-package-controls">
           <input
             v-model.trim="themePackageInput"
             class="theme-package-input"
-            placeholder="@arco-design/theme-christmas"
+            placeholder="@arco-themes/vue-cestc-wuhan-linear"
             :disabled="savingTheme"
             @keyup.enter="applyThemePackage"
           />
@@ -271,7 +271,7 @@ const brandColorError = computed(() => {
 
 const themePackageError = computed(() => {
   if (!themePackageInput.value) return ''
-  return normalizeArcoThemePackage(themePackageInput.value) ? '' : '请输入例如 @arco-design/theme-christmas 的主题字符'
+  return normalizeArcoThemePackage(themePackageInput.value) ? '' : '请输入例如 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的主题字符'
 })
 
 const activePreviewColors = computed(() => {
