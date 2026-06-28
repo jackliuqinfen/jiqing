@@ -159,6 +159,25 @@
       </div>
     </t-card>
 
+    <t-dialog
+      v-model:visible="brandFollowDialogVisible"
+      header="是否同步品牌主色"
+      :confirm-btn="{ content: '跟随主题色', loading: savingTheme }"
+      :cancel-btn="{ content: '保留当前品牌色' }"
+      width="460px"
+      @confirm="confirmFollowThemeBrandColor"
+      @update:visible="handleBrandFollowDialogVisible"
+    >
+      <div class="brand-follow-dialog">
+        <p>主题包已加载成功。是否将系统品牌主色同步为该主题推荐色？</p>
+        <div class="brand-follow-preview">
+          <i :style="{ backgroundColor: pendingThemeBrandColor }" />
+          <span>{{ pendingThemeBrandColor }}</span>
+        </div>
+        <em>选择“保留当前品牌色”会只应用主题包样式，不改变侧栏、按钮和业务高亮主色。</em>
+      </div>
+    </t-dialog>
+
     <!-- 注册设置卡片 -->
     <t-card class="settings-card" title="注册设置" :bordered="true">
       <template #actions>
@@ -226,6 +245,10 @@ const savingLogin = ref(false)
 const savingTheme = ref(false)
 const themeOptions = ref<ThemeOption[]>([])
 const themePackageInput = ref('')
+const brandFollowDialogVisible = ref(false)
+const pendingThemePackage = ref('')
+const pendingThemeBrandColor = ref('#4787F0')
+const brandFollowDecisionHandled = ref(false)
 
 const regSettings = reactive<RegistrationSetting>({ enabled: false, requireApproval: true })
 const loginRulesSettings = reactive<LoginRulesSetting>({
@@ -257,6 +280,24 @@ function normalizeHexColor(value?: string) {
   const raw = String(value || '').trim()
   const match = raw.match(/^#?([0-9a-fA-F]{6})$/)
   return match ? `#${match[1].toUpperCase()}` : ''
+}
+
+function rgbToHex(value: string) {
+  const hex = normalizeHexColor(value)
+  if (hex) return hex
+  const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+  if (!match) return ''
+  return `#${match.slice(1, 4).map((item) => Number(item).toString(16).padStart(2, '0')).join('').toUpperCase()}`
+}
+
+function getThemePackageBrandColor() {
+  const styles = getComputedStyle(document.documentElement)
+  const candidates = ['--primary-6', '--color-primary-6', '--arcoblue-6']
+  for (const key of candidates) {
+    const color = rgbToHex(styles.getPropertyValue(key).trim())
+    if (color) return color
+  }
+  return normalizedBrandColor.value
 }
 
 function updateBrandColor(event: Event) {
@@ -435,13 +476,60 @@ async function applyThemePackage() {
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: next.themePackage || nextPackage,
     })
-    MessagePlugin.success('主题包切换成功，即将返回首页')
-    window.setTimeout(() => {
-      router.replace('/')
-      window.location.reload()
-    }, 700)
+    themePackageInput.value = next.themePackage || nextPackage
+    pendingThemePackage.value = next.themePackage || nextPackage
+    pendingThemeBrandColor.value = getThemePackageBrandColor()
+    brandFollowDecisionHandled.value = false
+    brandFollowDialogVisible.value = true
+    MessagePlugin.success('主题包切换成功')
   } catch (err) {
     MessagePlugin.error(err instanceof Error ? err.message : '主题包切换失败')
+  } finally {
+    savingTheme.value = false
+  }
+}
+
+function refreshToHome() {
+  window.setTimeout(() => {
+    router.replace('/')
+    window.location.reload()
+  }, 500)
+}
+
+function handleBrandFollowDialogVisible(value: boolean) {
+  brandFollowDialogVisible.value = value
+  if (!value && pendingThemePackage.value && !brandFollowDecisionHandled.value) {
+    brandFollowDecisionHandled.value = true
+    MessagePlugin.success('已保留当前品牌色，即将返回首页')
+    refreshToHome()
+  }
+}
+
+async function confirmFollowThemeBrandColor() {
+  if (!pendingThemePackage.value) return
+  brandFollowDecisionHandled.value = true
+  savingTheme.value = true
+  try {
+    const next = await updateCurrentTheme({
+      ...themeSettings,
+      brandColor: pendingThemeBrandColor.value,
+      themePackage: pendingThemePackage.value,
+    })
+    Object.assign(themeSettings, {
+      themeKey: next.themeKey,
+      darkMode: next.darkMode,
+      compactMode: next.compactMode,
+      applyScope: next.applyScope,
+      brandColor: next.brandColor || pendingThemeBrandColor.value,
+      themePackage: next.themePackage || pendingThemePackage.value,
+    })
+    applyTheme(next)
+    brandFollowDialogVisible.value = false
+    MessagePlugin.success('品牌色已跟随主题包，即将返回首页')
+    refreshToHome()
+  } catch (err) {
+    brandFollowDecisionHandled.value = false
+    MessagePlugin.error(err instanceof Error ? err.message : '品牌色同步失败')
   } finally {
     savingTheme.value = false
   }
@@ -825,6 +913,40 @@ async function saveLoginRules() {
 .preview-note {
   margin: var(--space-3) 0 0;
   line-height: 1.6;
+}
+.brand-follow-dialog {
+  display: grid;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.brand-follow-dialog p {
+  margin: 0;
+  color: var(--text-primary);
+}
+.brand-follow-dialog em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.brand-follow-preview {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+.brand-follow-preview i {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(0, 0, 0, .08);
+}
+.brand-follow-preview span {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 @media (max-width: 860px) {
   .theme-grid { grid-template-columns: 1fr; }
