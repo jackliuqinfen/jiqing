@@ -300,8 +300,8 @@ onBeforeUnmount(stopBackgroundAnimation)
   position: relative;
   color: #fff;
   background:
-    radial-gradient(circle at 18% 18%, rgba(20, 201, 201, .2), transparent 32%),
-    linear-gradient(135deg, #071326 0%, #0d2448 52%, #102f56 100%);
+    linear-gradient(135deg, rgba(71, 135, 240, .95), rgba(37, 102, 217, .98)),
+    #4787F0;
 }
 
 .login-animation,
@@ -320,8 +320,8 @@ onBeforeUnmount(stopBackgroundAnimation)
 .login-grid {
   z-index: 1;
   background-image:
-    linear-gradient(rgba(255, 255, 255, .055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, .08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .07) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
 }
@@ -355,7 +355,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   background: transparent;
   border: 0;
   box-shadow: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .brand-mark img,
@@ -364,7 +364,6 @@ onBeforeUnmount(stopBackgroundAnimation)
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transform: scale(1.7);
 }
 
 .brand-block h1 {
@@ -393,7 +392,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: rgba(255, 255, 255, .72);
+  color: rgba(255, 255, 255, .84);
   font-size: var(--text-sm);
 }
 
@@ -416,7 +415,7 @@ onBeforeUnmount(stopBackgroundAnimation)
 .command-copy p {
   max-width: 620px;
   margin: 0;
-  color: rgba(255, 255, 255, .66);
+  color: rgba(255, 255, 255, .78);
   font-size: var(--text-md);
 }
 
@@ -433,8 +432,9 @@ onBeforeUnmount(stopBackgroundAnimation)
   align-content: center;
   gap: 4px;
   padding: var(--space-4);
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(255, 255, 255, .13);
+  background: rgba(255, 255, 255, .14);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: var(--radius-lg);
 }
 
 .signal-board span,
@@ -456,7 +456,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   align-items: center;
   justify-content: center;
   padding: var(--space-8);
-  background: rgba(245, 248, 252, .96);
+  background: var(--bg-page);
   color: var(--text-primary);
   border-left: 1px solid rgba(255, 255, 255, .16);
 }
@@ -466,13 +466,14 @@ onBeforeUnmount(stopBackgroundAnimation)
   max-width: 440px;
   padding: var(--space-8);
   background: var(--bg-surface);
-  border: 1px solid var(--border-color-strong);
-  box-shadow: 0 18px 48px rgba(15, 31, 61, .12);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
 }
 
 .panel-logo {
   width: 164px;
-  height: 128px;
+  height: 116px;
   margin: 0 0 var(--space-5);
   display: grid;
   place-items: center;
@@ -513,6 +514,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   margin-bottom: var(--space-6);
   background: var(--color-gray-50);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .auth-tab {
@@ -536,6 +538,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   background: var(--bg-surface);
   color: var(--color-brand-500);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
 }
 
 .auth-tab--disabled,

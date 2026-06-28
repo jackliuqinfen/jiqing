@@ -338,18 +338,22 @@ const moduleStatus = [
 <style scoped>
 .command-dashboard {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
 .command-hero {
-  min-height: 218px;
+  min-height: 196px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
-  gap: var(--space-4);
+  gap: var(--space-5);
   padding: var(--space-6);
-  color: #fff;
-  background: #0b1a33;
-  border: 1px solid rgba(255, 255, 255, .12);
+  color: var(--text-primary);
+  background:
+    linear-gradient(135deg, rgba(71, 135, 240, .14), rgba(20, 201, 201, .08) 52%, rgba(255, 255, 255, .88)),
+    var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
   overflow: hidden;
   position: relative;
 }
@@ -360,10 +364,10 @@ const moduleStatus = [
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, .05) 1px, transparent 1px);
+    linear-gradient(rgba(71, 135, 240, .12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 135, 240, .1) 1px, transparent 1px);
   background-size: 40px 40px;
-  mask-image: linear-gradient(90deg, transparent, #000 24%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent, #000 36%, #000 100%);
 }
 
 .hero-copy,
@@ -383,7 +387,7 @@ const moduleStatus = [
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: rgba(255, 255, 255, .76);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
@@ -396,14 +400,14 @@ const moduleStatus = [
 
 .hero-copy h2 {
   margin: 0;
-  font-size: 32px;
+  font-size: 30px;
   line-height: 1.12;
 }
 
 .hero-copy p {
   max-width: 680px;
   margin: 0;
-  color: rgba(255, 255, 255, .7);
+  color: var(--text-secondary);
   font-size: var(--text-md);
 }
 
@@ -419,12 +423,13 @@ const moduleStatus = [
   align-content: center;
   gap: 2px;
   padding: 0 var(--space-3);
-  background: rgba(255, 255, 255, .07);
-  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(71, 135, 240, .16);
+  border-radius: var(--radius-md);
 }
 
 .hero-signals em {
-  color: rgba(255, 255, 255, .56);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-style: normal;
 }
@@ -439,14 +444,16 @@ const moduleStatus = [
   gap: var(--space-3);
   align-content: center;
   padding: var(--space-4);
-  background: rgba(5, 13, 28, .74);
-  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .88);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
 }
 
 .console-date span,
 .console-health-grid span {
   display: block;
-  color: rgba(255, 255, 255, .58);
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
@@ -459,16 +466,18 @@ const moduleStatus = [
 .range-switch {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  background: rgba(255, 255, 255, .14);
-  border: 1px solid rgba(255, 255, 255, .14);
+  gap: 0;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .range-switch button {
   min-height: 32px;
   border: 0;
-  background: rgba(11, 18, 32, .24);
-  color: rgba(255, 255, 255, .72);
+  background: transparent;
+  color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: var(--text-xs);
@@ -490,8 +499,9 @@ const moduleStatus = [
   gap: var(--space-2);
   min-height: 72px;
   padding: var(--space-3);
-  background: rgba(255, 255, 255, .06);
-  border: 1px solid rgba(255, 255, 255, .1);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .console-health-grid strong {
@@ -518,6 +528,8 @@ const moduleStatus = [
 .module-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
 }
 
 .mission-strip article {
@@ -527,6 +539,7 @@ const moduleStatus = [
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px var(--space-3);
   align-items: center;
+  box-shadow: none;
 }
 
 .mission-strip span,
@@ -550,7 +563,7 @@ const moduleStatus = [
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-3);
 }
 
@@ -602,7 +615,7 @@ const moduleStatus = [
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(300px, .82fr) minmax(0, 1.18fr) minmax(300px, .8fr);
+  grid-template-columns: minmax(320px, .82fr) minmax(0, 1.2fr) minmax(320px, .8fr);
   gap: var(--space-4);
 }
 
@@ -632,7 +645,7 @@ const moduleStatus = [
 
 .panel-head h3 {
   margin: 0 0 2px;
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
 }
 
 .panel-head > span {
@@ -640,6 +653,7 @@ const moduleStatus = [
   padding: 4px 8px;
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
 }
 
 .chart-panel :deep(.vchart-panel) {
@@ -690,6 +704,7 @@ const moduleStatus = [
   padding: 0 var(--space-3);
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .risk-row i {
@@ -733,6 +748,7 @@ const moduleStatus = [
   padding: 0 var(--space-3);
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .module-row strong {

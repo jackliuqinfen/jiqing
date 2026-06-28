@@ -87,9 +87,10 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   width: 240px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border-color-strong);
+  background: #4787F0;
+  border-right: 1px solid rgba(24, 80, 172, .18);
   flex-shrink: 0;
+  color: #fff;
 }
 
 .sidebar-header {
@@ -97,16 +98,18 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-5) var(--space-4);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid rgba(255, 255, 255, .24);
 }
 
 .sidebar-logo {
   width: 34px; height: 34px;
-  background: var(--color-brand-500);
+  background: rgba(255, 255, 255, .18);
+  border: 1px solid rgba(255, 255, 255, .28);
   color: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius-md);
 }
 
 .sidebar-brand { display: flex; flex-direction: column; gap: 1px; }
@@ -114,12 +117,12 @@ const userInitials = computed(() => getInitials(authStore.displayName))
 .sidebar-title {
   font-size: var(--text-sm);
   font-weight: 700;
-  color: var(--text-primary);
+  color: #fff;
 }
 
 .sidebar-subtitle {
   font-size: 10px;
-  color: var(--text-tertiary);
+  color: rgba(255, 255, 255, .72);
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -138,32 +141,35 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   align-items: center;
   gap: var(--space-3);
   padding: 8px var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, .88);
   text-decoration: none;
   transition: all var(--duration-fast);
 }
 
 .nav-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, .16);
+  color: #fff;
 }
 
 .nav-item--active {
-  background: var(--color-brand-50);
-  color: var(--color-brand-500);
+  background: rgba(255, 255, 255, .22);
+  border-color: rgba(255, 255, 255, .38);
+  color: #fff;
   font-weight: 500;
 }
 
 .nav-item--active:hover {
-  background: var(--color-brand-50);
-  color: var(--color-brand-500);
+  background: rgba(255, 255, 255, .22);
+  color: #fff;
 }
 
 /* 底部 */
 .sidebar-footer {
   padding: var(--space-3) var(--space-2);
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid rgba(255, 255, 255, .24);
 }
 
 .nav-item--back {
@@ -176,19 +182,20 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   align-items: center;
   gap: var(--space-2);
   padding: 6px var(--space-2);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: var(--radius-md);
 }
 
 .sidebar-user-info { display: flex; flex-direction: column; min-width: 0; }
-.sidebar-user-name { font-size: var(--text-xs); font-weight: 500; color: var(--text-primary); }
-.sidebar-user-role { font-size: 10px; color: var(--text-tertiary); }
+.sidebar-user-name { font-size: var(--text-xs); font-weight: 500; color: #fff; }
+.sidebar-user-role { font-size: 10px; color: rgba(255, 255, 255, .7); }
 
 /* 主区 */
 .admin-main {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-8);
+  padding: var(--space-6);
 }
 
 @media (max-width: 768px) {

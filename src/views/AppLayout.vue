@@ -113,9 +113,7 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  background:
-    linear-gradient(180deg, rgba(22, 93, 255, .05), transparent 280px),
-    var(--bg-page);
+  background: var(--bg-page);
   color: var(--text-primary);
 }
 
@@ -123,26 +121,27 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  gap: var(--space-4);
-  padding: var(--space-4);
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-3);
   background: #4787F0;
-  border-right: 1px solid rgba(24, 80, 172, .22);
+  border-right: 1px solid rgba(24, 80, 172, .18);
   color: #fff;
 }
 
 .system-brand {
   display: grid;
   align-content: start;
-  gap: var(--space-2);
-  min-height: 96px;
-  padding: 2px 0 var(--space-2);
+  gap: var(--space-3);
+  min-height: 132px;
+  padding: var(--space-2) var(--space-2) var(--space-3);
   color: #fff;
   text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, .24);
 }
 
 .brand-icon {
-  width: 136px;
-  height: 72px;
+  width: 156px;
+  height: 78px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -153,8 +152,10 @@ async function logout() {
 }
 
 .brand-icon img {
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   display: block;
 }
@@ -166,14 +167,14 @@ async function logout() {
   line-height: 1.25;
 }
 
-.brand-copy { display: grid; gap: 2px; }
+.brand-copy { display: grid; gap: 3px; padding-left: 1px; }
 .system-brand strong { font-size: var(--text-md); font-weight: 700; }
-.system-brand em { color: rgba(255, 255, 255, .74); font-size: 11px; }
+.system-brand em { color: rgba(255, 255, 255, .76); font-size: 11px; }
 
 .module-nav,
 .nav-group {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .nav-group {
@@ -197,6 +198,7 @@ async function logout() {
   gap: var(--space-3);
   padding: 0 var(--space-3);
   border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
   color: rgba(255, 255, 255, .88);
   cursor: pointer;
@@ -207,8 +209,8 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(255, 255, 255, .22);
-  border-color: rgba(255, 255, 255, .46);
+  background: rgba(255, 255, 255, .2);
+  border-color: rgba(255, 255, 255, .38);
   color: #fff;
 }
 
@@ -250,7 +252,7 @@ async function logout() {
   min-width: 0;
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 60px minmax(0, 1fr);
 }
 
 .system-topbar {
@@ -259,8 +261,9 @@ async function logout() {
   justify-content: space-between;
   gap: var(--space-4);
   padding: 0 var(--space-6);
-  background: rgba(255, 255, 255, .94);
+  background: rgba(255, 255, 255, .96);
   border-bottom: 1px solid var(--border-color);
+  backdrop-filter: saturate(140%) blur(8px);
 }
 
 .system-topbar h1 {
@@ -285,19 +288,19 @@ async function logout() {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: var(--space-5);
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 @media (max-width: 900px) {
   .system-shell { grid-template-columns: 72px minmax(0, 1fr); }
-  .system-sidebar { padding: var(--space-3) var(--space-2); }
+  .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
   .system-brand .brand-copy,
   .module-link span,
   .module-link small,
   .nav-group p,
   .system-status strong,
   .system-status em { display: none; }
-.brand-icon {
+  .brand-icon {
     width: 48px;
     height: 42px;
   }

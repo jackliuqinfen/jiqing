@@ -18,9 +18,8 @@ onMounted(async () => {
 
 <style>
 /* ============================================================
-   扁平化纯色设计系统 — Flat Design System
-   核心理念：零渐变、零模糊、纯色色块分区、清晰 1px 实线边界
-   对标：腾讯云 / 阿里云 / 飞书 / 火山引擎 — 克制、专业、耐看
+   工程管理后台设计系统
+   清爽、克制、可扫读，贴近 Arco 后台产品的密度和状态表达
    ============================================================ */
 
 :root {
@@ -30,9 +29,9 @@ onMounted(async () => {
   --color-brand-200: #ADC2FF;
   --color-brand-300: #85A3FF;
   --color-brand-400: #5C85FF;
-  --color-brand-500: #3366FF;
-  --color-brand-600: #1A4DE0;
-  --color-brand-700: #0035C2;
+  --color-brand-500: #4787F0;
+  --color-brand-600: #2566D9;
+  --color-brand-700: #164FB6;
   --color-brand-800: #0028A3;
   --color-brand-900: #001C85;
 
@@ -51,7 +50,7 @@ onMounted(async () => {
   --color-gray-900: #111827;
 
   /* ── 语义色（纯色扁平） ── */
-  --color-success: #00B578;
+  --color-success: #00B42A;
   --color-success-bg: #E6F9F2;
   --color-success-border: #B3EAD5;
   --color-warning: #FF8D1A;
@@ -60,7 +59,7 @@ onMounted(async () => {
   --color-danger: #FF3B3B;
   --color-danger-bg: #FFEBEB;
   --color-danger-border: #FFCCCC;
-  --color-info: #14B8A6;
+  --color-info: #14C9C9;
   --color-info-bg: #E6F9F7;
   --color-info-border: #B3EDE7;
 
@@ -72,24 +71,24 @@ onMounted(async () => {
   --color-stage-archived: #8E95A3;
 
   /* ── 背景与表面（纯色分层） ── */
-  --bg-page: #F2F3F7;
+  --bg-page: #F5F7FB;
   --bg-surface: #FFFFFF;
-  --bg-muted: #FAFBFC;
-  --bg-hover: #F2F3F7;
-  --bg-active: #EBF0FF;
+  --bg-muted: #F8FAFD;
+  --bg-hover: #EFF5FF;
+  --bg-active: #EAF2FF;
 
   /* ── 边框与分割线（1px 实线） ── */
-  --border-color: #E5E7EB;
-  --border-color-strong: #D1D5DB;
-  --divider-color: #E5E7EB;
+  --border-color: #E6EAF2;
+  --border-color-strong: #D6DEEA;
+  --divider-color: #E6EAF2;
 
   /* ── 文本色 ── */
-  --text-primary: #111827;
-  --text-secondary: #6B7280;
-  --text-tertiary: #B0B7C3;
+  --text-primary: #17233D;
+  --text-secondary: #5F6F89;
+  --text-tertiary: #9AA8BC;
   --text-disabled: #B0B7C3;
   --text-inverse: #FFFFFF;
-  --text-link: #3366FF;
+  --text-link: #4787F0;
 
   /* ── 间距（4px 基准） ── */
   --space-1: 4px;
@@ -121,13 +120,13 @@ onMounted(async () => {
 
   /* ── 阴影（仅保留极简的 2 级，纯扁平风格） ── */
   --shadow-flat: none;
-  --shadow-elevated: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-elevated: 0 6px 18px rgba(17, 36, 75, 0.06);
+  --shadow-overlay: 0 18px 48px rgba(17, 36, 75, 0.16);
 
   /* ── 圆角（小圆角，克制使用） ── */
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --radius-xl: 8px;
 
   /* ── 过渡 ── */
