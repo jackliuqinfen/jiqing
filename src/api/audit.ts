@@ -2,6 +2,7 @@ import type {
   ApiResult,
   AuditFieldConfig,
   AuditFieldOption,
+  AttachmentLibraryFilters,
   AuditFilters,
   AuditDashboardOverview,
   AuditMeta,
@@ -100,6 +101,14 @@ export function fetchAuditProject(id: string): Promise<AuditProject> {
 
 export function fetchProjectAttachments(projectId: string): Promise<AuditProjectAttachment[]> {
   return request(`/audit/projects/${projectId}/attachments`)
+}
+
+export function fetchAttachmentLibrary(filters?: AttachmentLibraryFilters): Promise<AuditProjectAttachment[]> {
+  const params = new URLSearchParams()
+  if (filters?.keyword) params.set('keyword', filters.keyword)
+  if (filters?.fileType) params.set('fileType', filters.fileType)
+  const query = params.toString()
+  return request(`/audit/admin/attachments${query ? `?${query}` : ''}`)
 }
 
 export function validateAttachmentFile(file: File): string {

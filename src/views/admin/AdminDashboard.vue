@@ -61,6 +61,11 @@
           <span class="action-title">系统设置</span>
           <span class="action-desc">注册开关、登录规则等参数</span>
         </router-link>
+        <router-link to="/admin/file-library" class="action-card">
+          <t-icon name="folder" size="22px" />
+          <span class="action-title">文件库</span>
+          <span class="action-desc">按项目和类型归集审计附件</span>
+        </router-link>
         <router-link to="/" class="action-card">
           <t-icon name="view-module" size="22px" />
           <span class="action-title">进入看板</span>
@@ -128,7 +133,7 @@ onMounted(async () => {
 
 .actions-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-4);
 }
 
@@ -155,6 +160,10 @@ onMounted(async () => {
 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .actions-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 620px) {
   .actions-grid { grid-template-columns: 1fr; }
 }
 </style>

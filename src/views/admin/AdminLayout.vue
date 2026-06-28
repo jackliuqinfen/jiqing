@@ -29,6 +29,10 @@
           <t-icon name="list" />
           <span>选项库</span>
         </router-link>
+        <router-link to="/admin/file-library" class="nav-item" active-class="nav-item--active">
+          <t-icon name="folder" />
+          <span>文件库</span>
+        </router-link>
         <router-link to="/admin/settings" class="nav-item" active-class="nav-item--active">
           <t-icon name="system-setting" />
           <span>系统设置</span>

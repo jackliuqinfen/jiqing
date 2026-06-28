@@ -976,6 +976,60 @@ class Handler(BaseHTTPRequestHandler):
         ).fetchall()
         self.respond(200, {"success": True, "data": [attachment_payload(r) for r in rows]})
 
+    def attachment_library(self, conn, params):
+        if not self.require_role(conn, {"admin"}):
+            return
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        file_type = (params.get("fileType", params.get("file_type", [""]))[0] or "").strip()
+        where = ["COALESCE(a.is_deleted, 0) = 0"]
+        values = []
+        if keyword:
+            where.append("(p.project_name LIKE ? OR a.original_name LIKE ? OR a.file_name LIKE ?)")
+            like = f"%{keyword}%"
+            values.extend([like, like, like])
+        if file_type:
+            if file_type == "image":
+                where.append("(a.mime_type LIKE 'image/%' OR a.file_type LIKE 'image/%')")
+            elif file_type == "pdf":
+                where.append("(a.file_ext = '.pdf' OR a.mime_type = 'application/pdf' OR a.file_type = 'application/pdf')")
+            elif file_type == "text":
+                where.append("(a.mime_type LIKE 'text/%' OR a.file_type LIKE 'text/%' OR a.file_ext IN ('.txt', '.csv', '.md', '.json', '.xml', '.log'))")
+            elif file_type == "audio":
+                where.append("(a.mime_type LIKE 'audio/%' OR a.file_type LIKE 'audio/%')")
+            elif file_type == "video":
+                where.append("(a.mime_type LIKE 'video/%' OR a.file_type LIKE 'video/%')")
+            else:
+                where.append(
+                    "NOT ((a.mime_type LIKE 'image/%' OR a.file_type LIKE 'image/%') "
+                    "OR (a.file_ext = '.pdf' OR a.mime_type = 'application/pdf' OR a.file_type = 'application/pdf') "
+                    "OR (a.mime_type LIKE 'text/%' OR a.file_type LIKE 'text/%' OR a.file_ext IN ('.txt', '.csv', '.md', '.json', '.xml', '.log')) "
+                    "OR (a.mime_type LIKE 'audio/%' OR a.file_type LIKE 'audio/%') "
+                    "OR (a.mime_type LIKE 'video/%' OR a.file_type LIKE 'video/%'))"
+                )
+        rows = conn.execute(
+            f"""
+            SELECT
+              a.*,
+              p.project_name AS library_project_name,
+              p.project_code AS library_project_code,
+              p.manager_name AS library_manager_name
+            FROM audit_project_attachments a
+            LEFT JOIN audit_projects p ON p.id = a.project_id
+            WHERE {" AND ".join(where)}
+            ORDER BY p.project_name COLLATE NOCASE, COALESCE(NULLIF(a.created_at, ''), a.uploaded_at) DESC
+            LIMIT 500
+            """,
+            values,
+        ).fetchall()
+        data = []
+        for row in rows:
+            item = attachment_payload(row)
+            item["projectName"] = row_get(row, "library_project_name") or "未关联项目"
+            item["projectCode"] = row_get(row, "library_project_code")
+            item["managerName"] = row_get(row, "library_manager_name")
+            data.append(item)
+        self.respond(200, {"success": True, "data": data})
+
     def upload_project_attachment(self, conn, project_id):
         user = self.require_role(conn, {"admin", "editor"})
         if not user:
@@ -1328,6 +1382,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200, {"success": True, "data": dashboard_summary(conn)})
                 elif path == "/api/audit/dashboard/overview":
                     self.respond(200, {"success": True, "data": dashboard_overview(conn)})
+                elif path == "/api/audit/admin/attachments":
+                    self.attachment_library(conn, params)
                 elif re.match(r"^/api/audit/projects/([^/]+)/attachments$", path):
                     self.list_project_attachments(conn, re.match(r"^/api/audit/projects/([^/]+)/attachments$", path).group(1))
                 elif re.match(r"^/api/audit/attachments/([^/]+)/preview$", path):

@@ -88,6 +88,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/admin/AdminFieldOptions.vue'),
       },
       {
+        path: 'file-library',
+        name: 'AdminFileLibrary',
+        component: () => import('@/views/admin/AdminFileLibrary.vue'),
+      },
+      {
         path: 'settings',
         name: 'AdminSettings',
         component: () => import('@/views/admin/AdminSystemSettings.vue'),

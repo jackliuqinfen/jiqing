@@ -117,6 +117,9 @@ export interface AuditProjectStage {
 export interface AuditProjectAttachment {
   id: string
   projectId: string
+  projectName?: string
+  projectCode?: string
+  managerName?: string
   originalName: string
   storedName: string
   fileExt: string
@@ -134,6 +137,11 @@ export interface AuditProjectAttachment {
   file_type?: string
   uploaded_by?: string
   uploaded_at?: string
+}
+
+export interface AttachmentLibraryFilters {
+  keyword?: string
+  fileType?: string
 }
 
 export interface AuditSummary {
