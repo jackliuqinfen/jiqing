@@ -3,9 +3,9 @@
     <aside class="system-sidebar">
       <router-link to="/" class="system-brand" aria-label="江苏集庆·工程管理系统">
         <span class="brand-icon"><img :src="whiteLogo" alt="" /></span>
-        <span>
-          <strong>江苏集庆</strong>
-          <em>工程管理系统</em>
+        <span class="brand-copy">
+          <strong>工程管理系统</strong>
+          <em>Engineering Console</em>
         </span>
       </router-link>
 
@@ -126,23 +126,24 @@ async function logout() {
   gap: var(--space-4);
   padding: var(--space-4);
   background:
-    linear-gradient(180deg, #0b1a33 0%, #0f1f3d 54%, #0b1628 100%);
-  border-right: 1px solid rgba(255, 255, 255, .08);
+    linear-gradient(180deg, #7DB7D8 0%, #6FAAD0 44%, #8EC6DF 100%);
+  border-right: 1px solid rgba(80, 132, 164, .24);
   color: #fff;
 }
 
 .system-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: 56px;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-height: 96px;
+  padding: 2px 0 var(--space-2);
   color: #fff;
   text-decoration: none;
 }
 
 .brand-icon {
-  width: 46px;
-  height: 38px;
+  width: 124px;
+  height: 48px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -157,7 +158,7 @@ async function logout() {
   height: 100%;
   object-fit: contain;
   display: block;
-  transform: scale(1.7);
+  transform: scale(1.62);
 }
 
 .system-brand strong,
@@ -167,8 +168,9 @@ async function logout() {
   line-height: 1.25;
 }
 
-.system-brand strong { font-size: var(--text-lg); font-weight: 700; }
-.system-brand em { color: rgba(255, 255, 255, .62); font-size: var(--text-xs); }
+.brand-copy { display: grid; gap: 2px; }
+.system-brand strong { font-size: var(--text-md); font-weight: 700; }
+.system-brand em { color: rgba(255, 255, 255, .74); font-size: 11px; }
 
 .module-nav,
 .nav-group {
@@ -179,13 +181,13 @@ async function logout() {
 .nav-group {
   align-self: start;
   padding-top: var(--space-3);
-  border-top: 1px solid rgba(255, 255, 255, .1);
+  border-top: 1px solid rgba(255, 255, 255, .26);
 }
 
 .nav-group p {
   margin: 0 0 var(--space-1);
   padding: 0 var(--space-3);
-  color: rgba(255, 255, 255, .42);
+  color: rgba(255, 255, 255, .68);
   font-size: var(--text-xs);
 }
 
@@ -198,7 +200,7 @@ async function logout() {
   padding: 0 var(--space-3);
   border: 1px solid transparent;
   background: transparent;
-  color: rgba(255, 255, 255, .76);
+  color: rgba(255, 255, 255, .88);
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -207,15 +209,15 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(22, 93, 255, .22);
-  border-color: rgba(20, 201, 201, .34);
+  background: rgba(255, 255, 255, .22);
+  border-color: rgba(255, 255, 255, .46);
   color: #fff;
 }
 
 .module-link :deep(.t-icon) { flex: 0 0 auto; }
 .module-link span { flex: 1; min-width: 0; }
 .module-link small {
-  color: rgba(255, 255, 255, .54);
+  color: rgba(255, 255, 255, .74);
   font-size: 10px;
 }
 
@@ -225,7 +227,7 @@ async function logout() {
 
 .sidebar-foot {
   padding-top: var(--space-4);
-  border-top: 1px solid rgba(255, 255, 255, .1);
+  border-top: 1px solid rgba(255, 255, 255, .26);
 }
 
 .system-status {
@@ -233,7 +235,7 @@ async function logout() {
   grid-template-columns: auto 1fr;
   gap: 2px 8px;
   align-items: center;
-  color: rgba(255, 255, 255, .72);
+  color: rgba(255, 255, 255, .88);
 }
 
 .system-status span {
@@ -244,7 +246,7 @@ async function logout() {
 }
 
 .system-status strong { font-size: var(--text-xs); font-weight: 600; }
-.system-status em { font-size: 10px; font-style: normal; color: rgba(255, 255, 255, .45); }
+.system-status em { font-size: 10px; font-style: normal; color: rgba(255, 255, 255, .68); }
 
 .system-main {
   min-width: 0;
@@ -291,16 +293,15 @@ async function logout() {
 @media (max-width: 900px) {
   .system-shell { grid-template-columns: 72px minmax(0, 1fr); }
   .system-sidebar { padding: var(--space-3) var(--space-2); }
-  .system-brand span:not(.brand-icon),
+  .system-brand .brand-copy,
   .module-link span,
   .module-link small,
   .nav-group p,
   .system-status strong,
   .system-status em { display: none; }
   .brand-icon {
-    width: 42px;
-    height: 34px;
-    padding: 4px;
+    width: 48px;
+    height: 36px;
   }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
   .system-content { padding: var(--space-3); }
@@ -324,7 +325,7 @@ async function logout() {
     max-width: 240px;
   }
   .brand-icon {
-    width: 48px;
+    width: 96px;
     height: 40px;
   }
   .system-brand strong { font-size: var(--text-md); }
