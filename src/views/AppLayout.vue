@@ -125,9 +125,8 @@ async function logout() {
   grid-template-rows: auto auto 1fr auto;
   gap: var(--space-4);
   padding: var(--space-4);
-  background:
-    linear-gradient(180deg, #7DB7D8 0%, #6FAAD0 44%, #8EC6DF 100%);
-  border-right: 1px solid rgba(80, 132, 164, .24);
+  background: #4787F0;
+  border-right: 1px solid rgba(24, 80, 172, .22);
   color: #fff;
 }
 
@@ -142,15 +141,15 @@ async function logout() {
 }
 
 .brand-icon {
-  width: 124px;
-  height: 48px;
+  width: 136px;
+  height: 72px;
   display: grid;
   place-items: center;
   padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .brand-icon img {
@@ -158,7 +157,6 @@ async function logout() {
   height: 100%;
   object-fit: contain;
   display: block;
-  transform: scale(1.62);
 }
 
 .system-brand strong,
@@ -299,9 +297,9 @@ async function logout() {
   .nav-group p,
   .system-status strong,
   .system-status em { display: none; }
-  .brand-icon {
+.brand-icon {
     width: 48px;
-    height: 36px;
+    height: 42px;
   }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
   .system-content { padding: var(--space-3); }
@@ -325,8 +323,8 @@ async function logout() {
     max-width: 240px;
   }
   .brand-icon {
-    width: 96px;
-    height: 40px;
+    width: 112px;
+    height: 56px;
   }
   .system-brand strong { font-size: var(--text-md); }
   .system-brand em { font-size: 11px; }
