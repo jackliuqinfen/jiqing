@@ -6,7 +6,7 @@
     <section class="login-command">
       <div class="brand-block">
         <span class="brand-mark">
-          <img :src="brandLogo" alt="系统标识" />
+          <img :src="whiteLogo" alt="系统标识" />
         </span>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
@@ -136,6 +136,7 @@ import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 import brandLogo from '@/assets/aoqiang-construction-logo.svg'
+import whiteLogo from '@/assets/aoqiang-construction-logo-white.svg'
 
 type Particle = {
   x: number
