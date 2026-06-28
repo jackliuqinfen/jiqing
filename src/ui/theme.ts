@@ -20,6 +20,66 @@ function normalizeHexColor(value?: string) {
   return match ? `#${match[1].toUpperCase()}` : ''
 }
 
+export function normalizeArcoThemePackage(value?: string) {
+  const raw = String(value || '').trim()
+  return /^@arco-design\/theme-[a-z0-9-]+$/i.test(raw) ? raw : ''
+}
+
+export function arcoThemeCssUrl(themePackage: string) {
+  return `https://cdn.jsdelivr.net/npm/${themePackage}/css/arco.css`
+}
+
+function setArcoThemeLink(themePackage?: string) {
+  const id = 'dynamic-arco-theme-css'
+  const current = document.getElementById(id) as HTMLLinkElement | null
+  const normalized = normalizeArcoThemePackage(themePackage)
+  if (!normalized) {
+    current?.remove()
+    return
+  }
+  const href = arcoThemeCssUrl(normalized)
+  if (current?.href === href) return
+  const next = document.createElement('link')
+  next.id = id
+  next.rel = 'stylesheet'
+  next.href = href
+  current?.replaceWith(next)
+  if (!current) document.head.appendChild(next)
+}
+
+export function loadArcoThemePackage(themePackage: string): Promise<void> {
+  const normalized = normalizeArcoThemePackage(themePackage)
+  if (!normalized) return Promise.reject(new Error('请输入形如 @arco-design/theme-christmas 的主题字符'))
+  const href = arcoThemeCssUrl(normalized)
+  const existing = document.querySelector<HTMLLinkElement>(`link[data-arco-theme-test="${normalized}"]`)
+  if (existing?.dataset.loaded === 'true') return Promise.resolve()
+
+  return new Promise((resolve, reject) => {
+    const probe = document.createElement('link')
+    const timeout = window.setTimeout(() => {
+      probe.remove()
+      reject(new Error('主题加载超时，请检查主题字符或网络'))
+    }, 12000)
+
+    probe.rel = 'stylesheet'
+    probe.href = href
+    probe.dataset.arcoThemeTest = normalized
+    probe.onload = () => {
+      window.clearTimeout(timeout)
+      probe.dataset.loaded = 'true'
+      setArcoThemeLink(normalized)
+      probe.remove()
+      resolve()
+    }
+    probe.onerror = () => {
+      window.clearTimeout(timeout)
+      probe.remove()
+      reject(new Error('主题加载失败，请确认主题字符已发布且可访问'))
+    }
+    document.head.appendChild(probe)
+  })
+}
+
 function hexToRgb(hex: string) {
   const value = normalizeHexColor(hex).slice(1)
   return {
@@ -127,6 +187,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const brand = normalizeHexColor(setting.brandColor) || tokens.brand
   const brandDark = mixColor(brand, '#000000', 0.22)
   document.documentElement.dataset.theme = setting.themeKey
+  setArcoThemeLink(setting.themePackage)
   document.documentElement.dataset.compact = setting.compactMode ? 'true' : 'false'
   document.documentElement.dataset.dark = setting.darkMode || setting.themeKey === 'dark-command' ? 'true' : 'false'
 

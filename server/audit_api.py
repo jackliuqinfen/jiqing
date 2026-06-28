@@ -351,7 +351,7 @@ def seed_system_settings(conn):
         ("registration_open", {"enabled": False, "requireApproval": True}, "auth", "是否开放注册"),
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
-        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0"}, "theme", "当前主题"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": ""}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
         conn.execute(
@@ -1279,6 +1279,8 @@ class Handler(BaseHTTPRequestHandler):
         value = json.loads(setting["setting_value"]) if setting else {"themeKey": "arco-theme-0000"}
         if not value.get("brandColor"):
             value["brandColor"] = "#4787F0"
+        if not value.get("themePackage"):
+            value["themePackage"] = ""
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
         self.respond(200, {"success": True, "data": {**value, "theme": self.theme_payload(row) if row else None}})
 
@@ -1298,12 +1300,17 @@ class Handler(BaseHTTPRequestHandler):
         if brand_color and not brand_color.startswith("#"):
             brand_color = f"#{brand_color}"
         brand_color = brand_color.upper() or "#4787F0"
+        theme_package = str(data.get("themePackage") or "").strip()
+        if theme_package and not re.match(r"^@arco-design/theme-[a-z0-9-]+$", theme_package, re.IGNORECASE):
+            self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 开头的主题包名"})
+            return
         value = {
             "themeKey": theme_key,
             "darkMode": bool(data.get("darkMode")),
             "compactMode": bool(data.get("compactMode")),
             "applyScope": data.get("applyScope") or "global",
             "brandColor": brand_color,
+            "themePackage": theme_package,
         }
         ts = now_iso()
         conn.execute(
@@ -1324,7 +1331,7 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
-        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0"})
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": ""})
 
     def theme_payload(self, row):
         if not row:

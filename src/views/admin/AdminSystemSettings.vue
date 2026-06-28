@@ -52,6 +52,25 @@
           <span v-if="brandColorError" class="brand-color-error">{{ brandColorError }}</span>
         </div>
       </div>
+      <div class="theme-package-panel">
+        <div>
+          <span class="field-label">Arco 主题字符</span>
+          <strong>{{ themePackageInput || '未设置主题包' }}</strong>
+          <em>从 Arco Design 主题商店复制类似 @arco-design/theme-christmas 的字符，加载成功后会自动刷新并返回首页。</em>
+        </div>
+        <div class="theme-package-controls">
+          <input
+            v-model.trim="themePackageInput"
+            class="theme-package-input"
+            placeholder="@arco-design/theme-christmas"
+            :disabled="savingTheme"
+            @keyup.enter="applyThemePackage"
+          />
+          <t-button size="small" theme="primary" :loading="savingTheme" @click="applyThemePackage">切换主题包</t-button>
+          <t-button size="small" variant="outline" :disabled="savingTheme || !themeSettings.themePackage" @click="clearThemePackage">清除主题包</t-button>
+          <span v-if="themePackageError" class="theme-package-error">{{ themePackageError }}</span>
+        </div>
+      </div>
       <div class="theme-grid">
         <button
           v-for="theme in themeOptions"
@@ -184,6 +203,7 @@
 
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import type { ISpec } from '@visactor/vchart/esm/core'
 import {
   getCurrentTheme,
@@ -196,14 +216,16 @@ import {
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
-import { applyTheme } from '@/ui/theme'
+import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage } from '@/ui/theme'
 import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting } from '@/types'
 
 const authStore = useAuthStore()
+const router = useRouter()
 const savingReg = ref(false)
 const savingLogin = ref(false)
 const savingTheme = ref(false)
 const themeOptions = ref<ThemeOption[]>([])
+const themePackageInput = ref('')
 
 const regSettings = reactive<RegistrationSetting>({ enabled: false, requireApproval: true })
 const loginRulesSettings = reactive<LoginRulesSetting>({
@@ -215,6 +237,7 @@ const themeSettings = reactive<ThemeSetting>({
   compactMode: false,
   applyScope: 'global',
   brandColor: '#4787F0',
+  themePackage: '',
 })
 
 const applyScopeOptions = [
@@ -244,6 +267,11 @@ const normalizedBrandColor = computed(() => normalizeHexColor(themeSettings.bran
 
 const brandColorError = computed(() => {
   return normalizeHexColor(themeSettings.brandColor) ? '' : '请输入例如 #4787F0 的 6 位色号'
+})
+
+const themePackageError = computed(() => {
+  if (!themePackageInput.value) return ''
+  return normalizeArcoThemePackage(themePackageInput.value) ? '' : '请输入例如 @arco-design/theme-christmas 的主题字符'
 })
 
 const activePreviewColors = computed(() => {
@@ -314,7 +342,9 @@ onMounted(async () => {
       compactMode: currentTheme.compactMode,
       applyScope: currentTheme.applyScope,
       brandColor: currentTheme.brandColor || '#4787F0',
+      themePackage: currentTheme.themePackage || '',
     })
+    themePackageInput.value = currentTheme.themePackage || ''
     applyTheme(currentTheme)
   } catch { /* 默认值 */ }
 })
@@ -345,7 +375,9 @@ async function saveTheme() {
       compactMode: next.compactMode,
       applyScope: next.applyScope,
       brandColor: next.brandColor || normalizedBrandColor.value,
+      themePackage: next.themePackage || '',
     })
+    themePackageInput.value = next.themePackage || ''
     applyTheme(next)
     MessagePlugin.success('主题已切换')
   } catch (err) {
@@ -365,11 +397,77 @@ async function resetTheme() {
       compactMode: next.compactMode,
       applyScope: next.applyScope,
       brandColor: next.brandColor || '#4787F0',
+      themePackage: next.themePackage || '',
     })
+    themePackageInput.value = next.themePackage || ''
     applyTheme(next)
     MessagePlugin.success('已恢复默认主题')
   } catch {
     MessagePlugin.error('恢复失败')
+  } finally {
+    savingTheme.value = false
+  }
+}
+
+async function applyThemePackage() {
+  if (themePackageError.value) {
+    MessagePlugin.warning(themePackageError.value)
+    return
+  }
+  const nextPackage = normalizeArcoThemePackage(themePackageInput.value)
+  if (!nextPackage) {
+    MessagePlugin.warning('请输入主题字符')
+    return
+  }
+  savingTheme.value = true
+  try {
+    await loadArcoThemePackage(nextPackage)
+    const next = await updateCurrentTheme({
+      ...themeSettings,
+      brandColor: normalizedBrandColor.value,
+      themePackage: nextPackage,
+    })
+    Object.assign(themeSettings, {
+      themeKey: next.themeKey,
+      darkMode: next.darkMode,
+      compactMode: next.compactMode,
+      applyScope: next.applyScope,
+      brandColor: next.brandColor || normalizedBrandColor.value,
+      themePackage: next.themePackage || nextPackage,
+    })
+    MessagePlugin.success('主题包切换成功，即将返回首页')
+    window.setTimeout(() => {
+      router.replace('/')
+      window.location.reload()
+    }, 700)
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '主题包切换失败')
+  } finally {
+    savingTheme.value = false
+  }
+}
+
+async function clearThemePackage() {
+  savingTheme.value = true
+  try {
+    const next = await updateCurrentTheme({
+      ...themeSettings,
+      brandColor: normalizedBrandColor.value,
+      themePackage: '',
+    })
+    Object.assign(themeSettings, {
+      themeKey: next.themeKey,
+      darkMode: next.darkMode,
+      compactMode: next.compactMode,
+      applyScope: next.applyScope,
+      brandColor: next.brandColor || normalizedBrandColor.value,
+      themePackage: '',
+    })
+    themePackageInput.value = ''
+    applyTheme(next)
+    MessagePlugin.success('主题包已清除')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '清除失败')
   } finally {
     savingTheme.value = false
   }
@@ -415,7 +513,8 @@ async function saveLoginRules() {
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
 }
-.brand-color-panel {
+.brand-color-panel,
+.theme-package-panel {
   display: grid;
   grid-template-columns: minmax(220px, .75fr) minmax(360px, 1.25fr);
   gap: var(--space-4);
@@ -425,13 +524,15 @@ async function saveLoginRules() {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
 }
-.brand-color-panel strong {
+.brand-color-panel strong,
+.theme-package-panel strong {
   display: block;
   margin: 2px 0;
   color: var(--text-primary);
   font-size: var(--text-lg);
 }
-.brand-color-panel em {
+.brand-color-panel em,
+.theme-package-panel em {
   display: block;
   color: var(--text-secondary);
   font-size: var(--text-xs);
@@ -466,6 +567,30 @@ async function saveLoginRules() {
 }
 .brand-color-error {
   grid-column: 2 / -1;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+.theme-package-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+.theme-package-input {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+.theme-package-input:focus {
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 2px var(--color-brand-50);
+}
+.theme-package-error {
+  grid-column: 1 / -1;
   color: var(--color-danger);
   font-size: var(--text-xs);
 }
@@ -705,10 +830,12 @@ async function saveLoginRules() {
   .theme-grid { grid-template-columns: 1fr; }
   .theme-current { align-items: flex-start; flex-direction: column; }
   .brand-color-panel,
+  .theme-package-panel,
   .theme-scope-panel,
   .theme-preview-board { grid-template-columns: 1fr; }
   .brand-color-controls { grid-template-columns: 44px minmax(0, 1fr); }
   .brand-color-controls :deep(.arco-btn) { grid-column: 1 / -1; }
+  .theme-package-controls { grid-template-columns: 1fr; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .theme-preview-card { padding: var(--space-3); }

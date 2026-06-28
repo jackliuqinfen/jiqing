@@ -310,6 +310,7 @@ export interface ThemeSetting {
   compactMode: boolean
   applyScope: string
   brandColor?: string
+  themePackage?: string
 }
 
 export interface ThemeOption {
