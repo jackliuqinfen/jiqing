@@ -157,6 +157,7 @@ async function logout() {
   height: 100%;
   object-fit: contain;
   display: block;
+  transform: scale(1.7);
 }
 
 .system-brand strong,
