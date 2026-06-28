@@ -20,6 +20,17 @@ function normalizeHexColor(value?: string) {
   return match ? `#${match[1].toUpperCase()}` : ''
 }
 
+function relativeLuminance(hex: string) {
+  const { r, g, b } = hexToRgb(hex)
+  const channel = (value: number) => {
+    const normalized = value / 255
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+}
+
 export function normalizeArcoThemePackage(value?: string) {
   const raw = String(value || '').trim()
   return /^@(arco-design\/theme|arco-themes\/vue)-[a-z0-9-]+$/i.test(raw) ? raw : ''
@@ -103,6 +114,17 @@ function mixColor(color: string, target: string, weight: number) {
   })
 }
 
+export function sanitizeBrandColor(value?: string, fallback = '#4787F0') {
+  const normalized = normalizeHexColor(value)
+  const safeFallback = normalizeHexColor(fallback) || '#4787F0'
+  if (!normalized) return safeFallback
+  if (relativeLuminance(normalized) <= 0.82) return normalized
+  const darker = mixColor(normalized, '#000000', 0.45)
+  if (relativeLuminance(darker) <= 0.82) return darker
+  const darkerFallback = mixColor(normalized, '#000000', 0.6)
+  return relativeLuminance(darkerFallback) <= 0.82 ? darkerFallback : safeFallback
+}
+
 const themeTokens: Record<string, ThemeTokens> = {
   'arco-theme-0000': {
     brand: '#4787F0',
@@ -184,7 +206,7 @@ function setVar(name: string, value: string) {
 
 export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const tokens = themeTokens[setting.themeKey] || themeTokens['arco-theme-0000']
-  const brand = normalizeHexColor(setting.brandColor) || tokens.brand
+  const brand = sanitizeBrandColor(setting.brandColor, tokens.brand)
   const brandDark = mixColor(brand, '#000000', 0.22)
   document.documentElement.dataset.theme = setting.themeKey
   setArcoThemeLink(setting.themePackage)

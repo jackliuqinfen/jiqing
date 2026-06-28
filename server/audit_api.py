@@ -59,6 +59,63 @@ def new_id():
     return str(uuid.uuid4())
 
 
+def normalize_hex_color(value):
+    raw = str(value or "").strip()
+    match = re.fullmatch(r"#?([0-9a-fA-F]{6})", raw)
+    return f"#{match.group(1).upper()}" if match else ""
+
+
+def hex_to_rgb(hex_value):
+    value = normalize_hex_color(hex_value).lstrip("#")
+    return (
+        int(value[0:2], 16),
+        int(value[2:4], 16),
+        int(value[4:6], 16),
+    )
+
+
+def rgb_to_hex(rgb):
+    return "#{:02X}{:02X}{:02X}".format(
+        max(0, min(255, round(rgb[0]))),
+        max(0, min(255, round(rgb[1]))),
+        max(0, min(255, round(rgb[2]))),
+    )
+
+
+def mix_color(color, target, weight):
+    from_r, from_g, from_b = hex_to_rgb(color)
+    to_r, to_g, to_b = hex_to_rgb(target)
+    return rgb_to_hex((
+        from_r * (1 - weight) + to_r * weight,
+        from_g * (1 - weight) + to_g * weight,
+        from_b * (1 - weight) + to_b * weight,
+    ))
+
+
+def relative_luminance(hex_value):
+    r, g, b = hex_to_rgb(hex_value)
+
+    def channel(value):
+        normalized = value / 255
+        return normalized / 12.92 if normalized <= 0.03928 else ((normalized + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def sanitize_brand_color(value, fallback="#4787F0"):
+    normalized = normalize_hex_color(value)
+    safe_fallback = normalize_hex_color(fallback) or "#4787F0"
+    if not normalized:
+        return safe_fallback
+    if relative_luminance(normalized) <= 0.82:
+        return normalized
+    darker = mix_color(normalized, "#000000", 0.45)
+    if relative_luminance(darker) <= 0.82:
+        return darker
+    darker_fallback = mix_color(normalized, "#000000", 0.6)
+    return darker_fallback if relative_luminance(darker_fallback) <= 0.82 else safe_fallback
+
+
 def token_secret():
     secret = os.environ.get("TOKEN_SECRET") or os.environ.get("SESSION_SECRET")
     if secret:
@@ -1277,8 +1334,7 @@ class Handler(BaseHTTPRequestHandler):
     def theme_current(self, conn):
         setting = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'current_theme'").fetchone()
         value = json.loads(setting["setting_value"]) if setting else {"themeKey": "arco-theme-0000"}
-        if not value.get("brandColor"):
-            value["brandColor"] = "#4787F0"
+        value["brandColor"] = sanitize_brand_color(value.get("brandColor"), "#4787F0")
         if not value.get("themePackage"):
             value["themePackage"] = ""
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
@@ -1297,9 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
         if brand_color and not re.match(r"^#?[0-9a-fA-F]{6}$", brand_color):
             self.respond(400, {"success": False, "error": "品牌色号格式不正确，请输入 6 位 HEX 色号"})
             return
-        if brand_color and not brand_color.startswith("#"):
-            brand_color = f"#{brand_color}"
-        brand_color = brand_color.upper() or "#4787F0"
+        brand_color = sanitize_brand_color(brand_color, "#4787F0")
         theme_package = str(data.get("themePackage") or "").strip()
         if theme_package and not re.match(r"^@(arco-design/theme|arco-themes/vue)-[a-z0-9-]+$", theme_package, re.IGNORECASE):
             self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 或 @arco-themes/vue- 开头的主题包名"})
