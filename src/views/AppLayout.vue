@@ -2,7 +2,7 @@
   <div class="system-shell">
     <aside class="system-sidebar">
       <router-link to="/" class="system-brand" aria-label="江苏集庆·工程管理系统">
-        <span class="brand-icon"><img :src="jiqingLogo" alt="" /></span>
+        <span class="brand-icon"><img :src="brandLogo" alt="" /></span>
         <span>
           <strong>江苏集庆</strong>
           <em>工程管理系统</em>
@@ -84,7 +84,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
-import jiqingLogo from '@/assets/jiqing-construction-logo-cropped.jpg'
+import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
 const router = useRouter()
 const route = useRoute()

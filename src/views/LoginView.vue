@@ -6,7 +6,7 @@
     <section class="login-command">
       <div class="brand-block">
         <span class="brand-mark">
-          <img :src="jiqingLogo" alt="江苏集庆建设" />
+          <img :src="brandLogo" alt="系统标识" />
         </span>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
@@ -42,7 +42,7 @@
     <section class="login-panel" aria-label="登录">
       <div class="panel-card">
         <div class="panel-logo">
-          <img :src="jiqingLogo" alt="江苏集庆建设" />
+          <img :src="brandLogo" alt="系统标识" />
         </div>
         <div class="form-header">
           <span>内部系统登录</span>
@@ -135,7 +135,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
-import jiqingLogo from '@/assets/jiqing-construction-logo-cropped.jpg'
+import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
 type Particle = {
   x: number
