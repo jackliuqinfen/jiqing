@@ -502,7 +502,7 @@ const moduleStatus = [
 
 .range-switch button.active {
   background: var(--color-brand-500);
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .console-health-grid {

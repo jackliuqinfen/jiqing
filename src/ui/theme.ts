@@ -31,6 +31,10 @@ function relativeLuminance(hex: string) {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 }
 
+function isLightColor(hex: string) {
+  return relativeLuminance(hex) > 0.82
+}
+
 export function normalizeArcoThemePackage(value?: string) {
   const raw = String(value || '').trim()
   return /^@(arco-design\/theme|arco-themes\/vue)-[a-z0-9-]+$/i.test(raw) ? raw : ''
@@ -206,8 +210,10 @@ function setVar(name: string, value: string) {
 
 export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const tokens = themeTokens[setting.themeKey] || themeTokens['arco-theme-0000']
-  const brand = sanitizeBrandColor(setting.brandColor, tokens.brand)
+  const brand = normalizeHexColor(setting.brandColor) || tokens.brand
   const brandDark = mixColor(brand, '#000000', 0.22)
+  const brandInk = isLightColor(brand) ? tokens.brand : brand
+  const textOnBrand = isLightColor(brand) ? tokens.brand : '#FFFFFF'
   document.documentElement.dataset.theme = setting.themeKey
   setArcoThemeLink(setting.themePackage)
   document.documentElement.dataset.compact = setting.compactMode ? 'true' : 'false'
@@ -221,6 +227,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   setVar('--color-brand-500', brand)
   setVar('--color-brand-600', brandDark)
   setVar('--color-brand-700', mixColor(brand, '#000000', 0.34))
+  setVar('--color-brand-ink', brandInk)
   setVar('--color-success', tokens.success)
   setVar('--color-warning', tokens.warning)
   setVar('--bg-page', tokens.page)
@@ -234,6 +241,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   setVar('--divider-color', tokens.border)
   setVar('--color-primary-6', brand)
   setVar('--color-primary-7', brandDark)
+  setVar('--text-on-brand', textOnBrand)
 }
 
 export async function initThemePreference() {

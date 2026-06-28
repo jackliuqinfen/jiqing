@@ -6,7 +6,7 @@
     <section class="login-command">
       <div class="brand-block">
         <span class="brand-mark">
-          <img :src="whiteLogo" alt="系统标识" />
+          <img :src="brandLogo" alt="系统标识" />
         </span>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
@@ -136,7 +136,6 @@ import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 import brandLogo from '@/assets/aoqiang-construction-logo.svg'
-import whiteLogo from '@/assets/aoqiang-construction-logo-white.svg'
 
 type Particle = {
   x: number
@@ -298,7 +297,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr);
   overflow: hidden;
   position: relative;
-  color: #fff;
+  color: var(--text-on-brand);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--color-brand-500), #ffffff 6%), var(--color-brand-600)),
     var(--color-brand-500);
@@ -368,14 +367,14 @@ onBeforeUnmount(stopBackgroundAnimation)
 
 .brand-block h1 {
   margin: 0;
-  color: #fff;
+  color: inherit;
   font-size: var(--text-2xl);
   line-height: 1.18;
 }
 
 .brand-block p {
   margin: 4px 0 0;
-  color: rgba(255, 255, 255, .58);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 42%);
   font-size: var(--text-xs);
   letter-spacing: 0;
 }
@@ -392,7 +391,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: rgba(255, 255, 255, .84);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 16%);
   font-size: var(--text-sm);
 }
 
@@ -406,7 +405,7 @@ onBeforeUnmount(stopBackgroundAnimation)
 .command-copy h2 {
   max-width: 640px;
   margin: 0;
-  color: #fff;
+  color: inherit;
   font-size: 42px;
   line-height: 1.16;
   font-weight: 700;
@@ -415,7 +414,7 @@ onBeforeUnmount(stopBackgroundAnimation)
 .command-copy p {
   max-width: 620px;
   margin: 0;
-  color: rgba(255, 255, 255, .78);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 22%);
   font-size: var(--text-md);
 }
 
@@ -432,20 +431,20 @@ onBeforeUnmount(stopBackgroundAnimation)
   align-content: center;
   gap: 4px;
   padding: var(--space-4);
-  background: rgba(255, 255, 255, .14);
-  border: 1px solid rgba(255, 255, 255, .22);
+  background: color-mix(in srgb, var(--text-on-brand), transparent 86%);
+  border: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 80%);
   border-radius: var(--radius-lg);
 }
 
 .signal-board span,
 .signal-board em {
-  color: rgba(255, 255, 255, .55);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 45%);
   font-size: var(--text-xs);
   font-style: normal;
 }
 
 .signal-board strong {
-  color: #fff;
+  color: inherit;
   font-size: var(--text-xl);
 }
 
@@ -458,7 +457,7 @@ onBeforeUnmount(stopBackgroundAnimation)
   padding: var(--space-8);
   background: var(--bg-page);
   color: var(--text-primary);
-  border-left: 1px solid rgba(255, 255, 255, .16);
+  border-left: 1px solid color-mix(in srgb, var(--color-brand-ink), transparent 84%);
 }
 
 .panel-card {
@@ -489,7 +488,7 @@ onBeforeUnmount(stopBackgroundAnimation)
 .form-header span {
   display: block;
   margin-bottom: var(--space-2);
-  color: var(--color-brand-500);
+  color: var(--color-brand-ink);
   font-size: var(--text-xs);
   font-weight: 600;
 }
@@ -536,7 +535,7 @@ onBeforeUnmount(stopBackgroundAnimation)
 
 .auth-tab.active {
   background: var(--bg-surface);
-  color: var(--color-brand-500);
+  color: var(--color-brand-ink);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }

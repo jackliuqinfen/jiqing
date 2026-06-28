@@ -88,9 +88,9 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   display: flex;
   flex-direction: column;
   background: var(--color-brand-500);
-  border-right: 1px solid rgba(24, 80, 172, .18);
+  border-right: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 82%);
   flex-shrink: 0;
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .sidebar-header {
@@ -98,14 +98,14 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-5) var(--space-4);
-  border-bottom: 1px solid rgba(255, 255, 255, .24);
+  border-bottom: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 76%);
 }
 
 .sidebar-logo {
   width: 34px; height: 34px;
-  background: rgba(255, 255, 255, .18);
-  border: 1px solid rgba(255, 255, 255, .28);
-  color: #FFFFFF;
+  background: color-mix(in srgb, var(--text-on-brand), transparent 82%);
+  border: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 72%);
+  color: var(--text-on-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,12 +117,12 @@ const userInitials = computed(() => getInitials(authStore.displayName))
 .sidebar-title {
   font-size: var(--text-sm);
   font-weight: 700;
-  color: #fff;
+  color: var(--text-on-brand);
 }
 
 .sidebar-subtitle {
   font-size: 10px;
-  color: rgba(255, 255, 255, .72);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 28%);
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -144,32 +144,32 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
-  color: rgba(255, 255, 255, .88);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 12%);
   text-decoration: none;
   transition: all var(--duration-fast);
 }
 
 .nav-item:hover {
-  background: rgba(255, 255, 255, .16);
-  color: #fff;
+  background: color-mix(in srgb, var(--text-on-brand), transparent 84%);
+  color: var(--text-on-brand);
 }
 
 .nav-item--active {
-  background: rgba(255, 255, 255, .22);
-  border-color: rgba(255, 255, 255, .38);
-  color: #fff;
+  background: color-mix(in srgb, var(--text-on-brand), transparent 78%);
+  border-color: color-mix(in srgb, var(--text-on-brand), transparent 62%);
+  color: var(--text-on-brand);
   font-weight: 500;
 }
 
 .nav-item--active:hover {
-  background: rgba(255, 255, 255, .22);
-  color: #fff;
+  background: color-mix(in srgb, var(--text-on-brand), transparent 78%);
+  color: var(--text-on-brand);
 }
 
 /* 底部 */
 .sidebar-footer {
   padding: var(--space-3) var(--space-2);
-  border-top: 1px solid rgba(255, 255, 255, .24);
+  border-top: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 76%);
 }
 
 .nav-item--back {
@@ -182,14 +182,14 @@ const userInitials = computed(() => getInitials(authStore.displayName))
   align-items: center;
   gap: var(--space-2);
   padding: 6px var(--space-2);
-  background: rgba(255, 255, 255, .16);
-  border: 1px solid rgba(255, 255, 255, .22);
+  background: color-mix(in srgb, var(--text-on-brand), transparent 84%);
+  border: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 78%);
   border-radius: var(--radius-md);
 }
 
 .sidebar-user-info { display: flex; flex-direction: column; min-width: 0; }
-.sidebar-user-name { font-size: var(--text-xs); font-weight: 500; color: #fff; }
-.sidebar-user-role { font-size: 10px; color: rgba(255, 255, 255, .7); }
+.sidebar-user-name { font-size: var(--text-xs); font-weight: 500; color: var(--text-on-brand); }
+.sidebar-user-role { font-size: 10px; color: color-mix(in srgb, var(--text-on-brand), transparent 30%); }
 
 /* 主区 */
 .admin-main {

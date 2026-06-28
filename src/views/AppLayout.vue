@@ -2,7 +2,7 @@
   <div class="system-shell">
     <aside class="system-sidebar">
       <router-link to="/" class="system-brand" aria-label="江苏集庆·工程管理系统">
-        <span class="brand-icon"><img :src="whiteLogo" alt="" /></span>
+        <span class="brand-icon"><img :src="brandLogo" alt="" /></span>
         <span class="brand-copy">
           <strong>工程管理系统</strong>
           <em>Engineering Console</em>
@@ -84,7 +84,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
-import whiteLogo from '@/assets/aoqiang-construction-logo-white.svg'
+import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
 const router = useRouter()
 const route = useRoute()
@@ -124,8 +124,8 @@ async function logout() {
   gap: var(--space-5);
   padding: var(--space-4) var(--space-3);
   background: var(--color-brand-500);
-  border-right: 1px solid rgba(24, 80, 172, .18);
-  color: #fff;
+  border-right: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 82%);
+  color: var(--text-on-brand);
 }
 
 .system-brand {
@@ -134,9 +134,9 @@ async function logout() {
   gap: var(--space-3);
   min-height: 204px;
   padding: var(--space-2) var(--space-2) var(--space-3);
-  color: #fff;
+  color: var(--text-on-brand);
   text-decoration: none;
-  border-bottom: 1px solid rgba(255, 255, 255, .24);
+  border-bottom: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 76%);
 }
 
 .brand-icon {
@@ -170,7 +170,7 @@ async function logout() {
 
 .brand-copy { display: grid; gap: 3px; padding-left: 1px; }
 .system-brand strong { font-size: var(--text-md); font-weight: 700; }
-.system-brand em { color: rgba(255, 255, 255, .76); font-size: 11px; }
+.system-brand em { color: color-mix(in srgb, var(--text-on-brand), transparent 24%); font-size: 11px; }
 
 .module-nav,
 .nav-group {
@@ -181,13 +181,13 @@ async function logout() {
 .nav-group {
   align-self: start;
   padding-top: var(--space-3);
-  border-top: 1px solid rgba(255, 255, 255, .26);
+  border-top: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 74%);
 }
 
 .nav-group p {
   margin: 0 0 var(--space-1);
   padding: 0 var(--space-3);
-  color: rgba(255, 255, 255, .68);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 32%);
   font-size: var(--text-xs);
 }
 
@@ -201,7 +201,7 @@ async function logout() {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  color: rgba(255, 255, 255, .88);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 12%);
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -210,15 +210,15 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(255, 255, 255, .2);
-  border-color: rgba(255, 255, 255, .38);
-  color: #fff;
+  background: color-mix(in srgb, var(--text-on-brand), transparent 80%);
+  border-color: color-mix(in srgb, var(--text-on-brand), transparent 62%);
+  color: var(--text-on-brand);
 }
 
 .module-link :deep(.t-icon) { flex: 0 0 auto; }
 .module-link span { flex: 1; min-width: 0; }
 .module-link small {
-  color: rgba(255, 255, 255, .74);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 26%);
   font-size: 10px;
 }
 
@@ -228,7 +228,7 @@ async function logout() {
 
 .sidebar-foot {
   padding-top: var(--space-4);
-  border-top: 1px solid rgba(255, 255, 255, .26);
+  border-top: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 74%);
 }
 
 .system-status {
@@ -236,7 +236,7 @@ async function logout() {
   grid-template-columns: auto 1fr;
   gap: 2px 8px;
   align-items: center;
-  color: rgba(255, 255, 255, .88);
+  color: color-mix(in srgb, var(--text-on-brand), transparent 12%);
 }
 
 .system-status span {
@@ -247,7 +247,7 @@ async function logout() {
 }
 
 .system-status strong { font-size: var(--text-xs); font-weight: 600; }
-.system-status em { font-size: 10px; font-style: normal; color: rgba(255, 255, 255, .68); }
+.system-status em { font-size: 10px; font-style: normal; color: color-mix(in srgb, var(--text-on-brand), transparent 32%); }
 
 .system-main {
   min-width: 0;

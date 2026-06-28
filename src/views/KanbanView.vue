@@ -712,8 +712,8 @@ async function logout() {
   height: 36px;
   display: grid;
   place-items: center;
-  background: var(--color-brand-500);
-  color: #fff;
+  background: var(--color-brand-ink);
+  color: var(--text-on-brand);
 }
 .brand h1 { font-size: var(--text-xl); margin: 0; }
 .brand p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0; }
@@ -738,7 +738,7 @@ async function logout() {
   cursor: pointer;
 }
 .segmented button:last-child { border-right: 0; }
-.segmented button.active { background: var(--color-brand-500); color: #fff; }
+.segmented button.active { background: var(--color-brand-500); color: var(--text-on-brand); }
 
 .audit-main { padding: var(--space-5); }
 .audit-shell--embedded .audit-main { padding: 0; }
@@ -891,7 +891,7 @@ async function logout() {
   position: absolute;
   top: 14px;
   height: 26px;
-  color: #fff;
+  color: var(--text-on-brand);
   font-size: 11px;
   display: flex;
   align-items: center;
@@ -974,7 +974,7 @@ async function logout() {
   padding: 6px 10px;
   cursor: pointer;
 }
-.stage-actions button.active { background: var(--color-brand-500); border-color: var(--color-brand-500); color: #fff; }
+.stage-actions button.active { background: var(--color-brand-500); border-color: var(--color-brand-500); color: var(--text-on-brand); }
 .stage-history p, .attachment-box p, .log-box p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 6px; }
 .attachment-input { display: none; }
 .attachment-list { display: grid; gap: var(--space-2); }

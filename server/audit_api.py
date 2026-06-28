@@ -1334,7 +1334,7 @@ class Handler(BaseHTTPRequestHandler):
     def theme_current(self, conn):
         setting = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'current_theme'").fetchone()
         value = json.loads(setting["setting_value"]) if setting else {"themeKey": "arco-theme-0000"}
-        value["brandColor"] = sanitize_brand_color(value.get("brandColor"), "#4787F0")
+        value["brandColor"] = normalize_hex_color(value.get("brandColor")) or "#4787F0"
         if not value.get("themePackage"):
             value["themePackage"] = ""
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
@@ -1353,7 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
         if brand_color and not re.match(r"^#?[0-9a-fA-F]{6}$", brand_color):
             self.respond(400, {"success": False, "error": "品牌色号格式不正确，请输入 6 位 HEX 色号"})
             return
-        brand_color = sanitize_brand_color(brand_color, "#4787F0")
+        brand_color = normalize_hex_color(brand_color) or "#4787F0"
         theme_package = str(data.get("themePackage") or "").strip()
         if theme_package and not re.match(r"^@(arco-design/theme|arco-themes/vue)-[a-z0-9-]+$", theme_package, re.IGNORECASE):
             self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 或 @arco-themes/vue- 开头的主题包名"})

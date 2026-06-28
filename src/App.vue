@@ -34,6 +34,7 @@ onMounted(async () => {
   --color-brand-700: #164FB6;
   --color-brand-800: #0028A3;
   --color-brand-900: #001C85;
+  --color-brand-ink: #4787F0;
 
   /* ── 中性灰阶（纯色冷静灰） ── */
   --color-gray-0: #FFFFFF;
@@ -89,6 +90,7 @@ onMounted(async () => {
   --text-disabled: #B0B7C3;
   --text-inverse: #FFFFFF;
   --text-link: #4787F0;
+  --text-on-brand: #FFFFFF;
 
   /* ── 间距（4px 基准） ── */
   --space-1: 4px;

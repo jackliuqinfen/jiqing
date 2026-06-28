@@ -31,7 +31,6 @@
           <span class="field-label">品牌主色</span>
           <strong>{{ normalizedBrandColor }}</strong>
           <em>输入 6 位 HEX 色号，保存后侧栏、按钮、激活态和主题预览会全局更新。</em>
-          <em v-if="brandColorNotice">{{ brandColorNotice }}</em>
         </div>
         <div class="brand-color-controls">
           <input
@@ -236,7 +235,7 @@ import {
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
-import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage, sanitizeBrandColor } from '@/ui/theme'
+import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage } from '@/ui/theme'
 import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting } from '@/types'
 
 const authStore = useAuthStore()
@@ -296,7 +295,7 @@ function getThemePackageBrandColor() {
   const candidates = ['--primary-6', '--color-primary-6', '--arcoblue-6']
   for (const key of candidates) {
     const color = rgbToHex(styles.getPropertyValue(key).trim())
-    if (color) return sanitizeBrandColor(color, normalizedBrandColor.value)
+    if (color) return color
   }
   return normalizedBrandColor.value
 }
@@ -305,16 +304,10 @@ function updateBrandColor(event: Event) {
   themeSettings.brandColor = (event.target as HTMLInputElement).value
 }
 
-const normalizedBrandColor = computed(() => sanitizeBrandColor(themeSettings.brandColor, '#4787F0'))
+const normalizedBrandColor = computed(() => normalizeHexColor(themeSettings.brandColor) || '#4787F0')
 
 const brandColorError = computed(() => {
   return normalizeHexColor(themeSettings.brandColor) ? '' : '请输入例如 #4787F0 的 6 位色号'
-})
-
-const brandColorNotice = computed(() => {
-  const input = normalizeHexColor(themeSettings.brandColor)
-  if (!input) return ''
-  return input === normalizedBrandColor.value ? '' : `颜色过浅，系统已自动收敛为 ${normalizedBrandColor.value}`
 })
 
 const themePackageError = computed(() => {
@@ -416,11 +409,7 @@ async function saveTheme() {
   }
   savingTheme.value = true
   try {
-    const inputBrand = normalizeHexColor(themeSettings.brandColor)
     const next = await updateCurrentTheme({ ...themeSettings, brandColor: normalizedBrandColor.value })
-    if (inputBrand && inputBrand !== normalizedBrandColor.value) {
-      MessagePlugin.warning(`颜色过浅，已自动调整为 ${normalizedBrandColor.value}`)
-    }
     Object.assign(themeSettings, {
       themeKey: next.themeKey,
       darkMode: next.darkMode,
@@ -489,7 +478,7 @@ async function applyThemePackage() {
     })
     themePackageInput.value = next.themePackage || nextPackage
     pendingThemePackage.value = next.themePackage || nextPackage
-    pendingThemeBrandColor.value = sanitizeBrandColor(getThemePackageBrandColor(), normalizedBrandColor.value)
+    pendingThemeBrandColor.value = getThemePackageBrandColor()
     brandFollowDecisionHandled.value = false
     brandFollowDialogVisible.value = true
     MessagePlugin.success('主题包切换成功')
@@ -800,7 +789,7 @@ async function saveLoginRules() {
 }
 .scope-switch button.active {
   background: var(--color-brand-500);
-  color: #fff;
+  color: var(--text-on-brand);
 }
 .theme-preview-board {
   min-width: 0;
@@ -848,7 +837,7 @@ async function saveLoginRules() {
   gap: var(--space-3);
   padding: var(--space-3);
   background: linear-gradient(180deg, color-mix(in srgb, var(--preview-brand), #0b1220 68%), #0b1220);
-  color: #fff;
+  color: var(--text-on-brand);
 }
 .preview-sidebar i {
   width: 28px;
