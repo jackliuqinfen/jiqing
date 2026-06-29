@@ -219,6 +219,10 @@
           <div class="detail-status">
             <span class="stage-pill">{{ stageTitle(store.selectedProject.stage) }}</span>
             <span :class="{ overdue: isOverdue(store.selectedProject) }">期限 {{ store.selectedProject.deadline.auditDeadline || '-' }}</span>
+            <t-button v-if="store.selectedProject.projectId" size="small" variant="text" theme="default" @click="goProject(store.selectedProject.projectId)">
+              <template #icon><t-icon name="task" /></template>
+              项目台账
+            </t-button>
           </div>
           <dl class="detail-grid">
             <template v-for="field in store.detailFields" :key="field.id">
@@ -307,7 +311,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob } from '@/api/audit'
 import { useAuditStore } from '@/store/audit'
@@ -315,6 +319,7 @@ import { useAuthStore } from '@/store/auth'
 import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
 
 const router = useRouter()
+const route = useRoute()
 const store = useAuditStore()
 const authStore = useAuthStore()
 defineProps<{ embedded?: boolean }>()
@@ -357,8 +362,23 @@ const summaryCards = computed(() => [
   { label: '送审金额', value: money(store.summary.totalSubmittedAmount), hint: '全部项目合计' },
 ])
 
-onMounted(() => {
-  store.refreshAll()
+onMounted(async () => {
+  await store.refreshAll()
+  const projectId = String(route.query.projectId || '').trim()
+  if (projectId) {
+    const target = store.projects.find((item) => item.id === projectId) || null
+    if (target) {
+      await openDetail(target)
+    } else {
+      try {
+        await store.selectProject({ id: projectId } as AuditProject)
+        detailVisible.value = true
+        editing.value = false
+      } catch {
+        MessagePlugin.warning('已进入审计看板，但未找到对应项目，请先确认项目是否已同步到审计模块')
+      }
+    }
+  }
 })
 
 function money(value: number) {
@@ -381,6 +401,10 @@ function stageTitle(code: string) {
 
 function stageCount(code: string) {
   return store.projectsByStage[code]?.length || 0
+}
+
+function goProject(projectId: string) {
+  router.push({ path: '/project-management', query: { projectId } })
 }
 
 function isOverdue(project: AuditProject) {

@@ -25,6 +25,31 @@ STAGES = [
     ("conclusion", "定案结论", "#14B8A6"),
     ("archived", "办结归档", "#8E95A3"),
 ]
+PROJECT_DOCUMENT_CATEGORIES = [
+    ("contract", "合同文件", "合同、补充协议、合同清单等", 1),
+    ("drawing", "图纸资料", "施工图、竣工图、设计变更图纸等", 1),
+    ("settlement_book", "竣工结算书", "施工单位报送的结算书和汇总表", 1),
+    ("visa_change", "变更签证", "现场签证、工程变更、联系单等", 1),
+    ("first_audit", "一审资料", "一审过程材料、审核意见和确认资料", 1),
+    ("second_audit", "二审资料", "二审复核材料、复核意见和确认资料", 1),
+    ("payment", "付款资料", "付款申请、付款凭证、付款节点资料", 0),
+    ("other", "其他资料", "项目相关补充资料", 0),
+]
+PROJECT_STATUSES = {
+    "not_started": "未开始",
+    "active": "进行中",
+    "settlement": "结算中",
+    "completed": "已完成",
+    "paused": "暂停",
+}
+SETTLEMENT_STATUSES = {
+    "not_started": "未开始",
+    "pending": "待处理",
+    "reviewing": "审核中",
+    "approved": "已确认",
+    "paid": "已付款",
+    "rejected": "已退回",
+}
 FORBIDDEN_ATTACHMENT_SUFFIXES = (
     ".zip",
     ".rar",
@@ -274,6 +299,46 @@ def parse_multipart_file(handler):
     raise ValueError("未找到上传文件")
 
 
+def parse_multipart_form(handler):
+    content_type = handler.headers.get("Content-Type", "")
+    match = re.search(r"boundary=(?P<boundary>\"[^\"]+\"|[^;]+)", content_type)
+    if "multipart/form-data" not in content_type or not match:
+        raise ValueError("请使用 multipart/form-data 上传文件")
+    boundary = match.group("boundary").strip('"').encode("utf-8")
+    length = int(handler.headers.get("Content-Length") or "0")
+    limit = max_upload_size()
+    if length <= 0:
+        raise ValueError("上传内容为空")
+    if length > limit:
+        raise ValueError(f"文件不能超过 {limit // 1024 // 1024}MB")
+    raw = handler.rfile.read(length)
+    if len(raw) != length:
+        raise ValueError("上传内容不完整，请重试")
+
+    fields = {}
+    file_part = None
+    delimiter = b"--" + boundary
+    for part in raw.split(delimiter):
+        part = part.strip(b"\r\n")
+        if not part or part == b"--" or b"\r\n\r\n" not in part:
+            continue
+        header_blob, body = part.split(b"\r\n\r\n", 1)
+        headers = header_blob.decode("iso-8859-1", errors="ignore")
+        disposition = next((line for line in headers.split("\r\n") if line.lower().startswith("content-disposition:")), "")
+        name_match = re.search(r'name="([^"]*)"', disposition)
+        if not name_match:
+            continue
+        field_name = name_match.group(1)
+        filename_match = re.search(r'filename="([^"]*)"', disposition)
+        if filename_match:
+            file_part = (filename_match.group(1), body.rstrip(b"\r\n"))
+        else:
+            fields[field_name] = body.rstrip(b"\r\n").decode("utf-8", errors="replace").strip()
+    if not file_part:
+        raise ValueError("未找到上传文件")
+    return fields, file_part
+
+
 def attachment_payload(row):
     original_name = row_get(row, "original_name") or row_get(row, "file_name")
     mime_type = row_get(row, "mime_type") or row_get(row, "file_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
@@ -325,6 +390,7 @@ def project_payload(conn, row):
     custom_fields = {v["field_key"]: v["field_value"] for v in values}
     return {
         "id": row["id"],
+        "projectId": row["project_id"] or "",
         "projectCode": row["project_code"] or row["settlement_no"],
         "projectName": row["project_name"],
         "auditedUnit": row["audited_unit"] or row["second_audit_department"],
@@ -361,6 +427,253 @@ def project_payload(conn, row):
     }
 
 
+def category_payload(row):
+    return {
+        "id": row["id"],
+        "categoryKey": row["category_key"],
+        "categoryName": row["category_name"],
+        "description": row["description"],
+        "required": bool(row["required"]),
+        "sortOrder": row["sort_order"],
+        "enabled": bool(row["enabled"]),
+    }
+
+
+def project_file_payload(row):
+    original_name = row_get(row, "original_name") or row_get(row, "display_name")
+    mime_type = row_get(row, "mime_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    file_ext = row_get(row, "file_ext") or Path(original_name).suffix.lower()
+    can_preview = mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "projectName": row_get(row, "project_name"),
+        "projectCode": row_get(row, "project_code"),
+        "categoryKey": row["category_key"],
+        "categoryName": row_get(row, "category_name") or row["category_key"],
+        "displayName": row["display_name"],
+        "originalName": original_name,
+        "storedName": row["stored_name"],
+        "fileExt": file_ext,
+        "mimeType": mime_type,
+        "fileSize": int(row_get(row, "file_size", 0) or 0),
+        "versionNo": int(row_get(row, "version_no", 1) or 1),
+        "isCurrent": bool(row_get(row, "is_current", 1)),
+        "uploadedBy": row_get(row, "uploaded_by"),
+        "uploadedByName": row_get(row, "uploaded_by_name") or row_get(row, "uploaded_by"),
+        "uploadedAt": row_get(row, "uploaded_at"),
+        "previewUrl": f"/api/project-files/{row['id']}/preview",
+        "downloadUrl": f"/api/project-files/{row['id']}/download",
+        "canPreview": can_preview,
+    }
+
+
+def settlement_payload(row):
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "projectName": row_get(row, "project_name"),
+        "projectCode": row_get(row, "project_code"),
+        "settlementName": row["settlement_name"],
+        "settlementType": row["settlement_type"],
+        "settlementStatus": row["settlement_status"],
+        "applyAmount": row["apply_amount"],
+        "approvedAmount": row["approved_amount"],
+        "paidAmount": row["paid_amount"],
+        "applyDate": row["apply_date"],
+        "expectedPayDate": row["expected_pay_date"],
+        "paidDate": row["paid_date"],
+        "remark": row["remark"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def variation_payload(row):
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "variationName": row["variation_name"],
+        "variationType": row["variation_type"],
+        "variationStatus": row["variation_status"],
+        "amount": row["amount"],
+        "occurredDate": row["occurred_date"],
+        "approvedDate": row["approved_date"],
+        "remark": row["remark"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def project_log_payload(row):
+    return {
+        "id": row["id"],
+        "projectId": row["project_id"],
+        "action": row["action"],
+        "content": row["content"],
+        "operatorName": row["operator_name"],
+        "createdAt": row["created_at"],
+    }
+
+
+def project_record_payload(conn, row, include_detail=False):
+    files = conn.execute(
+        """
+        SELECT f.*, c.category_name, p.project_name, p.project_code
+        FROM project_files f
+        LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+        LEFT JOIN project_records p ON p.id = f.project_id
+        WHERE f.project_id = ? AND COALESCE(f.is_deleted, 0) = 0
+        ORDER BY c.sort_order, f.uploaded_at DESC
+        """,
+        (row["id"],),
+    ).fetchall()
+    required_categories = conn.execute(
+        "SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1"
+    ).fetchall()
+    current_categories = {f["category_key"] for f in files if f["is_current"]}
+    missing_count = sum(1 for category in required_categories if category["category_key"] not in current_categories)
+    total_required = max(len(required_categories), 1)
+    completion = round((total_required - missing_count) / total_required * 100)
+    payload = {
+        "id": row["id"],
+        "projectCode": row["project_code"],
+        "projectName": row["project_name"],
+        "constructionUnit": row["construction_unit"],
+        "contractorName": row["contractor_name"],
+        "contractorContact": row["contractor_contact"],
+        "ownerUnit": row["owner_unit"],
+        "companyRole": row["company_role"],
+        "managerName": row["manager_name"],
+        "projectStatus": row["project_status"],
+        "settlementStatus": row["settlement_status"],
+        "auditStage": row["audit_stage"],
+        "contractAmount": row["contract_amount"],
+        "submittedAmount": row["submitted_amount"],
+        "paidAmount": row["paid_amount"],
+        "paymentTerms": row["payment_terms"],
+        "plannedStartDate": row["planned_start_date"],
+        "plannedEndDate": row["planned_end_date"],
+        "description": row["description"],
+        "documentCompletion": completion,
+        "missingRequiredCount": missing_count,
+        "settlementBookStatus": row["settlement_book_status"],
+        "firstAuditMaterialStatus": row["first_audit_material_status"],
+        "secondAuditMaterialStatus": row["second_audit_material_status"],
+        "variationCount": row["variation_count"],
+        "variationAmount": row["variation_amount"],
+        "auditProjectId": row["audit_project_id"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    if include_detail:
+        payload["files"] = [project_file_payload(file) for file in files]
+        payload["settlements"] = [
+            settlement_payload(item)
+            for item in conn.execute(
+                """
+                SELECT s.*, p.project_name, p.project_code
+                FROM project_settlements s
+                LEFT JOIN project_records p ON p.id = s.project_id
+                WHERE s.project_id = ? AND COALESCE(s.is_deleted, 0) = 0
+                ORDER BY s.updated_at DESC
+                """,
+                (row["id"],),
+            ).fetchall()
+        ]
+        payload["variations"] = [
+            variation_payload(item)
+            for item in conn.execute(
+                "SELECT * FROM project_variations WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0 ORDER BY updated_at DESC",
+                (row["id"],),
+            ).fetchall()
+        ]
+        payload["logs"] = [
+            project_log_payload(item)
+            for item in conn.execute(
+                "SELECT * FROM project_operation_logs WHERE project_id = ? ORDER BY created_at DESC LIMIT 80",
+                (row["id"],),
+            ).fetchall()
+        ]
+    return payload
+
+
+def project_record_columns_from_payload(data):
+    return {
+        "project_code": (data.get("projectCode") or "").strip(),
+        "project_name": (data.get("projectName") or "").strip(),
+        "construction_unit": (data.get("constructionUnit") or "").strip(),
+        "contractor_name": (data.get("contractorName") or "").strip(),
+        "contractor_contact": (data.get("contractorContact") or "").strip(),
+        "owner_unit": (data.get("ownerUnit") or "").strip(),
+        "company_role": (data.get("companyRole") or "工程咨询").strip(),
+        "manager_name": (data.get("managerName") or "").strip(),
+        "project_status": data.get("projectStatus") or "active",
+        "settlement_status": data.get("settlementStatus") or "not_started",
+        "audit_stage": data.get("auditStage") or "not_linked",
+        "contract_amount": float(data.get("contractAmount") or 0),
+        "submitted_amount": float(data.get("submittedAmount") or 0),
+        "paid_amount": float(data.get("paidAmount") or 0),
+        "payment_terms": data.get("paymentTerms") or "",
+        "planned_start_date": data.get("plannedStartDate") or "",
+        "planned_end_date": data.get("plannedEndDate") or "",
+        "description": data.get("description") or "",
+        "settlement_book_status": data.get("settlementBookStatus") or "missing",
+        "first_audit_material_status": data.get("firstAuditMaterialStatus") or "missing",
+        "second_audit_material_status": data.get("secondAuditMaterialStatus") or "missing",
+        "audit_project_id": (data.get("auditProjectId") or data.get("audit_project_id") or "").strip(),
+    }
+
+
+def project_log(conn, project_id, action, content, user=None, before=None, after=None):
+    conn.execute(
+        """
+        INSERT INTO project_operation_logs
+        (id, project_id, action, content, operator_id, operator_name, before_json, after_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            new_id(),
+            project_id,
+            action,
+            content,
+            user["id"] if user else "",
+            (user["display_name"] or user["username"]) if user else "系统",
+            json.dumps(before or {}, ensure_ascii=False),
+            json.dumps(after or {}, ensure_ascii=False),
+            now_iso(),
+        ),
+    )
+
+
+def refresh_project_rollups(conn, project_id):
+    cats = conn.execute("SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
+    current = conn.execute(
+        "SELECT DISTINCT category_key FROM project_files WHERE project_id = ? AND is_current = 1 AND COALESCE(is_deleted, 0) = 0",
+        (project_id,),
+    ).fetchall()
+    current_keys = {row["category_key"] for row in current}
+    missing = sum(1 for cat in cats if cat["category_key"] not in current_keys)
+    completion = round((max(len(cats), 1) - missing) / max(len(cats), 1) * 100)
+    variation = conn.execute(
+        "SELECT COUNT(*) AS c, COALESCE(SUM(amount), 0) AS amount FROM project_variations WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0",
+        (project_id,),
+    ).fetchone()
+    paid = conn.execute(
+        "SELECT COALESCE(SUM(paid_amount), 0) AS paid FROM project_settlements WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0",
+        (project_id,),
+    ).fetchone()
+    conn.execute(
+        """
+        UPDATE project_records
+        SET document_completion = ?, missing_required_count = ?, variation_count = ?,
+            variation_amount = ?, paid_amount = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (completion, missing, variation["c"], variation["amount"], paid["paid"], now_iso(), project_id),
+    )
+
+
 def log_action(conn, project_id, action, operator="", note="", before=None, after=None):
     conn.execute(
         """
@@ -394,11 +707,13 @@ def bootstrap():
         seed_system_settings(conn)
         seed_theme_configs(conn)
         seed_admin_user(conn)
+        seed_project_document_categories(conn)
         seed_field_configs(conn)
         seed_options(conn)
         count = conn.execute("SELECT COUNT(*) AS c FROM audit_projects").fetchone()["c"]
         if count == 0:
             seed_projects(conn)
+        backfill_project_records(conn)
         conn.commit()
 
 
@@ -482,6 +797,7 @@ def seed_admin_user(conn):
 def ensure_compatible_columns(conn):
     migrations = {
         "audit_projects": {
+            "project_id": "TEXT DEFAULT ''",
             "project_code": "TEXT DEFAULT ''",
             "audited_unit": "TEXT DEFAULT ''",
             "audit_type": "TEXT DEFAULT ''",
@@ -542,12 +858,36 @@ def ensure_compatible_columns(conn):
             "project_id": "TEXT DEFAULT ''",
             "created_at": "TEXT DEFAULT ''",
         },
+        "project_records": {
+            "construction_unit": "TEXT DEFAULT ''",
+            "contractor_contact": "TEXT DEFAULT ''",
+            "company_role": "TEXT DEFAULT ''",
+            "submitted_amount": "REAL DEFAULT 0",
+            "audit_project_id": "TEXT DEFAULT ''",
+            "deleted_at": "TEXT DEFAULT ''",
+            "is_deleted": "INTEGER DEFAULT 0",
+        },
+        "project_files": {
+            "renamed_at": "TEXT DEFAULT ''",
+            "deleted_at": "TEXT DEFAULT ''",
+            "is_deleted": "INTEGER DEFAULT 0",
+        },
+        "project_settlements": {
+            "deleted_at": "TEXT DEFAULT ''",
+            "is_deleted": "INTEGER DEFAULT 0",
+        },
+        "project_variations": {
+            "deleted_at": "TEXT DEFAULT ''",
+            "is_deleted": "INTEGER DEFAULT 0",
+        },
     }
     for table, columns in migrations.items():
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         for column, definition in columns.items():
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_projects_project_id ON audit_projects(project_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_project_records_audit_project_id ON project_records(audit_project_id)")
 
 
 def backfill_derived_fields(conn):
@@ -644,6 +984,86 @@ def seed_options(conn):
                 """,
                 (new_id(), group_key, label, value, color, index * 10, ts, ts),
             )
+
+
+def seed_project_document_categories(conn):
+    ts = now_iso()
+    for index, (key, name, desc, required) in enumerate(PROJECT_DOCUMENT_CATEGORIES):
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO project_document_categories
+            (id, category_key, category_name, description, required, sort_order, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """,
+            (new_id(), key, name, desc, int(required), index * 10, ts, ts),
+        )
+
+
+def backfill_project_records(conn):
+    rows = conn.execute(
+        """
+        SELECT * FROM audit_projects
+        WHERE status != 'deleted' AND COALESCE(project_id, '') = ''
+        ORDER BY created_at
+        """
+    ).fetchall()
+    for row in rows:
+        pid = new_id()
+        ts = row["created_at"] or now_iso()
+        status = "completed" if row["current_stage"] == "archived" else ("settlement" if row["current_stage"] in ("conclusion", "second_audit") else "active")
+        settlement_status = "approved" if row["current_stage"] in ("conclusion", "archived") else ("reviewing" if row["current_stage"] in ("first_audit", "second_audit") else "pending")
+        doc_status = row["doc_status"] or ""
+        settlement_book_status = "complete" if doc_status == "资料齐全" else "missing"
+        conn.execute(
+            """
+            INSERT INTO project_records
+            (id, project_code, project_name, construction_unit, contractor_name, contractor_contact,
+             owner_unit, company_role, manager_name, project_status, settlement_status, audit_stage,
+             contract_amount, submitted_amount, paid_amount, payment_terms, planned_start_date,
+             planned_end_date, description, document_completion, missing_required_count,
+             settlement_book_status, first_audit_material_status, second_audit_material_status,
+             variation_count, variation_amount, audit_project_id, created_by, updated_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, '系统初始化', '系统初始化', ?, ?)
+            """,
+            (
+                pid,
+                row["project_code"] or row["settlement_no"] or pid[:8],
+                row["project_name"],
+                row["audited_unit"] or row["second_audit_department"],
+                row["contractor_name"],
+                row["contractor_phone"],
+                row["second_audit_department"] or row["audited_unit"],
+                "工程咨询",
+                row["manager_name"] or row["contractor_name"],
+                status,
+                settlement_status,
+                row["current_stage"],
+                row["contract_amount"] or row["submitted_amount"] or 0,
+                row["submitted_amount"] or 0,
+                row["paid_amount"] or 0,
+                "按合同约定节点付款",
+                row["start_date"] or row["submit_date"],
+                row["planned_end_date"] or row["audit_deadline"],
+                row["description"],
+                100 if doc_status == "资料齐全" else 55,
+                0 if doc_status == "资料齐全" else 2,
+                settlement_book_status,
+                "complete" if row["current_stage"] in ("first_audit", "second_audit", "conclusion", "archived") else "pending",
+                "complete" if row["current_stage"] in ("second_audit", "conclusion", "archived") else "pending",
+                row["id"],
+                ts,
+                row["updated_at"] or ts,
+            ),
+        )
+        conn.execute("UPDATE audit_projects SET project_id = ? WHERE id = ?", (pid, row["id"]))
+        conn.execute(
+            """
+            INSERT INTO project_operation_logs
+            (id, project_id, action, content, operator_name, created_at)
+            VALUES (?, ?, 'project.backfill', '从审计看板项目初始化主数据', '系统初始化', ?)
+            """,
+            (new_id(), pid, now_iso()),
+        )
 
 
 def seed_projects(conn):
@@ -1203,6 +1623,600 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         self.respond(200, {"success": True, "data": None})
 
+    def project_meta(self, conn):
+        if not self.require_user(conn):
+            return
+        categories = conn.execute(
+            "SELECT * FROM project_document_categories WHERE enabled = 1 ORDER BY sort_order, category_name"
+        ).fetchall()
+        self.respond(200, {
+            "success": True,
+            "data": {
+                "categories": [category_payload(row) for row in categories],
+                "projectStatuses": [{"label": label, "value": value} for value, label in PROJECT_STATUSES.items()],
+                "settlementStatuses": [{"label": label, "value": value} for value, label in SETTLEMENT_STATUSES.items()],
+                "auditStages": [{"label": title, "value": code} for code, title, _ in STAGES],
+            },
+        })
+
+    def project_summary(self, conn):
+        if not self.require_user(conn):
+            return
+        rows = conn.execute("SELECT * FROM project_records WHERE COALESCE(is_deleted, 0) = 0").fetchall()
+        self.respond(200, {
+            "success": True,
+            "data": {
+                "totalProjects": len(rows),
+                "activeProjects": sum(1 for row in rows if row["project_status"] == "active"),
+                "settlementProjects": sum(1 for row in rows if row["project_status"] == "settlement" or row["settlement_status"] in ("pending", "reviewing")),
+                "auditLinkedProjects": sum(1 for row in rows if row["audit_project_id"]),
+                "missingDocuments": sum(1 for row in rows if int(row["missing_required_count"] or 0) > 0),
+                "contractMissing": sum(1 for row in rows if not float(row["contract_amount"] or 0)),
+                "variationAmount": sum(float(row["variation_amount"] or 0) for row in rows),
+            },
+        })
+
+    def list_project_records(self, conn, params):
+        if not self.require_user(conn):
+            return
+        where = ["COALESCE(is_deleted, 0) = 0"]
+        values = []
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        if keyword:
+            where.append("(project_name LIKE ? OR project_code LIKE ? OR contractor_name LIKE ? OR construction_unit LIKE ?)")
+            values.extend([f"%{keyword}%"] * 4)
+        for key, column in [
+            ("projectStatus", "project_status"),
+            ("settlementStatus", "settlement_status"),
+            ("managerName", "manager_name"),
+        ]:
+            value = (params.get(key, params.get(key.replace("Status", "_status"), [""]))[0] or "").strip()
+            if value:
+                if key == "managerName":
+                    where.append(f"{column} LIKE ?")
+                    values.append(f"%{value}%")
+                else:
+                    where.append(f"{column} = ?")
+                    values.append(value)
+        if params.get("onlyMissingDocuments", [""])[0] in ("1", "true"):
+            where.append("missing_required_count > 0")
+        sort = params.get("sort", ["updatedAt"])[0]
+        sort_map = {
+            "updatedAt": "updated_at DESC",
+            "projectName": "project_name COLLATE NOCASE",
+            "contractAmount": "contract_amount DESC",
+            "documentCompletion": "document_completion ASC, updated_at DESC",
+            "plannedEndDate": "planned_end_date ASC",
+        }
+        order_by = sort_map.get(sort, sort_map["updatedAt"])
+        page = max(int(params.get("page", ["1"])[0] or 1), 1)
+        page_size = max(min(int(params.get("pageSize", ["20"])[0] or 20), 100), 1)
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM project_records WHERE {' AND '.join(where)}", values).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT * FROM project_records WHERE {' AND '.join(where)} ORDER BY {order_by} LIMIT ? OFFSET ?",
+            [*values, page_size, (page - 1) * page_size],
+        ).fetchall()
+        self.respond(200, {
+            "success": True,
+            "data": [project_record_payload(conn, row) for row in rows],
+            "meta": {"total": total, "page": page, "pageSize": page_size},
+        })
+
+    def get_project_record(self, conn, project_id):
+        if not self.require_user(conn):
+            return
+        row = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        self.respond(200, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
+
+    def create_project_record(self, conn, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        columns = project_record_columns_from_payload(data)
+        if not columns["project_name"]:
+            self.respond(400, {"success": False, "error": "请填写项目名称"})
+            return
+        if not columns["project_code"]:
+            columns["project_code"] = f"XM-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+        pid = new_id()
+        ts = now_iso()
+        columns["created_by"] = user["username"]
+        columns["updated_by"] = user["username"]
+        columns["created_at"] = ts
+        columns["updated_at"] = ts
+        try:
+            names = ", ".join(["id", *columns.keys()])
+            marks = ", ".join(["?"] * (len(columns) + 1))
+            conn.execute(f"INSERT INTO project_records ({names}) VALUES ({marks})", (pid, *columns.values()))
+        except sqlite3.IntegrityError:
+            self.respond(400, {"success": False, "error": "项目编号已存在，请更换后再保存"})
+            return
+        audit_project_id = (columns.get("audit_project_id") or "").strip()
+        if audit_project_id:
+            audit_row = conn.execute("SELECT id, project_id FROM audit_projects WHERE id = ?", (audit_project_id,)).fetchone()
+            if not audit_row:
+                conn.rollback()
+                self.respond(400, {"success": False, "error": "未找到关联审计项目，请返回后重新选择"})
+                return
+            conn.execute(
+                "UPDATE audit_projects SET project_id = ?, updated_at = ? WHERE id = ?",
+                (pid, ts, audit_project_id),
+            )
+        project_log(conn, pid, "project.create", "新建项目", user, after=columns)
+        self.write_operation_log(conn, "project_record.create", user, "project_record", pid)
+        conn.commit()
+        row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
+        self.respond(201, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
+
+    def update_project_record(self, conn, project_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        row = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        before = project_record_payload(conn, row)
+        columns = project_record_columns_from_payload(data)
+        if not columns["project_name"]:
+            self.respond(400, {"success": False, "error": "请填写项目名称"})
+            return
+        columns["updated_by"] = user["username"]
+        columns["updated_at"] = now_iso()
+        old_audit_project_id = (row["audit_project_id"] or "").strip()
+        new_audit_project_id = (columns.get("audit_project_id") or "").strip()
+        if new_audit_project_id and not conn.execute("SELECT id FROM audit_projects WHERE id = ?", (new_audit_project_id,)).fetchone():
+            self.respond(400, {"success": False, "error": "未找到关联审计项目，请返回后重新选择"})
+            return
+        assignments = ", ".join([f"{key} = ?" for key in columns.keys()])
+        try:
+            conn.execute(f"UPDATE project_records SET {assignments} WHERE id = ?", (*columns.values(), project_id))
+        except sqlite3.IntegrityError:
+            self.respond(400, {"success": False, "error": "项目编号已存在，请更换后再保存"})
+            return
+        if old_audit_project_id and old_audit_project_id != new_audit_project_id:
+            conn.execute(
+                "UPDATE audit_projects SET project_id = '' WHERE id = ? AND project_id = ?",
+                (old_audit_project_id, project_id),
+            )
+        if new_audit_project_id:
+            conn.execute(
+                "UPDATE audit_projects SET project_id = ?, updated_at = ? WHERE id = ?",
+                (project_id, columns["updated_at"], new_audit_project_id),
+            )
+        refresh_project_rollups(conn, project_id)
+        project_log(conn, project_id, "project.update", "更新项目基础信息", user, before=before, after=columns)
+        self.write_operation_log(conn, "project_record.update", user, "project_record", project_id)
+        conn.commit()
+        row = conn.execute("SELECT * FROM project_records WHERE id = ?", (project_id,)).fetchone()
+        self.respond(200, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
+
+    def delete_project_record(self, conn, project_id):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        row = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        audit_project_id = (row["audit_project_id"] or "").strip()
+        conn.execute("UPDATE project_records SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?", (now_iso(), now_iso(), project_id))
+        if audit_project_id:
+            conn.execute(
+                "UPDATE audit_projects SET project_id = '' WHERE id = ? AND project_id = ?",
+                (audit_project_id, project_id),
+            )
+        project_log(conn, project_id, "project.delete", "删除项目", user, before=project_record_payload(conn, row))
+        self.write_operation_log(conn, "project_record.delete", user, "project_record", project_id)
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
+    def list_project_files(self, conn, params):
+        if not self.require_user(conn):
+            return
+        where = ["COALESCE(f.is_deleted, 0) = 0"]
+        values = []
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        if keyword:
+            where.append("(f.display_name LIKE ? OR f.original_name LIKE ? OR p.project_name LIKE ? OR p.project_code LIKE ?)")
+            values.extend([f"%{keyword}%"] * 4)
+        category = (params.get("categoryKey", params.get("category_key", [""]))[0] or "").strip()
+        if category:
+            where.append("f.category_key = ?")
+            values.append(category)
+        project_id = (params.get("projectId", params.get("project_id", [""]))[0] or "").strip()
+        if project_id:
+            where.append("f.project_id = ?")
+            values.append(project_id)
+        rows = conn.execute(
+            f"""
+            SELECT f.*, p.project_name, p.project_code, c.category_name
+            FROM project_files f
+            LEFT JOIN project_records p ON p.id = f.project_id
+            LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+            WHERE {" AND ".join(where)}
+            ORDER BY p.project_name COLLATE NOCASE, c.sort_order, f.uploaded_at DESC
+            LIMIT 500
+            """,
+            values,
+        ).fetchall()
+        self.respond(200, {"success": True, "data": [project_file_payload(row) for row in rows]})
+
+    def upload_project_file(self, conn, project_id):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        project = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
+        if not project:
+            self.not_found()
+            return
+        try:
+            fields, file_part = parse_multipart_form(self)
+        except ValueError as exc:
+            self.respond(400, {"success": False, "error": str(exc)})
+            return
+        original_name, content = file_part
+        category_key = (fields.get("categoryKey") or fields.get("category_key") or "").strip()
+        display_name = (fields.get("displayName") or fields.get("display_name") or "").strip()
+        if not category_key:
+            self.respond(400, {"success": False, "error": "请选择资料分类"})
+            return
+        if not display_name:
+            self.respond(400, {"success": False, "error": "请填写资料名称，便于后续查找"})
+            return
+        if not conn.execute("SELECT id FROM project_document_categories WHERE category_key = ? AND enabled = 1", (category_key,)).fetchone():
+            self.respond(400, {"success": False, "error": "资料分类不存在，请刷新页面后重试"})
+            return
+        if is_path_like_filename(original_name):
+            self.respond(400, {"success": False, "error": "不支持上传文件夹或路径型文件名"})
+            return
+        if is_forbidden_attachment_name(original_name):
+            self.respond(400, {"success": False, "error": "不允许上传压缩包或镜像类文件"})
+            return
+        if not content:
+            self.respond(400, {"success": False, "error": "文件内容为空，请重新选择文件"})
+            return
+        file_ext = Path(original_name).suffix.lower()
+        mime_type = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        current = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_no), 0) AS version
+            FROM project_files
+            WHERE project_id = ? AND category_key = ? AND display_name = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (project_id, category_key, display_name),
+        ).fetchone()
+        version_no = int(current["version"] or 0) + 1
+        if version_no > 1:
+            conn.execute(
+                """
+                UPDATE project_files SET is_current = 0
+                WHERE project_id = ? AND category_key = ? AND display_name = ?
+                """,
+                (project_id, category_key, display_name),
+            )
+        stored_name = f"{uuid.uuid4().hex}{file_ext}"
+        relative_path = f"project-records/{project_id}/{stored_name}"
+        target = safe_attachment_path(relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        file_id = new_id()
+        ts = now_iso()
+        conn.execute(
+            """
+            INSERT INTO project_files
+            (id, project_id, category_key, display_name, original_name, stored_name, file_ext,
+             mime_type, file_size, relative_path, version_no, is_current, uploaded_by,
+             uploaded_by_name, uploaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                file_id,
+                project_id,
+                category_key,
+                display_name,
+                original_name,
+                stored_name,
+                file_ext,
+                mime_type,
+                len(content),
+                relative_path,
+                version_no,
+                user["username"],
+                user["display_name"] or user["username"],
+                ts,
+            ),
+        )
+        refresh_project_rollups(conn, project_id)
+        project_log(conn, project_id, "project_file.upload", f"上传资料：{display_name}", user, after={"fileId": file_id, "categoryKey": category_key, "versionNo": version_no})
+        self.write_operation_log(conn, "project_file.upload", user, "project_file", file_id, detail={"projectId": project_id})
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT f.*, p.project_name, p.project_code, c.category_name
+            FROM project_files f
+            LEFT JOIN project_records p ON p.id = f.project_id
+            LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+            WHERE f.id = ?
+            """,
+            (file_id,),
+        ).fetchone()
+        self.respond(201, {"success": True, "data": project_file_payload(row)})
+
+    def project_file_row(self, conn, file_id):
+        return conn.execute(
+            """
+            SELECT f.*, p.project_name, p.project_code, c.category_name
+            FROM project_files f
+            LEFT JOIN project_records p ON p.id = f.project_id
+            LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+            WHERE f.id = ? AND COALESCE(f.is_deleted, 0) = 0
+            """,
+            (file_id,),
+        ).fetchone()
+
+    def preview_project_file(self, conn, file_id):
+        if not self.require_user(conn):
+            return
+        row = self.project_file_row(conn, file_id)
+        if not row:
+            self.not_found()
+            return
+        mime_type = row["mime_type"] or mimetypes.guess_type(row["original_name"])[0] or "application/octet-stream"
+        file_ext = row["file_ext"] or Path(row["original_name"]).suffix.lower()
+        if not (mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES):
+            self.respond(415, {"success": False, "error": "该文件暂不支持在线预览，请下载后查看"})
+            return
+        path = safe_attachment_path(row["relative_path"])
+        if not path.exists():
+            self.not_found()
+            return
+        if file_ext in TEXT_PREVIEW_SUFFIXES and not mime_type.startswith("text/"):
+            mime_type = "text/plain; charset=utf-8"
+        self.respond_file(path, mime_type, row["original_name"], inline=True)
+
+    def download_project_file(self, conn, file_id):
+        if not self.require_user(conn):
+            return
+        row = self.project_file_row(conn, file_id)
+        if not row:
+            self.not_found()
+            return
+        path = safe_attachment_path(row["relative_path"])
+        if not path.exists():
+            self.not_found()
+            return
+        mime_type = row["mime_type"] or mimetypes.guess_type(row["original_name"])[0] or "application/octet-stream"
+        self.respond_file(path, mime_type, row["original_name"], inline=False)
+
+    def rename_project_file(self, conn, file_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        row = self.project_file_row(conn, file_id)
+        if not row:
+            self.not_found()
+            return
+        display_name = (data.get("displayName") or "").strip()
+        if not display_name:
+            self.respond(400, {"success": False, "error": "请填写资料名称"})
+            return
+        conn.execute("UPDATE project_files SET display_name = ?, renamed_at = ? WHERE id = ?", (display_name, now_iso(), file_id))
+        project_log(conn, row["project_id"], "project_file.rename", f"重命名资料：{display_name}", user, before=project_file_payload(row), after={"displayName": display_name})
+        self.write_operation_log(conn, "project_file.rename", user, "project_file", file_id)
+        conn.commit()
+        row = self.project_file_row(conn, file_id)
+        self.respond(200, {"success": True, "data": project_file_payload(row)})
+
+    def delete_project_file(self, conn, file_id):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        row = self.project_file_row(conn, file_id)
+        if not row:
+            self.not_found()
+            return
+        conn.execute("UPDATE project_files SET is_deleted = 1, deleted_at = ?, is_current = 0 WHERE id = ?", (now_iso(), file_id))
+        refresh_project_rollups(conn, row["project_id"])
+        project_log(conn, row["project_id"], "project_file.delete", f"删除资料：{row['display_name']}", user, before=project_file_payload(row))
+        self.write_operation_log(conn, "project_file.delete", user, "project_file", file_id)
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
+    def list_project_settlements(self, conn, params):
+        if not self.require_user(conn):
+            return
+        where = ["COALESCE(s.is_deleted, 0) = 0"]
+        values = []
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        if keyword:
+            where.append("(s.settlement_name LIKE ? OR p.project_name LIKE ? OR p.project_code LIKE ?)")
+            values.extend([f"%{keyword}%"] * 3)
+        status = (params.get("settlementStatus", params.get("status", [""]))[0] or "").strip()
+        if status:
+            where.append("s.settlement_status = ?")
+            values.append(status)
+        project_id = (params.get("projectId", params.get("project_id", [""]))[0] or "").strip()
+        if project_id:
+            where.append("s.project_id = ?")
+            values.append(project_id)
+        rows = conn.execute(
+            f"""
+            SELECT s.*, p.project_name, p.project_code
+            FROM project_settlements s
+            LEFT JOIN project_records p ON p.id = s.project_id
+            WHERE {" AND ".join(where)}
+            ORDER BY s.updated_at DESC
+            LIMIT 300
+            """,
+            values,
+        ).fetchall()
+        self.respond(200, {"success": True, "data": [settlement_payload(row) for row in rows]})
+
+    def list_project_variations(self, conn, params):
+        if not self.require_user(conn):
+            return
+        where = ["COALESCE(v.is_deleted, 0) = 0"]
+        values = []
+        project_id = (params.get("projectId", params.get("project_id", [""]))[0] or "").strip()
+        if project_id:
+            where.append("v.project_id = ?")
+            values.append(project_id)
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        if keyword:
+            where.append("(v.variation_name LIKE ? OR p.project_name LIKE ? OR p.project_code LIKE ?)")
+            values.extend([f"%{keyword}%"] * 3)
+        rows = conn.execute(
+            f"""
+            SELECT v.*, p.project_name, p.project_code
+            FROM project_variations v
+            LEFT JOIN project_records p ON p.id = v.project_id
+            WHERE {" AND ".join(where)}
+            ORDER BY v.updated_at DESC
+            LIMIT 300
+            """,
+            values,
+        ).fetchall()
+        self.respond(200, {"success": True, "data": [variation_payload(row) for row in rows]})
+
+    def get_project_variation(self, conn, variation_id):
+        if not self.require_user(conn):
+            return
+        row = conn.execute(
+            "SELECT * FROM project_variations WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (variation_id,),
+        ).fetchone()
+        if not row:
+            self.not_found()
+            return
+        self.respond(200, {"success": True, "data": variation_payload(row)})
+
+    def upsert_project_settlement(self, conn, data, settlement_id=None):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        project_id = data.get("projectId") or data.get("project_id") or ""
+        if settlement_id:
+            existing = conn.execute("SELECT * FROM project_settlements WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (settlement_id,)).fetchone()
+            if not existing:
+                self.not_found()
+                return
+            project_id = existing["project_id"]
+        if not conn.execute("SELECT id FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone():
+            self.respond(400, {"success": False, "error": "未找到关联项目，请返回项目台账重新选择"})
+            return
+        name = (data.get("settlementName") or "").strip()
+        if not name:
+            self.respond(400, {"success": False, "error": "请填写结算事项名称"})
+            return
+        ts = now_iso()
+        columns = {
+            "settlement_name": name,
+            "settlement_type": data.get("settlementType") or "progress",
+            "settlement_status": data.get("settlementStatus") or "pending",
+            "apply_amount": float(data.get("applyAmount") or 0),
+            "approved_amount": float(data.get("approvedAmount") or 0),
+            "paid_amount": float(data.get("paidAmount") or 0),
+            "apply_date": data.get("applyDate") or "",
+            "expected_pay_date": data.get("expectedPayDate") or "",
+            "paid_date": data.get("paidDate") or "",
+            "remark": data.get("remark") or "",
+            "updated_by": user["username"],
+            "updated_at": ts,
+        }
+        if settlement_id:
+            assignments = ", ".join([f"{key} = ?" for key in columns.keys()])
+            conn.execute(f"UPDATE project_settlements SET {assignments} WHERE id = ?", (*columns.values(), settlement_id))
+            action = "project_settlement.update"
+            content = f"更新结算：{name}"
+        else:
+            settlement_id = new_id()
+            columns["project_id"] = project_id
+            columns["created_by"] = user["username"]
+            columns["created_at"] = ts
+            names = ", ".join(["id", *columns.keys()])
+            marks = ", ".join(["?"] * (len(columns) + 1))
+            conn.execute(f"INSERT INTO project_settlements ({names}) VALUES ({marks})", (settlement_id, *columns.values()))
+            action = "project_settlement.create"
+            content = f"新增结算：{name}"
+        conn.execute("UPDATE project_records SET settlement_status = ?, updated_at = ? WHERE id = ?", (columns["settlement_status"], ts, project_id))
+        refresh_project_rollups(conn, project_id)
+        project_log(conn, project_id, action, content, user, after=columns)
+        self.write_operation_log(conn, action, user, "project_settlement", settlement_id)
+        conn.commit()
+        row = conn.execute(
+            "SELECT s.*, p.project_name, p.project_code FROM project_settlements s LEFT JOIN project_records p ON p.id = s.project_id WHERE s.id = ?",
+            (settlement_id,),
+        ).fetchone()
+        self.respond(200 if action.endswith("update") else 201, {"success": True, "data": settlement_payload(row)})
+
+    def get_project_settlement(self, conn, settlement_id):
+        if not self.require_user(conn):
+            return
+        row = conn.execute(
+            "SELECT s.*, p.project_name, p.project_code FROM project_settlements s LEFT JOIN project_records p ON p.id = s.project_id WHERE s.id = ? AND COALESCE(s.is_deleted, 0) = 0",
+            (settlement_id,),
+        ).fetchone()
+        if not row:
+            self.not_found()
+            return
+        self.respond(200, {"success": True, "data": settlement_payload(row)})
+
+    def upsert_project_variation(self, conn, data, variation_id=None):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        project_id = data.get("projectId") or data.get("project_id") or ""
+        if variation_id:
+            existing = conn.execute("SELECT * FROM project_variations WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (variation_id,)).fetchone()
+            if not existing:
+                self.not_found()
+                return
+            project_id = existing["project_id"]
+        if not conn.execute("SELECT id FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone():
+            self.respond(400, {"success": False, "error": "未找到关联项目，请返回项目台账重新选择"})
+            return
+        name = (data.get("variationName") or "").strip()
+        if not name:
+            self.respond(400, {"success": False, "error": "请填写变更签证名称"})
+            return
+        ts = now_iso()
+        columns = {
+            "variation_name": name,
+            "variation_type": data.get("variationType") or "change",
+            "variation_status": data.get("variationStatus") or "pending",
+            "amount": float(data.get("amount") or 0),
+            "occurred_date": data.get("occurredDate") or "",
+            "approved_date": data.get("approvedDate") or "",
+            "remark": data.get("remark") or "",
+            "updated_by": user["username"],
+            "updated_at": ts,
+        }
+        if variation_id:
+            assignments = ", ".join([f"{key} = ?" for key in columns.keys()])
+            conn.execute(f"UPDATE project_variations SET {assignments} WHERE id = ?", (*columns.values(), variation_id))
+            action = "project_variation.update"
+            content = f"更新变更签证：{name}"
+        else:
+            variation_id = new_id()
+            columns["project_id"] = project_id
+            columns["created_by"] = user["username"]
+            columns["created_at"] = ts
+            names = ", ".join(["id", *columns.keys()])
+            marks = ", ".join(["?"] * (len(columns) + 1))
+            conn.execute(f"INSERT INTO project_variations ({names}) VALUES ({marks})", (variation_id, *columns.values()))
+            action = "project_variation.create"
+            content = f"新增变更签证：{name}"
+        refresh_project_rollups(conn, project_id)
+        project_log(conn, project_id, action, content, user, after=columns)
+        self.write_operation_log(conn, action, user, "project_variation", variation_id)
+        conn.commit()
+        row = conn.execute("SELECT * FROM project_variations WHERE id = ?", (variation_id,)).fetchone()
+        self.respond(200 if action.endswith("update") else 201, {"success": True, "data": variation_payload(row)})
+
     def login(self, conn, data):
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
@@ -1448,6 +2462,29 @@ class Handler(BaseHTTPRequestHandler):
                         self.respond(200, {"success": True, "data": self.theme_payload(row)})
                     else:
                         self.not_found()
+                elif path == "/api/projects/meta":
+                    self.project_meta(conn)
+                elif path == "/api/projects/summary":
+                    self.project_summary(conn)
+                elif path == "/api/projects":
+                    self.list_project_records(conn, params)
+                elif path == "/api/project-files":
+                    self.list_project_files(conn, params)
+                elif path == "/api/project-settlements":
+                    self.list_project_settlements(conn, params)
+                elif path == "/api/project-variations":
+                    self.list_project_variations(conn, params)
+                elif re.match(r"^/api/project-settlements/([^/]+)$", path):
+                    self.get_project_settlement(conn, re.match(r"^/api/project-settlements/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/project-variations/([^/]+)$", path):
+                    self.get_project_variation(conn, re.match(r"^/api/project-variations/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/projects/([^/]+)/files$", path):
+                    params["projectId"] = [re.match(r"^/api/projects/([^/]+)/files$", path).group(1)]
+                    self.list_project_files(conn, params)
+                elif re.match(r"^/api/project-files/([^/]+)/preview$", path):
+                    self.preview_project_file(conn, re.match(r"^/api/project-files/([^/]+)/preview$", path).group(1))
+                elif re.match(r"^/api/project-files/([^/]+)/download$", path):
+                    self.download_project_file(conn, re.match(r"^/api/project-files/([^/]+)/download$", path).group(1))
                 elif path == "/api/audit/stages":
                     self.respond(200, {"success": True, "data": [{"code": c, "title": t, "color": color} for c, t, color in STAGES]})
                 elif path == "/api/audit/projects":
@@ -1488,6 +2525,10 @@ class Handler(BaseHTTPRequestHandler):
                         options.setdefault(row["group_key"], []).append(camel_option(row))
                     self.respond(200, {"success": True, "data": {"stages": [{"code": c, "title": t, "color": color} for c, t, color in STAGES], "fieldConfigs": get_field_configs(conn), "options": options}})
                 else:
+                    project_match = re.match(r"^/api/projects/([^/]+)$", path)
+                    if project_match:
+                        self.get_project_record(conn, project_match.group(1))
+                        return
                     match = re.match(r"^/api/audit/projects/([^/]+)$", path)
                     if match:
                         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (match.group(1),)).fetchone()
@@ -1524,6 +2565,10 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             path = parsed.path
             with connect() as conn:
+                project_file_upload_match = re.match(r"^/api/projects/([^/]+)/files$", path)
+                if project_file_upload_match:
+                    self.upload_project_file(conn, project_file_upload_match.group(1))
+                    return
                 attachment_match = re.match(r"^/api/audit/projects/([^/]+)/attachments$", path)
                 if attachment_match:
                     self.upload_project_attachment(conn, attachment_match.group(1))
@@ -1541,6 +2586,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.create_user(conn, data)
                 elif path == "/api/system/theme/reset":
                     self.reset_theme(conn)
+                elif path == "/api/projects":
+                    self.create_project_record(conn, data)
+                elif re.match(r"^/api/projects/([^/]+)/settlements$", path):
+                    data["projectId"] = re.match(r"^/api/projects/([^/]+)/settlements$", path).group(1)
+                    self.upsert_project_settlement(conn, data)
+                elif re.match(r"^/api/projects/([^/]+)/variations$", path):
+                    data["projectId"] = re.match(r"^/api/projects/([^/]+)/variations$", path).group(1)
+                    self.upsert_project_variation(conn, data)
                 elif path == "/api/audit/projects":
                     if not self.require_role(conn, {"admin", "editor"}):
                         return
@@ -1569,7 +2622,16 @@ class Handler(BaseHTTPRequestHandler):
             data = read_json(self)
             with connect() as conn:
                 match = re.match(r"^/api/audit/projects/([^/]+)$", path)
-                if match:
+                project_match = re.match(r"^/api/projects/([^/]+)$", path)
+                if project_match:
+                    self.update_project_record(conn, project_match.group(1), data)
+                elif re.match(r"^/api/project-files/([^/]+)$", path):
+                    self.rename_project_file(conn, re.match(r"^/api/project-files/([^/]+)$", path).group(1), data)
+                elif re.match(r"^/api/project-settlements/([^/]+)$", path):
+                    self.upsert_project_settlement(conn, data, re.match(r"^/api/project-settlements/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/project-variations/([^/]+)$", path):
+                    self.upsert_project_variation(conn, data, re.match(r"^/api/project-variations/([^/]+)$", path).group(1))
+                elif match:
                     if not self.require_role(conn, {"admin", "editor"}):
                         return
                     self.update_project(conn, match.group(1), data)
@@ -1599,7 +2661,11 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             path = parsed.path
             with connect() as conn:
-                if path.startswith("/api/audit/admin/field-configs/"):
+                if re.match(r"^/api/projects/([^/]+)$", path):
+                    self.delete_project_record(conn, re.match(r"^/api/projects/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/project-files/([^/]+)$", path):
+                    self.delete_project_file(conn, re.match(r"^/api/project-files/([^/]+)$", path).group(1))
+                elif path.startswith("/api/audit/admin/field-configs/"):
                     if not self.require_role(conn, {"admin"}):
                         return
                     conn.execute("UPDATE audit_field_configs SET enabled = 0, updated_at = ? WHERE id = ?", (now_iso(), path.rsplit("/", 1)[-1]))

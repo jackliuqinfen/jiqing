@@ -45,6 +45,7 @@ export interface AuditFieldConfig {
 
 export interface AuditProject {
   id: string
+  projectId: string
   projectCode: string
   projectName: string
   auditedUnit: string

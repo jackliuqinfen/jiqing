@@ -93,7 +93,7 @@ const authStore = useAuthStore()
 const mainNav = [
   { path: '/', label: '首页数据看板', icon: 'dashboard', badge: 'LIVE' },
   { path: '/audit', label: '审计看板', icon: 'view-module', badge: '已启用' },
-  { path: '/project-management', label: '项目管理', icon: 'task', badge: '建设中' },
+  { path: '/project-management', label: '项目管理', icon: 'task', badge: '已启用' },
   { path: '/bidding', label: '招投标看板', icon: 'file-paste', badge: '建设中' },
   { path: '/finance', label: '财务看板', icon: 'list', badge: '建设中' },
 ]

@@ -93,6 +93,7 @@ export interface AuditLog {
 export interface CostAuditItem {
   /** 结算唯一 ID（主键，UUID） */
   id: string
+  projectId?: string
 
   /** 工程基础元数据 */
   projectName: string           // 项目全称
@@ -384,4 +385,147 @@ export interface OperationLogEntry {
   userAgent: string
   detail: Record<string, unknown>
   createdAt: string
+}
+
+// ============================================================
+// 项目管理模块类型
+// ============================================================
+
+export interface ProjectDocumentCategory {
+  id: string
+  categoryKey: string
+  categoryName: string
+  description: string
+  required: boolean
+  sortOrder: number
+  enabled: boolean
+}
+
+export interface ProjectFile {
+  id: string
+  projectId: string
+  projectName?: string
+  projectCode?: string
+  categoryKey: string
+  categoryName: string
+  displayName: string
+  originalName: string
+  storedName: string
+  fileExt: string
+  mimeType: string
+  fileSize: number
+  versionNo: number
+  isCurrent: boolean
+  uploadedBy: string
+  uploadedByName: string
+  uploadedAt: string
+  previewUrl: string
+  downloadUrl: string
+  canPreview: boolean
+}
+
+export interface ProjectSettlement {
+  id: string
+  projectId: string
+  projectName?: string
+  projectCode?: string
+  settlementName: string
+  settlementType: string
+  settlementStatus: string
+  applyAmount: number
+  approvedAmount: number
+  paidAmount: number
+  applyDate: string
+  expectedPayDate: string
+  paidDate: string
+  remark: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProjectVariation {
+  id: string
+  projectId: string
+  variationName: string
+  variationType: string
+  variationStatus: string
+  amount: number
+  occurredDate: string
+  approvedDate: string
+  remark: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProjectOperationLog {
+  id: string
+  projectId: string
+  action: string
+  content: string
+  operatorName: string
+  createdAt: string
+}
+
+export interface ProjectRecord {
+  id: string
+  projectCode: string
+  projectName: string
+  constructionUnit: string
+  contractorName: string
+  contractorContact: string
+  ownerUnit: string
+  companyRole: string
+  managerName: string
+  projectStatus: string
+  settlementStatus: string
+  auditStage: string
+  contractAmount: number
+  submittedAmount: number
+  paidAmount: number
+  paymentTerms: string
+  plannedStartDate: string
+  plannedEndDate: string
+  description: string
+  documentCompletion: number
+  missingRequiredCount: number
+  settlementBookStatus: string
+  firstAuditMaterialStatus: string
+  secondAuditMaterialStatus: string
+  variationCount: number
+  variationAmount: number
+  auditProjectId: string
+  createdAt: string
+  updatedAt: string
+  files?: ProjectFile[]
+  settlements?: ProjectSettlement[]
+  variations?: ProjectVariation[]
+  logs?: ProjectOperationLog[]
+}
+
+export interface ProjectMeta {
+  categories: ProjectDocumentCategory[]
+  projectStatuses: { label: string; value: string }[]
+  settlementStatuses: { label: string; value: string }[]
+  auditStages: { label: string; value: string }[]
+}
+
+export interface ProjectSummary {
+  totalProjects: number
+  activeProjects: number
+  settlementProjects: number
+  auditLinkedProjects: number
+  missingDocuments: number
+  contractMissing: number
+  variationAmount: number
+}
+
+export interface ProjectFilters {
+  keyword: string
+  projectStatus: string
+  settlementStatus: string
+  managerName: string
+  onlyMissingDocuments: boolean
+  sort: string
+  page: number
+  pageSize: number
 }

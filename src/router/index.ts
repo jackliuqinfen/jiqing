@@ -30,12 +30,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'project-management',
         name: 'ProjectManagement',
-        component: () => import('@/views/ModulePlaceholder.vue'),
+        component: () => import('@/views/ProjectManagementView.vue'),
         meta: {
           title: '项目管理',
-          subtitle: '模块建设中',
+          subtitle: '项目主数据 · 资料工作台 · 结算基础信息',
           icon: 'task',
-          description: '项目管理模块将承载工程立项、进度节点、责任人协同和跨模块风险联动。',
+          description: '项目管理模块承载项目主数据、资料台账、结算基础信息和审计联动入口。',
         },
       },
       {

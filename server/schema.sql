@@ -2,6 +2,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS audit_projects (
   id TEXT PRIMARY KEY,
+  project_id TEXT DEFAULT '',
   project_code TEXT DEFAULT '',
   project_name TEXT NOT NULL,
   audited_unit TEXT DEFAULT '',
@@ -42,6 +43,130 @@ CREATE TABLE IF NOT EXISTS audit_projects (
   is_archived INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_records (
+  id TEXT PRIMARY KEY,
+  project_code TEXT UNIQUE NOT NULL,
+  project_name TEXT NOT NULL,
+  construction_unit TEXT DEFAULT '',
+  contractor_name TEXT DEFAULT '',
+  contractor_contact TEXT DEFAULT '',
+  owner_unit TEXT DEFAULT '',
+  company_role TEXT DEFAULT '',
+  manager_name TEXT DEFAULT '',
+  project_status TEXT DEFAULT 'active',
+  settlement_status TEXT DEFAULT 'not_started',
+  audit_stage TEXT DEFAULT 'not_linked',
+  contract_amount REAL DEFAULT 0,
+  submitted_amount REAL DEFAULT 0,
+  paid_amount REAL DEFAULT 0,
+  payment_terms TEXT DEFAULT '',
+  planned_start_date TEXT DEFAULT '',
+  planned_end_date TEXT DEFAULT '',
+  description TEXT DEFAULT '',
+  document_completion REAL DEFAULT 0,
+  missing_required_count INTEGER DEFAULT 0,
+  settlement_book_status TEXT DEFAULT 'missing',
+  first_audit_material_status TEXT DEFAULT 'missing',
+  second_audit_material_status TEXT DEFAULT 'missing',
+  variation_count INTEGER DEFAULT 0,
+  variation_amount REAL DEFAULT 0,
+  audit_project_id TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS project_document_categories (
+  id TEXT PRIMARY KEY,
+  category_key TEXT UNIQUE NOT NULL,
+  category_name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  required INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0,
+  enabled INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_files (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  category_key TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+  file_ext TEXT DEFAULT '',
+  mime_type TEXT DEFAULT '',
+  file_size INTEGER DEFAULT 0,
+  relative_path TEXT NOT NULL,
+  version_no INTEGER DEFAULT 1,
+  is_current INTEGER DEFAULT 1,
+  uploaded_by TEXT DEFAULT '',
+  uploaded_by_name TEXT DEFAULT '',
+  uploaded_at TEXT NOT NULL,
+  renamed_at TEXT DEFAULT '',
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_settlements (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  settlement_name TEXT NOT NULL,
+  settlement_type TEXT DEFAULT 'progress',
+  settlement_status TEXT DEFAULT 'pending',
+  apply_amount REAL DEFAULT 0,
+  approved_amount REAL DEFAULT 0,
+  paid_amount REAL DEFAULT 0,
+  apply_date TEXT DEFAULT '',
+  expected_pay_date TEXT DEFAULT '',
+  paid_date TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_variations (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  variation_name TEXT NOT NULL,
+  variation_type TEXT DEFAULT 'change',
+  variation_status TEXT DEFAULT 'pending',
+  amount REAL DEFAULT 0,
+  occurred_date TEXT DEFAULT '',
+  approved_date TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_operation_logs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  content TEXT DEFAULT '',
+  operator_id TEXT DEFAULT '',
+  operator_name TEXT DEFAULT '',
+  before_json TEXT DEFAULT '{}',
+  after_json TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS audit_project_stages (
@@ -225,6 +350,11 @@ CREATE TABLE IF NOT EXISTS system_theme_configs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_projects_stage ON audit_projects(current_stage);
 CREATE INDEX IF NOT EXISTS idx_audit_projects_updated ON audit_projects(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_records_status ON project_records(project_status, settlement_status);
+CREATE INDEX IF NOT EXISTS idx_project_records_updated ON project_records(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_files_project ON project_files(project_id, category_key, is_current);
+CREATE INDEX IF NOT EXISTS idx_project_settlements_project ON project_settlements(project_id, settlement_status);
+CREATE INDEX IF NOT EXISTS idx_project_variations_project ON project_variations(project_id, variation_status);
 CREATE INDEX IF NOT EXISTS idx_audit_field_configs_sort ON audit_field_configs(entity_type, sort_order);
 CREATE INDEX IF NOT EXISTS idx_audit_field_options_group ON audit_field_options(group_key, sort_order);
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_operation_logs(created_at DESC);

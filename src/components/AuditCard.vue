@@ -130,6 +130,10 @@
 
     <!-- 操作按钮 — 仅已登录且未归档 -->
     <div v-if="authStore.isAuthenticated && !item.isArchived" class="card-section card-actions">
+      <t-button v-if="item.projectId" size="small" variant="text" theme="default" @click.stop="goProject">
+        <template #icon><t-icon name="task" /></template>
+        项目台账
+      </t-button>
       <t-button size="small" variant="text" theme="primary" @click.stop="handleEdit">
         <template #icon><t-icon name="edit" /></template>
         编辑
@@ -149,6 +153,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import type { CostAuditItem } from '@/types'
 import { formatAmount, getInitials } from '@/utils/format'
@@ -161,6 +166,7 @@ const props = defineProps<{
 }>()
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 const emit = defineEmits<{
   edit: [item: CostAuditItem]
@@ -211,6 +217,11 @@ function copyPhone(phone: string) {
 }
 
 function handleEdit() { emit('edit', props.item) }
+
+function goProject() {
+  if (!props.item.projectId) return
+  router.push({ path: '/project-management', query: { projectId: props.item.projectId } })
+}
 
 function handleCopyInfo() {
   const info = [
