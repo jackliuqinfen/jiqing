@@ -311,6 +311,7 @@ export interface ThemeSetting {
   applyScope: string
   brandColor?: string
   themePackage?: string
+  sidebarLogoVariant?: 'color' | 'white' | 'black'
 }
 
 export interface ThemeOption {

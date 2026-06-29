@@ -408,7 +408,7 @@ def seed_system_settings(conn):
         ("registration_open", {"enabled": False, "requireApproval": True}, "auth", "是否开放注册"),
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
-        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": ""}, "theme", "当前主题"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
         conn.execute(
@@ -1337,6 +1337,8 @@ class Handler(BaseHTTPRequestHandler):
         value["brandColor"] = normalize_hex_color(value.get("brandColor")) or "#4787F0"
         if not value.get("themePackage"):
             value["themePackage"] = ""
+        if value.get("sidebarLogoVariant") not in {"color", "white", "black"}:
+            value["sidebarLogoVariant"] = "color"
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
         self.respond(200, {"success": True, "data": {**value, "theme": self.theme_payload(row) if row else None}})
 
@@ -1356,7 +1358,11 @@ class Handler(BaseHTTPRequestHandler):
         brand_color = normalize_hex_color(brand_color) or "#4787F0"
         theme_package = str(data.get("themePackage") or "").strip()
         if theme_package and not re.match(r"^@(arco-design/theme|arco-themes/vue)-[a-z0-9-]+$", theme_package, re.IGNORECASE):
-            self.respond(400, {"success": False, "error": "主题字符格式不正确，请输入 @arco-design/theme- 或 @arco-themes/vue- 开头的主题包名"})
+            self.respond(400, {"success": False, "error": "样式名称格式不正确，请从主题商店复制完整名称后再试。"})
+            return
+        sidebar_logo_variant = str(data.get("sidebarLogoVariant") or "color").strip()
+        if sidebar_logo_variant not in {"color", "white", "black"}:
+            self.respond(400, {"success": False, "error": "侧边栏 LOGO 色彩选择不正确，请重新选择后保存。"})
             return
         value = {
             "themeKey": theme_key,
@@ -1365,6 +1371,7 @@ class Handler(BaseHTTPRequestHandler):
             "applyScope": data.get("applyScope") or "global",
             "brandColor": brand_color,
             "themePackage": theme_package,
+            "sidebarLogoVariant": sidebar_logo_variant,
         }
         ts = now_iso()
         conn.execute(
@@ -1385,7 +1392,7 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
-        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": ""})
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": "", "sidebarLogoVariant": "color"})
 
     def theme_payload(self, row):
         if not row:

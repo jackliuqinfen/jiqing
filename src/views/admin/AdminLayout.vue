@@ -8,7 +8,7 @@
         </div>
         <div class="sidebar-brand">
           <span class="sidebar-title">系统管理</span>
-          <span class="sidebar-subtitle">Admin Console</span>
+          <span class="sidebar-subtitle">后台设置</span>
         </div>
       </div>
 
@@ -123,8 +123,7 @@ const userInitials = computed(() => getInitials(authStore.displayName))
 .sidebar-subtitle {
   font-size: 10px;
   color: color-mix(in srgb, var(--text-on-brand), transparent 28%);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 /* 导航 */

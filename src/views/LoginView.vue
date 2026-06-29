@@ -1,161 +1,184 @@
 <template>
   <div class="login-page">
-    <canvas ref="animationCanvasRef" class="login-animation" aria-hidden="true" />
-    <div class="login-grid" aria-hidden="true" />
+    <router-link class="login-brand" to="/">
+      <span class="brand-logo">
+        <img :src="brandLogo" alt="江苏集庆建设" />
+      </span>
+    </router-link>
+    <canvas ref="particleCanvasRef" class="login-particles" aria-hidden="true" />
 
-    <section class="login-command">
-      <div class="brand-block">
-        <span class="brand-mark">
-          <img :src="brandLogo" alt="系统标识" />
-        </span>
-        <div>
-          <h1>江苏集庆·工程管理系统</h1>
-          <p>Engineering Management Console</p>
+    <main class="login-main">
+      <section class="login-intro" aria-label="系统概览">
+        <div class="intro-kicker">
+          <i />
+          <span>工程审计与项目协同平台</span>
         </div>
-      </div>
+        <h1>统一管理项目进度、审计流转和经营数据</h1>
+        <p>面向工程咨询、招投标和项目审计场景，登录后可进入首页看板、审计看板和后台配置。</p>
 
-      <div class="command-copy">
-        <span class="system-state"><i /> 稳态指挥台已就绪</span>
-        <h2>工程审计、项目协同与经营数据的统一入口</h2>
-        <p>登录后进入首页数据看板，查看审计项目吞吐、时限风险、附件留痕和后台主题配置。</p>
-      </div>
-
-      <div class="signal-board">
-        <article>
-          <span>当前模块</span>
-          <strong>审计看板</strong>
-          <em>已启用</em>
-        </article>
-        <article>
-          <span>主题体系</span>
-          <strong>Arco</strong>
-          <em>白名单切换</em>
-        </article>
-        <article>
-          <span>图表引擎</span>
-          <strong>VChart</strong>
-          <em>动画联动</em>
-        </article>
-      </div>
-    </section>
-
-    <section class="login-panel" aria-label="登录">
-      <div class="panel-card">
-        <div class="panel-logo">
-          <img :src="brandLogo" alt="系统标识" />
+        <div class="intro-board">
+          <article>
+            <span>常用入口</span>
+            <strong>审计看板</strong>
+            <em>可进入</em>
+          </article>
+          <article>
+            <span>项目资料</span>
+            <strong>集中归集</strong>
+            <em>按项目查看</em>
+          </article>
+          <article>
+            <span>界面风格</span>
+            <strong>品牌配色</strong>
+            <em>可调整</em>
+          </article>
         </div>
-        <div class="form-header">
-          <span>内部系统登录</span>
-          <h2>欢迎回来</h2>
-          <p>请输入已开通的账号和密码。</p>
-        </div>
+      </section>
 
-        <div class="auth-tabs" role="tablist">
-          <button class="auth-tab active" type="button" role="tab" aria-selected="true">登录</button>
-          <t-tooltip content="请联系管理员" placement="top" :show-arrow="true">
+      <section class="login-panel" aria-label="账号登录">
+        <div class="panel-card">
+          <div class="panel-head">
+            <div>
+              <p>账号登录</p>
+              <h2>欢迎回来</h2>
+            </div>
+            <t-tag variant="light" theme="primary">单位内部使用</t-tag>
+          </div>
+
+          <div class="auth-tabs" role="tablist" aria-label="登录注册切换">
             <button
-              class="auth-tab auth-tab--disabled"
+              class="auth-tab active"
               type="button"
               role="tab"
-              aria-selected="false"
-              aria-disabled="true"
-              tabindex="-1"
-              @click.prevent="onRegisterClick"
+              aria-selected="true"
             >
-              注册
+              登录
             </button>
-          </t-tooltip>
-        </div>
+            <t-tooltip content="注册入口由管理员统一开通" placement="top" :show-arrow="true">
+              <button
+                class="auth-tab auth-tab--disabled"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-disabled="true"
+                tabindex="-1"
+                @click.prevent="showRegisterHint"
+              >
+                注册
+              </button>
+            </t-tooltip>
+          </div>
 
-        <t-form
-          ref="loginFormRef"
-          :data="loginForm"
-          :rules="loginRules"
-          label-align="top"
-          class="auth-form"
-          @submit="handleLogin"
-        >
-          <t-form-item label="账号" name="username">
-            <t-input
-              v-model="loginForm.username"
-              placeholder="请输入您的账号"
-              clearable
-              size="large"
-              autocomplete="username"
-            >
-              <template #prefix-icon>
-                <t-icon name="user" />
-              </template>
-            </t-input>
-          </t-form-item>
+          <t-alert v-if="loginErrorMessage" theme="danger" class="auth-alert">
+            {{ loginErrorMessage }}
+          </t-alert>
 
-          <t-form-item label="密码" name="password">
-            <t-input
-              v-model="loginForm.password"
-              type="password"
-              placeholder="请输入密码"
-              size="large"
-              autocomplete="current-password"
-            >
-              <template #prefix-icon>
-                <t-icon name="lock-on" />
-              </template>
-            </t-input>
-          </t-form-item>
+          <t-form
+            ref="loginFormRef"
+            :data="loginForm"
+            :rules="loginRules"
+            label-align="top"
+            class="auth-form"
+            @submit="handleLogin"
+          >
+            <t-form-item label="账号" name="username">
+              <t-input
+                v-model="loginForm.username"
+                placeholder="请输入您的账号"
+                clearable
+                size="large"
+                autocomplete="username"
+              >
+                <template #prefix-icon>
+                  <t-icon name="user" />
+                </template>
+              </t-input>
+            </t-form-item>
 
-          <t-form-item>
+            <t-form-item label="密码" name="password">
+              <t-input
+                v-model="loginForm.password"
+                :type="passwordVisible ? 'text' : 'password'"
+                placeholder="请输入密码"
+                size="large"
+                autocomplete="current-password"
+              >
+                <template #prefix-icon>
+                  <t-icon name="lock-on" />
+                </template>
+                <template #suffix-icon>
+                  <button
+                    class="password-toggle"
+                    type="button"
+                    :aria-label="passwordVisible ? '隐藏密码' : '显示密码'"
+                    @click="togglePasswordVisible"
+                    @mousedown.prevent
+                  >
+                    <t-icon :name="passwordVisible ? 'eye-invisible' : 'eye'" />
+                  </button>
+                </template>
+              </t-input>
+            </t-form-item>
+
+            <div class="form-meta">
+              <span>如无账号，请联系系统管理员开通。</span>
+            </div>
+
             <t-button
               theme="primary"
-              type="button"
+              type="submit"
               block
               size="large"
               :loading="authStore.isAuthLoading"
-              @click="handleLogin"
             >
               登录系统
             </t-button>
-          </t-form-item>
-        </t-form>
+          </t-form>
 
-        <div class="form-tip">
-          <t-icon name="info-circle" size="14px" />
-          <span>如无账号，请联系系统管理员开通；生产环境不展示默认账号提示。</span>
+          <div class="form-tip">
+            <t-icon name="info-circle" size="14px" />
+            <span>忘记账号或无法登录时，请联系系统管理员协助处理。</span>
+          </div>
         </div>
-      </div>
-
-      <p class="login-footer">© 2026 江苏集庆建设 · 工程管理系统</p>
-    </section>
+        <p class="login-footer">© 2026 江苏集庆建设 · 工程管理系统</p>
+      </section>
+    </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import $ from 'jquery'
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
 import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
+const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+
+const loginFormRef = ref<FormInstanceFunctions | null>(null)
+const particleCanvasRef = ref<HTMLCanvasElement | null>(null)
+const passwordVisible = ref(false)
+const loginForm = reactive({
+  username: '',
+  password: '',
+})
+
 type Particle = {
   x: number
   y: number
   vx: number
   vy: number
-  size: number
-  alpha: number
+  radius: number
+  baseAlpha: number
 }
 
-const authStore = useAuthStore()
-const route = useRoute()
-const router = useRouter()
-
-const animationCanvasRef = ref<HTMLCanvasElement | null>(null)
-const loginFormRef = ref<FormInstanceFunctions | null>(null)
-const loginForm = reactive({
-  username: '',
-  password: '',
-})
+let particleContext: CanvasRenderingContext2D | null = null
+let particleFrame = 0
+let particles: Particle[] = []
+const pointer = { x: -9999, y: -9999, active: false }
 
 const loginRules: Record<string, FormRule[]> = {
   username: [
@@ -169,346 +192,377 @@ const loginRules: Record<string, FormRule[]> = {
   ],
 }
 
-let animationFrame = 0
-let particles: Particle[] = []
-let canvasContext: CanvasRenderingContext2D | null = null
+const loginErrorMessage = computed(() => {
+  const raw = authStore.error?.trim()
+  if (!raw) return ''
+  const normalized = raw.toLowerCase()
+  if (raw.includes('账号') && raw.includes('密码')) return '账号或密码不正确，请重新输入后再试。'
+  if (raw.includes('锁定') || normalized.includes('locked')) return '账号当前已锁定，请联系管理员处理后再登录。'
+  if (raw.includes('网络') || normalized.includes('timeout') || normalized.includes('fetch')) return '当前网络或服务暂时不可用，请稍后重试。'
+  return '登录失败，请检查账号状态后重试，必要时联系管理员。'
+})
+
+const registerHint = computed(() => {
+  return authStore.registrationOpen
+    ? '请按单位要求提交开通申请。'
+    : '注册入口暂未开放，请联系管理员开通账号。'
+})
+
+watch(
+  () => [loginForm.username, loginForm.password],
+  () => {
+    if (authStore.error) authStore.clearError()
+  }
+)
+
+function showRegisterHint() {
+  MessagePlugin.warning(registerHint.value)
+}
+
+function togglePasswordVisible() {
+  passwordVisible.value = !passwordVisible.value
+}
+
+function getBrandRgb() {
+  const raw = '#168CFF'
+  const hex = raw.match(/^#?([0-9a-fA-F]{6})$/)?.[1]
+  if (hex) {
+    return {
+      r: Number.parseInt(hex.slice(0, 2), 16),
+      g: Number.parseInt(hex.slice(2, 4), 16),
+      b: Number.parseInt(hex.slice(4, 6), 16),
+    }
+  }
+  const rgb = raw.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+  return rgb
+    ? { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) }
+    : { r: 71, g: 135, b: 240 }
+}
+
+function getParticleCount(width: number) {
+  if (width < 640) return 18
+  if (width < 1024) return 34
+  return 58
+}
 
 function createParticles(width: number, height: number) {
-  const count = width < 760 ? 24 : 48
+  const count = getParticleCount(width)
   particles = Array.from({ length: count }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
-    vx: (Math.random() - 0.5) * 0.24,
-    vy: (Math.random() - 0.5) * 0.2,
-    size: 1.1 + Math.random() * 1.8,
-    alpha: 0.32 + Math.random() * 0.5,
+    vx: (Math.random() - 0.5) * 0.18,
+    vy: (Math.random() - 0.5) * 0.16,
+    radius: 1.4 + Math.random() * 1.7,
+    baseAlpha: 0.18 + Math.random() * 0.18,
   }))
 }
 
-function resizeAnimationCanvas() {
-  const canvas = animationCanvasRef.value
+function resizeParticleCanvas() {
+  const canvas = particleCanvasRef.value
   if (!canvas) return
   const ratio = Math.min(window.devicePixelRatio || 1, 2)
-  const $canvas = $(canvas)
-  const width = Math.max(1, Math.floor($canvas.outerWidth() || window.innerWidth))
-  const height = Math.max(1, Math.floor($canvas.outerHeight() || window.innerHeight))
-  canvas.width = Math.floor(width * ratio)
-  canvas.height = Math.floor(height * ratio)
-  canvasContext = canvas.getContext('2d')
-  canvasContext?.setTransform(ratio, 0, 0, ratio, 0, 0)
+  const width = window.innerWidth
+  const height = window.innerHeight
+  canvas.width = Math.round(width * ratio)
+  canvas.height = Math.round(height * ratio)
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
+  particleContext = canvas.getContext('2d')
+  particleContext?.setTransform(ratio, 0, 0, ratio, 0, 0)
   createParticles(width, height)
 }
 
-function drawAnimationFrame() {
-  const canvas = animationCanvasRef.value
-  if (!canvas || !canvasContext) return
+function drawParticles() {
+  const canvas = particleCanvasRef.value
+  const ctx = particleContext
+  if (!canvas || !ctx) return
 
-  const width = canvas.width / Math.min(window.devicePixelRatio || 1, 2)
-  const height = canvas.height / Math.min(window.devicePixelRatio || 1, 2)
-  canvasContext.clearRect(0, 0, width, height)
+  const ratio = Math.min(window.devicePixelRatio || 1, 2)
+  const width = canvas.width / ratio
+  const height = canvas.height / ratio
+  const brand = getBrandRgb()
+  ctx.clearRect(0, 0, width, height)
 
-  particles.forEach((point, index) => {
-    point.x += point.vx
-    point.y += point.vy
-    if (point.x < -20) point.x = width + 20
-    if (point.x > width + 20) point.x = -20
-    if (point.y < -20) point.y = height + 20
-    if (point.y > height + 20) point.y = -20
+  particles.forEach((particle) => {
+    particle.x += particle.vx
+    particle.y += particle.vy
 
-    canvasContext!.beginPath()
-    canvasContext!.arc(point.x, point.y, point.size, 0, Math.PI * 2)
-    canvasContext!.fillStyle = `rgba(20, 201, 201, ${point.alpha})`
-    canvasContext!.fill()
+    if (particle.x < -12) particle.x = width + 12
+    if (particle.x > width + 12) particle.x = -12
+    if (particle.y < -12) particle.y = height + 12
+    if (particle.y > height + 12) particle.y = -12
+  })
 
+  const linkDistance = width < 640 ? 92 : 126
+  particles.forEach((particle, index) => {
     for (let nextIndex = index + 1; nextIndex < particles.length; nextIndex += 1) {
       const next = particles[nextIndex]
-      const distance = Math.hypot(point.x - next.x, point.y - next.y)
-      if (distance > 126) continue
-      const opacity = (1 - distance / 126) * 0.18
-      canvasContext!.beginPath()
-      canvasContext!.moveTo(point.x, point.y)
-      canvasContext!.lineTo(next.x, next.y)
-      canvasContext!.strokeStyle = `rgba(22, 93, 255, ${opacity})`
-      canvasContext!.lineWidth = 1
-      canvasContext!.stroke()
+      const distance = Math.hypot(particle.x - next.x, particle.y - next.y)
+      if (distance > linkDistance) continue
+
+      const pointerBoost = pointer.active
+        ? Math.max(0, 1 - Math.min(
+          Math.hypot(pointer.x - particle.x, pointer.y - particle.y),
+          Math.hypot(pointer.x - next.x, pointer.y - next.y)
+        ) / 160)
+        : 0
+      const alpha = (1 - distance / linkDistance) * (0.1 + pointerBoost * 0.22)
+      ctx.beginPath()
+      ctx.moveTo(particle.x, particle.y)
+      ctx.lineTo(next.x, next.y)
+      ctx.strokeStyle = `rgba(${brand.r}, ${brand.g}, ${brand.b}, ${alpha})`
+      ctx.lineWidth = 1
+      ctx.stroke()
     }
   })
 
-  animationFrame = window.requestAnimationFrame(drawAnimationFrame)
+  particles.forEach((particle) => {
+    const distanceToPointer = pointer.active ? Math.hypot(pointer.x - particle.x, pointer.y - particle.y) : 9999
+    const boost = Math.max(0, 1 - distanceToPointer / 170)
+    ctx.beginPath()
+    ctx.arc(particle.x, particle.y, particle.radius + boost * 1.6, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(${brand.r}, ${brand.g}, ${brand.b}, ${particle.baseAlpha + boost * 0.38})`
+    ctx.fill()
+  })
+
+  particleFrame = window.requestAnimationFrame(drawParticles)
 }
 
-function startBackgroundAnimation() {
+function handlePointerMove(event: MouseEvent) {
+  pointer.x = event.clientX
+  pointer.y = event.clientY
+  pointer.active = true
+}
+
+function handlePointerLeave() {
+  pointer.active = false
+  pointer.x = -9999
+  pointer.y = -9999
+}
+
+function setupParticles() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  resizeAnimationCanvas()
-  $(window).on('resize.loginAnimation', resizeAnimationCanvas)
-  animationFrame = window.requestAnimationFrame(drawAnimationFrame)
+  resizeParticleCanvas()
+  window.addEventListener('resize', resizeParticleCanvas)
+  window.addEventListener('mousemove', handlePointerMove)
+  window.addEventListener('mouseleave', handlePointerLeave)
+  particleFrame = window.requestAnimationFrame(drawParticles)
 }
 
-function stopBackgroundAnimation() {
-  if (animationFrame) window.cancelAnimationFrame(animationFrame)
-  animationFrame = 0
-  $(window).off('resize.loginAnimation')
+function teardownParticles() {
+  if (particleFrame) window.cancelAnimationFrame(particleFrame)
+  particleFrame = 0
   particles = []
-  canvasContext = null
-}
-
-function syncLoginFormFromDom() {
-  const usernameInput = document.querySelector<HTMLInputElement>('input[autocomplete="username"]')
-  const passwordInput = document.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')
-  if (usernameInput) loginForm.username = usernameInput.value
-  if (passwordInput) loginForm.password = passwordInput.value
+  particleContext = null
+  window.removeEventListener('resize', resizeParticleCanvas)
+  window.removeEventListener('mousemove', handlePointerMove)
+  window.removeEventListener('mouseleave', handlePointerLeave)
 }
 
 async function handleLogin(context?: Event | { validateResult?: boolean }) {
   if (context && 'preventDefault' in context) context.preventDefault()
   if (authStore.isAuthLoading) return
 
-  syncLoginFormFromDom()
-  const username = loginForm.username.trim()
-  const password = loginForm.password
-  if (!username) {
-    MessagePlugin.warning('请输入账号')
-    return
-  }
-  if (!password) {
-    MessagePlugin.warning('请输入密码')
-    return
-  }
+  const valid = await loginFormRef.value?.validate()
+  if (valid !== true) return
 
-  const ok = await authStore.login(username, password)
+  const ok = await authStore.login(loginForm.username.trim(), loginForm.password)
   if (ok) {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.replace(redirect)
   }
 }
 
-function onRegisterClick() {
-  MessagePlugin.warning('请联系管理员')
-}
+onMounted(() => {
+  if (authStore.error) authStore.clearError()
+  setupParticles()
+})
 
-onMounted(startBackgroundAnimation)
-onBeforeUnmount(stopBackgroundAnimation)
+onBeforeUnmount(() => {
+  teardownParticles()
+})
 </script>
 
 <style scoped>
 .login-page {
+  position: relative;
+  overflow: hidden;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr);
-  overflow: hidden;
-  position: relative;
-  color: var(--text-on-brand);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-brand-500), #ffffff 6%), var(--color-brand-600)),
-    var(--color-brand-500);
+  --color-brand-50: #EAF4FF;
+  --color-brand-100: #D8EBFF;
+  --color-brand-500: #0E42D2;
+  --color-brand-600: #092B8A;
+  --color-brand-ink: #0E42D2;
+  --color-primary-6: #168CFF;
+  --color-primary-7: #0E42D2;
+  --text-on-brand: #FFFFFF;
+  background: #f7f9fb url('@/assets/login-page-bg-grey.jpg') center / cover no-repeat;
+  color: var(--text-primary);
 }
 
-.login-animation,
-.login-grid {
+.login-brand {
   position: absolute;
+  top: clamp(18px, 4vh, 40px);
+  left: clamp(24px, 4vw, 56px);
+  z-index: 2;
+  display: grid;
+  align-items: start;
+  gap: var(--space-2);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.login-particles {
+  position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  z-index: 0;
+  width: 100vw;
+  height: 100vh;
   pointer-events: none;
 }
 
-.login-animation {
-  z-index: 0;
-}
-
-.login-grid {
-  z-index: 1;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, .08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, .07) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
-}
-
-.login-command,
-.login-panel {
-  position: relative;
-  z-index: 2;
-}
-
-.login-command {
-  min-height: 100vh;
+.brand-logo {
+  width: 200px;
+  height: 150px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: var(--space-8);
-  padding: var(--space-10);
-}
-
-.brand-block {
-  display: flex;
   align-items: center;
-  gap: var(--space-4);
+  justify-items: start;
 }
 
-.brand-mark {
-  width: 78px;
-  height: 62px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  overflow: visible;
-}
-
-.brand-mark img,
-.panel-logo img {
+.brand-logo img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.brand-block h1 {
-  margin: 0;
-  color: inherit;
-  font-size: var(--text-2xl);
-  line-height: 1.18;
-}
-
-.brand-block p {
-  margin: 4px 0 0;
-  color: color-mix(in srgb, var(--text-on-brand), transparent 42%);
-  font-size: var(--text-xs);
-  letter-spacing: 0;
-}
-
-.command-copy {
-  max-width: 680px;
+.login-main {
+  position: relative;
+  z-index: 1;
+  width: min(1180px, calc(100% - 48px));
+  min-height: 100vh;
   display: grid;
-  align-content: center;
-  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1fr) 430px;
+  gap: clamp(36px, 6vw, 86px);
+  align-items: center;
+  justify-self: center;
+  padding: clamp(32px, 5vw, 64px) 0;
 }
 
-.system-state {
+.login-intro {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-5);
+}
+
+.intro-kicker {
   width: fit-content;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: color-mix(in srgb, var(--text-on-brand), transparent 16%);
+  color: var(--color-brand-ink);
   font-size: var(--text-sm);
+  font-weight: 600;
 }
 
-.system-state i {
-  width: 9px;
-  height: 9px;
+.intro-kicker i {
+  width: 8px;
+  height: 8px;
   background: var(--color-success);
-  box-shadow: 0 0 0 5px rgba(0, 180, 42, .14);
+  box-shadow: 0 0 0 5px rgba(0, 180, 42, .12);
 }
 
-.command-copy h2 {
-  max-width: 640px;
+.login-intro h1 {
+  max-width: 720px;
   margin: 0;
-  color: inherit;
+  color: var(--text-primary);
   font-size: 42px;
-  line-height: 1.16;
+  line-height: 1.18;
   font-weight: 700;
+  letter-spacing: 0;
 }
 
-.command-copy p {
+.login-intro p {
   max-width: 620px;
   margin: 0;
-  color: color-mix(in srgb, var(--text-on-brand), transparent 22%);
+  color: var(--text-secondary);
   font-size: var(--text-md);
+  line-height: 1.8;
 }
 
-.signal-board {
+.intro-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
   max-width: 680px;
+  margin-top: var(--space-3);
 }
 
-.signal-board article {
-  min-height: 104px;
+.intro-board article {
+  min-height: 112px;
   display: grid;
   align-content: center;
   gap: 4px;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--text-on-brand), transparent 86%);
-  border: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 80%);
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
+  box-shadow: 0 12px 36px rgba(18, 38, 74, .08);
 }
 
-.signal-board span,
-.signal-board em {
-  color: color-mix(in srgb, var(--text-on-brand), transparent 45%);
+.intro-board span,
+.intro-board em {
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-style: normal;
 }
 
-.signal-board strong {
-  color: inherit;
+.intro-board strong {
+  color: var(--text-primary);
   font-size: var(--text-xl);
 }
 
 .login-panel {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-8);
-  background: var(--bg-page);
-  color: var(--text-primary);
-  border-left: 1px solid color-mix(in srgb, var(--color-brand-ink), transparent 84%);
+  min-width: 0;
+  display: grid;
+  gap: var(--space-5);
+  justify-items: center;
 }
 
 .panel-card {
   width: 100%;
-  max-width: 440px;
   padding: var(--space-8);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-overlay);
+  box-shadow: 0 22px 60px rgba(18, 38, 74, .14);
 }
 
-.panel-logo {
-  width: 164px;
-  height: 116px;
-  margin: 0 0 var(--space-5);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  background: transparent;
-  border: 0;
-}
-
-.form-header {
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
   margin-bottom: var(--space-6);
 }
 
-.form-header span {
-  display: block;
-  margin-bottom: var(--space-2);
+.panel-head p {
+  margin: 0 0 4px;
   color: var(--color-brand-ink);
   font-size: var(--text-xs);
   font-weight: 600;
 }
 
-.form-header h2 {
-  margin: 0 0 var(--space-1);
+.panel-head h2 {
+  margin: 0;
   color: var(--text-primary);
   font-size: var(--text-3xl);
   line-height: 1.2;
 }
 
-.form-header p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-}
-
 .auth-tabs {
-  display: flex;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 3px;
   margin-bottom: var(--space-6);
   background: var(--color-gray-50);
@@ -517,20 +571,14 @@ onBeforeUnmount(stopBackgroundAnimation)
 }
 
 .auth-tab {
-  flex: 1;
-  height: 34px;
-  border: none;
+  min-height: 38px;
+  border: 0;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.auth-tab:hover:not(.auth-tab--disabled) {
-  color: var(--text-primary);
 }
 
 .auth-tab.active {
@@ -540,12 +588,14 @@ onBeforeUnmount(stopBackgroundAnimation)
   border-radius: var(--radius-sm);
 }
 
-.auth-tab--disabled,
-.auth-tab--disabled:hover {
+.auth-tab--disabled {
   color: var(--color-gray-300);
   cursor: not-allowed;
-  opacity: .62;
-  user-select: none;
+  opacity: .72;
+}
+
+.auth-alert {
+  margin-bottom: var(--space-4);
 }
 
 .auth-form :deep(.t-form__label) {
@@ -553,6 +603,36 @@ onBeforeUnmount(stopBackgroundAnimation)
   color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 500;
+}
+
+.form-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin: calc(var(--space-2) * -1) 0 var(--space-5);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.password-toggle {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: var(--color-brand-ink);
+  background: var(--color-brand-50);
+}
+
+.password-toggle:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
 }
 
 .form-tip {
@@ -564,8 +644,9 @@ onBeforeUnmount(stopBackgroundAnimation)
   color: var(--text-secondary);
   background: var(--color-gray-20);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   font-size: var(--text-xs);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .form-tip :deep(.t-icon) {
@@ -575,85 +656,53 @@ onBeforeUnmount(stopBackgroundAnimation)
 }
 
 .login-footer {
-  margin-top: var(--space-6);
+  margin: 0;
   color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
 
-@media (max-width: 1080px) {
-  .login-page {
+@media (max-width: 980px) {
+  .login-main {
     grid-template-columns: 1fr;
+    gap: var(--space-8);
   }
 
-  .login-command {
-    min-height: auto;
-    grid-template-rows: auto auto;
-    padding: var(--space-6);
-  }
-
-  .command-copy {
-    align-content: start;
-  }
-
-  .command-copy h2 {
+  .login-intro h1 {
     font-size: var(--text-4xl);
   }
 
-  .signal-board {
-    display: none;
-  }
-
-  .login-panel {
-    min-height: auto;
-    padding: var(--space-5);
-    background: var(--bg-page);
-    border-left: 0;
+  .intro-board {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 640px) {
-  .login-page {
-    min-height: 100vh;
+  .login-brand {
+    top: var(--space-4);
+    left: var(--space-4);
   }
 
-  .login-command {
-    padding: var(--space-5);
-    gap: var(--space-5);
+  .login-main {
+    width: calc(100% - 32px);
+    min-height: auto;
+    padding: var(--space-6) 0;
   }
 
-  .brand-block {
-    align-items: center;
+  .brand-logo {
+    width: 170px;
+    height: 128px;
   }
 
-  .brand-mark {
-    width: 70px;
-    height: 56px;
-  }
-
-  .brand-block h1 {
-    font-size: var(--text-xl);
-  }
-
-  .command-copy h2 {
+  .login-intro h1 {
     font-size: var(--text-3xl);
   }
 
-  .command-copy p {
+  .login-intro p {
     font-size: var(--text-sm);
-  }
-
-  .login-panel {
-    padding: 0 var(--space-4) var(--space-5);
   }
 
   .panel-card {
     padding: var(--space-5);
-  }
-
-  .panel-logo {
-    width: 138px;
-    height: 108px;
-    margin-bottom: var(--space-4);
   }
 }
 </style>

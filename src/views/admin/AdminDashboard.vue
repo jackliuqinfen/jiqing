@@ -1,11 +1,40 @@
 <template>
   <div class="admin-dashboard">
-    <div class="page-header">
-      <h2 class="page-title">仪表盘</h2>
-      <p class="page-desc">系统运行概览与关键指标</p>
-    </div>
+    <PageHeader title="仪表盘" description="系统运行概览与关键指标">
+      <template #meta>
+        <t-tag variant="light" theme="primary">系统概览</t-tag>
+      </template>
+      <template #actions>
+        <t-button variant="outline" :loading="loading" @click="loadDashboard">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+      </template>
+    </PageHeader>
 
-    <div class="stats-grid">
+    <StatePanel
+      v-if="loading && !loaded"
+      state="loading"
+      title="正在读取系统概览"
+      description="系统正在汇总用户、项目和配置数据，请稍候。"
+    />
+
+    <StatePanel
+      v-else-if="loadError"
+      state="error"
+      title="仪表盘加载失败"
+      description="概览数据暂时没能读取成功，可能是网络波动或后端繁忙。你可以重试，或稍后再看。"
+    >
+      <template #actions>
+        <t-button theme="primary" :loading="loading" @click="loadDashboard">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
+    <template v-else>
+      <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-icon" style="background:var(--color-brand-50);color:var(--color-brand-500)">
           <t-icon name="usergroup" size="22px" />
@@ -46,11 +75,11 @@
           <span class="stat-sub">系统参数</span>
         </div>
       </div>
-    </div>
+      </div>
 
-    <div class="quick-actions">
-      <h3 class="section-title">快捷入口</h3>
-      <div class="actions-grid">
+      <div class="quick-actions">
+        <h3 class="section-title">快捷入口</h3>
+        <div class="actions-grid">
         <router-link to="/admin/users" class="action-card">
           <t-icon name="user-add" size="22px" />
           <span class="action-title">用户管理</span>
@@ -71,8 +100,9 @@
           <span class="action-title">进入看板</span>
           <span class="action-desc">返回江苏集庆工程管理工作台</span>
         </router-link>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -80,17 +110,31 @@
 import { ref, onMounted } from 'vue'
 import { getAdminStats, getAllSystemSettings } from '@/api/system'
 import type { AdminStats } from '@/types'
+import PageHeader from '@/components/PageHeader.vue'
+import StatePanel from '@/components/StatePanel.vue'
 
 const stats = ref<AdminStats>({ totalUsers: 0, activeUsers: 0, adminCount: 0, totalProjects: 0, recentLogins: 0 })
 const settingsCount = ref(0)
+const loading = ref(false)
+const loaded = ref(false)
+const loadError = ref('')
 
-onMounted(async () => {
+async function loadDashboard() {
+  loading.value = true
+  loadError.value = ''
   try {
     const [s, ss] = await Promise.all([getAdminStats(), getAllSystemSettings()])
     stats.value = s
     settingsCount.value = ss.length
-  } catch { /* 默认值 */ }
-})
+    loaded.value = true
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '获取仪表盘数据失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadDashboard)
 </script>
 
 <style scoped>

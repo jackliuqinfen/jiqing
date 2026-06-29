@@ -1,15 +1,17 @@
 <template>
   <div class="operation-logs">
-    <div class="page-header">
-      <div class="page-header-left">
-        <h2 class="page-title">操作日志</h2>
-        <p class="page-desc">查看登录、项目、附件、主题和后台配置等关键操作记录</p>
-      </div>
-      <t-button theme="primary" :loading="loading" @click="fetchLogs">
-        <template #icon><t-icon name="refresh" /></template>
-        刷新
-      </t-button>
-    </div>
+    <PageHeader title="操作日志" description="查看登录、项目、附件、主题和后台配置等关键操作记录">
+      <template #meta>
+        <t-tag variant="light" theme="primary">共 {{ filteredLogs.length }} 条</t-tag>
+        <t-tag v-if="keyword || resultFilter || roleFilter" variant="light">已应用筛选</t-tag>
+      </template>
+      <template #actions>
+        <t-button variant="outline" :loading="loading" @click="fetchLogs">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+      </template>
+    </PageHeader>
 
     <div class="log-toolbar">
       <t-input v-model="keyword" placeholder="搜索账号、动作、对象或 IP" clearable :style="{ width: '280px' }">
@@ -32,7 +34,44 @@
       <span class="log-count">共 {{ filteredLogs.length }} 条</span>
     </div>
 
+    <StatePanel
+      v-if="loading && logs.length === 0"
+      state="loading"
+      title="正在读取操作日志"
+      description="系统正在整理登录、项目、附件和配置记录，请稍候。"
+    />
+
+    <StatePanel
+      v-else-if="fetchError"
+      state="error"
+      title="操作日志加载失败"
+      description="日志列表暂时没有读取成功，可能是网络异常或服务响应较慢。你可以重试，必要时联系管理员。"
+    >
+      <template #actions>
+        <t-button theme="primary" :loading="loading" @click="fetchLogs">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
+    <StatePanel
+      v-else-if="filteredLogs.length === 0"
+      state="empty"
+      title="未找到符合条件的日志"
+      :description="keyword || resultFilter || roleFilter ? '请调整筛选条件后再试，或清除筛选查看全部日志。' : '当前还没有操作日志。'"
+    >
+      <template #actions>
+        <t-button v-if="keyword || resultFilter || roleFilter" variant="outline" @click="resetFilters">清除筛选</t-button>
+        <t-button theme="primary" :loading="loading" @click="fetchLogs">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
     <t-table
+      v-else
       :data="filteredLogs"
       :columns="tableColumns"
       row-key="id"
@@ -81,6 +120,8 @@ import { computed, onMounted, ref } from 'vue'
 import { getOperationLogs } from '@/api/system'
 import { MessagePlugin } from '@/ui/message'
 import type { AdminRole, OperationLogEntry } from '@/types'
+import PageHeader from '@/components/PageHeader.vue'
+import StatePanel from '@/components/StatePanel.vue'
 
 const tableColumns = [
   { colKey: 'createdAt', title: '时间', width: 160 },
@@ -106,6 +147,7 @@ const roleOptions = [
 
 const logs = ref<OperationLogEntry[]>([])
 const loading = ref(false)
+const fetchError = ref('')
 const keyword = ref('')
 const resultFilter = ref('')
 const roleFilter = ref<AdminRole | 'system' | ''>('')
@@ -191,6 +233,12 @@ function detailText(detail: Record<string, unknown>) {
   return entries.map(([key, value]) => `${key}: ${String(value)}`).join('；')
 }
 
+function resetFilters() {
+  keyword.value = ''
+  resultFilter.value = ''
+  roleFilter.value = ''
+}
+
 function formatDateTime(iso: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('zh-CN', {
@@ -204,10 +252,12 @@ function formatDateTime(iso: string) {
 
 async function fetchLogs() {
   loading.value = true
+  fetchError.value = ''
   try {
     logs.value = await getOperationLogs()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '获取操作日志失败')
+    fetchError.value = err instanceof Error ? err.message : '获取操作日志失败'
+    MessagePlugin.error(fetchError.value)
   } finally {
     loading.value = false
   }

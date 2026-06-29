@@ -64,7 +64,7 @@ function setArcoThemeLink(themePackage?: string) {
 
 export function loadArcoThemePackage(themePackage: string): Promise<void> {
   const normalized = normalizeArcoThemePackage(themePackage)
-  if (!normalized) return Promise.reject(new Error('请输入形如 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的主题字符'))
+  if (!normalized) return Promise.reject(new Error('样式名称格式不正确，请从主题商店复制完整名称后再试。'))
   const href = arcoThemeCssUrl(normalized)
   const existing = document.querySelector<HTMLLinkElement>(`link[data-arco-theme-test="${normalized}"]`)
   if (existing?.dataset.loaded === 'true') return Promise.resolve()
@@ -73,7 +73,7 @@ export function loadArcoThemePackage(themePackage: string): Promise<void> {
     const probe = document.createElement('link')
     const timeout = window.setTimeout(() => {
       probe.remove()
-      reject(new Error('主题加载超时，请检查主题字符或网络'))
+      reject(new Error('界面样式加载超时，请稍后重试，或确认样式名称是否正确。'))
     }, 12000)
 
     probe.rel = 'stylesheet'
@@ -89,7 +89,7 @@ export function loadArcoThemePackage(themePackage: string): Promise<void> {
     probe.onerror = () => {
       window.clearTimeout(timeout)
       probe.remove()
-      reject(new Error('主题加载失败，请确认主题字符已发布且可访问'))
+      reject(new Error('界面样式加载失败，请确认样式名称来自已发布的主题商店样式。'))
     }
     document.head.appendChild(probe)
   })
@@ -215,6 +215,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const brandInk = isLightColor(brand) ? tokens.brand : brand
   const textOnBrand = isLightColor(brand) ? tokens.brand : '#FFFFFF'
   document.documentElement.dataset.theme = setting.themeKey
+  document.documentElement.dataset.sidebarLogo = setting.sidebarLogoVariant || 'color'
   setArcoThemeLink(setting.themePackage)
   document.documentElement.dataset.compact = setting.compactMode ? 'true' : 'false'
   document.documentElement.dataset.dark = setting.darkMode || setting.themeKey === 'dark-command' ? 'true' : 'false'
@@ -249,6 +250,6 @@ export async function initThemePreference() {
     const theme = await getCurrentTheme()
     applyTheme(theme)
   } catch {
-    applyTheme({ themeKey: 'arco-theme-0000', darkMode: false, compactMode: false, applyScope: 'global' })
+    applyTheme({ themeKey: 'arco-theme-0000', darkMode: false, compactMode: false, applyScope: 'global', sidebarLogoVariant: 'color' })
   }
 }

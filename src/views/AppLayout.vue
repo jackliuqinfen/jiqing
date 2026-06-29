@@ -5,7 +5,7 @@
         <span class="brand-icon"><img :src="brandLogo" alt="" /></span>
         <span class="brand-copy">
           <strong>工程管理系统</strong>
-          <em>Engineering Console</em>
+          <em>项目协同与审计看板</em>
         </span>
       </router-link>
 
@@ -51,8 +51,8 @@
       <div class="sidebar-foot">
         <div class="system-status">
           <span />
-          <strong>生产环境</strong>
-          <em>SQLite · Arco</em>
+          <strong>系统可用</strong>
+          <em>数据已同步</em>
         </div>
       </div>
     </aside>
@@ -99,7 +99,7 @@ const mainNav = [
 ]
 
 const routeTitle = computed(() => String(route.meta.title || '江苏集庆·工程管理系统'))
-const routeSubtitle = computed(() => String(route.meta.subtitle || '稳态指挥台 · 工程经营与审计协同'))
+const routeSubtitle = computed(() => String(route.meta.subtitle || '查看项目进度、审计流转和经营数据'))
 
 async function logout() {
   await authStore.logout()
@@ -131,8 +131,8 @@ async function logout() {
 .system-brand {
   display: grid;
   align-content: start;
-  gap: var(--space-3);
-  min-height: 204px;
+  gap: var(--space-2);
+  min-height: 246px;
   padding: var(--space-2) var(--space-2) var(--space-3);
   color: var(--text-on-brand);
   text-decoration: none;
@@ -140,8 +140,8 @@ async function logout() {
 }
 
 .brand-icon {
-  width: 200px;
-  height: 150px;
+  width: 218px;
+  height: 164px;
   display: grid;
   align-items: center;
   justify-items: start;
@@ -159,6 +159,14 @@ async function logout() {
   max-height: 100%;
   object-fit: contain;
   display: block;
+}
+
+:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon img) {
+  filter: brightness(0) invert(1);
+}
+
+:global(html[data-sidebar-logo='black'] .system-sidebar .brand-icon img) {
+  filter: brightness(0) saturate(100%);
 }
 
 .system-brand strong,
@@ -302,8 +310,8 @@ async function logout() {
   .system-status strong,
   .system-status em { display: none; }
   .brand-icon {
-    width: 48px;
-    height: 42px;
+    width: 52px;
+    height: 39px;
     justify-items: center;
   }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
@@ -324,12 +332,12 @@ async function logout() {
   }
   .system-brand span:not(.brand-icon) { display: block; }
   .system-brand {
-    min-height: 44px;
+    min-height: 170px;
     max-width: 240px;
   }
   .brand-icon {
-    width: 148px;
-    height: 110px;
+    width: 188px;
+    height: 142px;
     justify-items: start;
   }
   .system-brand strong { font-size: var(--text-md); }

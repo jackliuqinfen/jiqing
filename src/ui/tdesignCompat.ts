@@ -31,6 +31,8 @@ import {
   IconDashboard,
   IconEdit,
   IconExclamationCircle,
+  IconEye,
+  IconEyeInvisible,
   IconFile,
   IconFolder,
   IconImage,
@@ -68,6 +70,8 @@ const iconMap: Record<string, Component> = {
   edit: IconEdit,
   'edit-1': IconEdit,
   'error-circle': IconExclamationCircle,
+  eye: IconEye,
+  'eye-invisible': IconEyeInvisible,
   flag: IconTag,
   'file-copy': IconCopy,
   'file-paste': IconFile,
@@ -160,6 +164,7 @@ const TInput = defineComponent({
     return () => h(Input as any, { ...attrsAny, allowClear: props.clearable || Boolean(attrsAny.allowClear) }, {
       ...slots,
       prefix: slots['prefix-icon'] || slots.prefix,
+      suffix: slots['suffix-icon'] || slots.suffix,
     })
   },
 })

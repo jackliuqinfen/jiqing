@@ -1,28 +1,30 @@
 <template>
   <div class="admin-settings">
-    <div class="page-header">
-      <h2 class="page-title">系统设置</h2>
-      <p class="page-desc">管理系统全局参数，包括注册开关、登录规则等</p>
-    </div>
+    <PageHeader title="系统设置" description="管理登录、账号开通和界面风格等常用设置">
+      <template #meta>
+        <t-tag variant="light" theme="primary">常用设置</t-tag>
+        <t-tag variant="light">界面 / 账号 / 登录</t-tag>
+      </template>
+    </PageHeader>
 
-    <t-card class="settings-card theme-card" title="主题外观" :bordered="true">
+    <t-card class="settings-card theme-card" title="界面风格" :bordered="true">
       <template #actions>
         <t-button size="small" variant="outline" :loading="savingTheme" @click="resetTheme">恢复默认</t-button>
       </template>
       <div class="theme-current">
         <div>
-          <span class="field-label">当前主题</span>
+          <span class="field-label">当前风格</span>
           <strong>{{ currentThemeName }}</strong>
-          <em>{{ themeSettings.themeKey }}</em>
+          <em>{{ themeSettings.darkMode ? '深色显示' : '浅色显示' }} · {{ themeSettings.compactMode ? '紧凑间距' : '标准间距' }}</em>
         </div>
         <div class="theme-toggles">
           <label>
             <t-switch v-model="themeSettings.compactMode" size="small" @change="saveTheme" />
-            <span>紧凑</span>
+            <span>紧凑显示</span>
           </label>
           <label>
             <t-switch v-model="themeSettings.darkMode" size="small" @change="saveTheme" />
-            <span>深色</span>
+            <span>深色模式</span>
           </label>
         </div>
       </div>
@@ -30,7 +32,7 @@
         <div>
           <span class="field-label">品牌主色</span>
           <strong>{{ normalizedBrandColor }}</strong>
-          <em>输入 6 位 HEX 色号，保存后侧栏、按钮、激活态和主题预览会全局更新。</em>
+          <em>输入 6 位色号，保存后侧栏、按钮、选中状态和预览会同步更新。</em>
         </div>
         <div class="brand-color-controls">
           <input
@@ -52,22 +54,42 @@
           <span v-if="brandColorError" class="brand-color-error">{{ brandColorError }}</span>
         </div>
       </div>
+      <div class="logo-color-panel">
+        <div>
+          <span class="field-label">侧边栏 LOGO 色彩</span>
+          <strong>{{ sidebarLogoVariantLabel }}</strong>
+          <em>仅影响业务界面左侧导航 LOGO，不改变登录页 LOGO 和登录页配色。</em>
+        </div>
+        <div class="logo-color-switch" role="group" aria-label="侧边栏 LOGO 色彩">
+          <button
+            v-for="option in sidebarLogoVariantOptions"
+            :key="option.value"
+            type="button"
+            :class="{ active: themeSettings.sidebarLogoVariant === option.value }"
+            :disabled="savingTheme"
+            @click="selectSidebarLogoVariant(option.value)"
+          >
+            <i :class="`logo-sample logo-sample--${option.value}`" />
+            <span>{{ option.label }}</span>
+          </button>
+        </div>
+      </div>
       <div class="theme-package-panel">
         <div>
-          <span class="field-label">Arco 主题字符</span>
-          <strong>{{ themePackageInput || '未设置主题包' }}</strong>
-          <em>从 Arco Design 主题商店复制类似 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的字符，加载成功后会自动刷新并返回首页。</em>
+          <span class="field-label">主题商店样式</span>
+          <strong>{{ themePackageInput ? '已填写样式名称' : '未使用外部样式' }}</strong>
+          <em>需要使用主题商店样式时，粘贴完整样式名称。应用成功后会询问是否同步推荐品牌色，并返回首页查看效果。</em>
         </div>
         <div class="theme-package-controls">
           <input
             v-model.trim="themePackageInput"
             class="theme-package-input"
-            placeholder="@arco-themes/vue-cestc-wuhan-linear"
+            placeholder="请输入主题商店样式名称"
             :disabled="savingTheme"
             @keyup.enter="applyThemePackage"
           />
-          <t-button size="small" theme="primary" :loading="savingTheme" @click="applyThemePackage">切换主题包</t-button>
-          <t-button size="small" variant="outline" :disabled="savingTheme || !themeSettings.themePackage" @click="clearThemePackage">清除主题包</t-button>
+          <t-button size="small" theme="primary" :loading="savingTheme" @click="applyThemePackage">应用样式</t-button>
+          <t-button size="small" variant="outline" :disabled="savingTheme || !themeSettings.themePackage" @click="clearThemePackage">恢复内置样式</t-button>
           <span v-if="themePackageError" class="theme-package-error">{{ themePackageError }}</span>
         </div>
       </div>
@@ -84,9 +106,9 @@
           <span class="theme-swatch-row">
             <i v-for="color in theme.previewColors" :key="color" :style="{ backgroundColor: color }" />
           </span>
-          <span class="theme-name">{{ theme.themeName }}</span>
-          <span class="theme-package">{{ theme.packageName }}</span>
-          <span class="theme-meta">{{ theme.isDefault ? '默认主题' : theme.isEnabled ? '可切换' : '未启用' }}</span>
+          <span class="theme-name">{{ friendlyThemeName(theme) }}</span>
+          <span class="theme-package">{{ friendlyThemeDescription(theme) }}</span>
+          <span class="theme-meta">{{ theme.isDefault ? '推荐风格' : theme.isEnabled ? '可使用' : '暂不可用' }}</span>
         </button>
       </div>
 
@@ -94,7 +116,7 @@
         <div>
           <span class="field-label">应用范围</span>
           <strong>{{ applyScopeLabel }}</strong>
-          <em>当前版本按配置落库，后续模块可按范围读取主题策略。</em>
+          <em>选择界面风格和品牌色在哪些页面生效，便于分阶段调整。</em>
         </div>
         <div class="scope-switch" role="group" aria-label="主题应用范围">
           <button
@@ -113,7 +135,7 @@
       <div class="theme-preview-board">
         <section class="theme-preview-card">
           <div class="preview-head">
-            <span>当前主题预览</span>
+            <span>当前风格预览</span>
             <strong>{{ currentThemeName }}</strong>
           </div>
           <div class="preview-shell" :style="previewStyle">
@@ -139,22 +161,22 @@
             </div>
           </div>
           <div class="theme-facts">
-            <span>主题 key：{{ activeTheme?.themeKey || themeSettings.themeKey }}</span>
-            <span>包标识：{{ activeTheme?.packageName || '-' }}</span>
-            <span>启用状态：{{ activeTheme?.isEnabled ? '已启用' : '未启用' }}</span>
-            <span>默认主题：{{ activeTheme?.isDefault ? '是' : '否' }}</span>
+            <span>当前风格：{{ currentThemeName }}</span>
+            <span>适用范围：{{ applyScopeLabel }}</span>
+            <span>使用状态：{{ activeTheme?.isEnabled ? '可正常使用' : '暂不可用' }}</span>
+            <span>推荐风格：{{ activeTheme?.isDefault ? '是' : '否' }}</span>
           </div>
         </section>
 
         <section class="theme-preview-card">
           <div class="preview-head">
-            <span>图表主题预览</span>
-            <strong>VChart + Arco Theme</strong>
+            <span>数据图预览</span>
+            <strong>看板图表</strong>
           </div>
           <div class="chart-preview">
             <VChartPanel :spec="chartPreviewSpec" />
           </div>
-          <p class="preview-note">图表颜色来自当前白名单主题色板，并通过 VChart Arco 主题适配器保持基础风格一致。</p>
+          <p class="preview-note">数据图会跟随当前品牌色和辅助色，方便看板保持统一观感。</p>
         </section>
       </div>
     </t-card>
@@ -162,33 +184,33 @@
     <t-dialog
       v-model:visible="brandFollowDialogVisible"
       header="是否同步品牌主色"
-      :confirm-btn="{ content: '跟随主题色', loading: savingTheme }"
+      :confirm-btn="{ content: '同步推荐颜色', loading: savingTheme }"
       :cancel-btn="{ content: '保留当前品牌色' }"
       width="460px"
       @confirm="confirmFollowThemeBrandColor"
       @update:visible="handleBrandFollowDialogVisible"
     >
       <div class="brand-follow-dialog">
-        <p>主题包已加载成功。是否将系统品牌主色同步为该主题推荐色？</p>
+        <p>界面样式已应用成功。是否将品牌主色同步为该样式推荐颜色？</p>
         <div class="brand-follow-preview">
           <i :style="{ backgroundColor: pendingThemeBrandColor }" />
           <span>{{ pendingThemeBrandColor }}</span>
         </div>
-        <em>选择“保留当前品牌色”会只应用主题包样式，不改变侧栏、按钮和业务高亮主色。</em>
+        <em>选择“保留当前品牌色”会只应用界面样式，不改变侧栏、按钮和业务高亮色。</em>
       </div>
     </t-dialog>
 
     <!-- 注册设置卡片 -->
-    <t-card class="settings-card" title="注册设置" :bordered="true">
+    <t-card class="settings-card" title="账号开通" :bordered="true">
       <template #actions>
         <t-button size="small" variant="outline" :loading="savingReg" @click="saveRegistration">保存</t-button>
       </template>
       <t-form label-align="left" label-width="140px" class="settings-form">
-        <t-form-item label="开放注册" help="关闭后，前端注册入口将禁用，仅管理员可创建用户">
+        <t-form-item label="允许自行申请账号" help="关闭后，新账号由管理员统一开通">
           <t-switch v-model="regSettings.enabled" size="large" />
           <span class="switch-text">{{ regSettings.enabled ? '已开放' : '已关闭' }}</span>
         </t-form-item>
-        <t-form-item label="注册需审批" help="开启后，新注册用户需管理员审批才能登录">
+        <t-form-item label="申请后需要审核" help="开启后，新账号审核通过后才能登录">
           <t-switch v-model="regSettings.requireApproval" size="large" />
           <span class="switch-text">{{ regSettings.requireApproval ? '需要审批' : '无需审批' }}</span>
         </t-form-item>
@@ -196,22 +218,22 @@
     </t-card>
 
     <!-- 登录规则卡片 -->
-    <t-card class="settings-card" title="登录规则" :bordered="true">
+    <t-card class="settings-card" title="登录安全" :bordered="true">
       <template #actions>
         <t-button size="small" variant="outline" :loading="savingLogin" @click="saveLoginRules">保存</t-button>
       </template>
       <t-form label-align="left" label-width="160px" class="settings-form">
-        <t-form-item label="密码最小长度" help="用户密码的最小字符数（6-32）">
+        <t-form-item label="密码最少位数" help="建议不少于 6 位，降低账号被误用的风险">
           <t-input-number v-model="loginRulesSettings.minPasswordLength" :min="1" :max="32" style="width:180px" />
         </t-form-item>
-        <t-form-item label="最大登录尝试次数" help="超过此次数将临时锁定账户">
+        <t-form-item label="最多输错次数" help="连续输错超过该次数后，账号会暂时保护">
           <t-input-number v-model="loginRulesSettings.maxLoginAttempts" :min="1" :max="20" style="width:180px" />
         </t-form-item>
-        <t-form-item label="会话超时（分钟）" help="登录会话无操作超时时间">
+        <t-form-item label="自动退出时间" help="长时间未操作时，系统会自动退出登录">
           <t-input-number v-model="loginRulesSettings.sessionTimeoutMinutes" :min="15" :max="1440" style="width:180px" />
           <span class="switch-text">分钟</span>
         </t-form-item>
-        <t-form-item label="允许多端登录" help="关闭后，新登录会踢掉旧会话">
+        <t-form-item label="允许多处登录" help="关闭后，同一账号新登录时，原位置会自动退出">
           <t-switch v-model="loginRulesSettings.allowConcurrentSessions" size="large" />
           <span class="switch-text">{{ loginRulesSettings.allowConcurrentSessions ? '允许' : '不允许' }}</span>
         </t-form-item>
@@ -237,6 +259,7 @@ import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage } from '@/ui/theme'
 import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting } from '@/types'
+import PageHeader from '@/components/PageHeader.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -261,6 +284,7 @@ const themeSettings = reactive<ThemeSetting>({
   applyScope: 'global',
   brandColor: '#4787F0',
   themePackage: '',
+  sidebarLogoVariant: 'color',
 })
 
 const applyScopeOptions = [
@@ -270,8 +294,15 @@ const applyScopeOptions = [
   { label: '后台管理', value: 'admin' },
 ]
 
+const sidebarLogoVariantOptions = [
+  { label: '彩色', value: 'color' },
+  { label: '白色', value: 'white' },
+  { label: '黑色', value: 'black' },
+] as const
+
 const currentThemeName = computed(() => {
-  return themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey)?.themeName || 'Arco 官方默认主题'
+  const theme = themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey)
+  return theme ? friendlyThemeName(theme) : '默认蓝色风格'
 })
 
 const activeTheme = computed(() => themeOptions.value.find((item) => item.themeKey === themeSettings.themeKey) || null)
@@ -312,7 +343,7 @@ const brandColorError = computed(() => {
 
 const themePackageError = computed(() => {
   if (!themePackageInput.value) return ''
-  return normalizeArcoThemePackage(themePackageInput.value) ? '' : '请输入例如 @arco-design/theme-christmas 或 @arco-themes/vue-cestc-wuhan-linear 的主题字符'
+  return normalizeArcoThemePackage(themePackageInput.value) ? '' : '样式名称格式不正确，请从主题商店复制完整名称后再试。'
 })
 
 const activePreviewColors = computed(() => {
@@ -324,6 +355,31 @@ const activePreviewColors = computed(() => {
 const applyScopeLabel = computed(() => {
   return applyScopeOptions.find((item) => item.value === themeSettings.applyScope)?.label || '全局'
 })
+
+const sidebarLogoVariantLabel = computed(() => {
+  return sidebarLogoVariantOptions.find((item) => item.value === themeSettings.sidebarLogoVariant)?.label || '彩色'
+})
+
+function friendlyThemeName(theme?: ThemeOption | null) {
+  if (!theme) return '默认蓝色风格'
+  const key = theme.themeKey
+  if (key === 'arco-theme-0000' || theme.isDefault) return '默认蓝色风格'
+  if (key === 'arco-default') return '经典蓝色风格'
+  if (key === 'jiqing-blue') return '专业蓝色风格'
+  if (key === 'engineering-green') return '工程绿色风格'
+  if (key === 'gov-gray-blue') return '政企灰蓝风格'
+  if (key === 'dark-command') return '深色看板风格'
+  return theme.themeName.replace(/Arco|Theme|主题包|fallback/gi, '').trim() || '自定义风格'
+}
+
+function friendlyThemeDescription(theme: ThemeOption) {
+  if (!theme.isEnabled) return '暂不可用'
+  if (theme.isDefault) return '适合日常办公'
+  if (theme.themeKey === 'dark-command') return '适合大屏展示'
+  if (theme.themeKey === 'engineering-green') return '适合工程资料场景'
+  if (theme.themeKey === 'gov-gray-blue') return '适合正式汇报场景'
+  return '可用于看板和后台页面'
+}
 
 const previewStyle = computed(() => {
   const [brand, cyan, green, warning] = activePreviewColors.value
@@ -384,6 +440,7 @@ onMounted(async () => {
       applyScope: currentTheme.applyScope,
       brandColor: currentTheme.brandColor || '#4787F0',
       themePackage: currentTheme.themePackage || '',
+      sidebarLogoVariant: currentTheme.sidebarLogoVariant || 'color',
     })
     themePackageInput.value = currentTheme.themePackage || ''
     applyTheme(currentTheme)
@@ -402,6 +459,12 @@ async function selectApplyScope(scope: string) {
   await saveTheme()
 }
 
+async function selectSidebarLogoVariant(variant: ThemeSetting['sidebarLogoVariant']) {
+  if (!variant || themeSettings.sidebarLogoVariant === variant) return
+  themeSettings.sidebarLogoVariant = variant
+  await saveTheme()
+}
+
 async function saveTheme() {
   if (brandColorError.value) {
     MessagePlugin.warning(brandColorError.value)
@@ -417,12 +480,13 @@ async function saveTheme() {
       applyScope: next.applyScope,
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: next.themePackage || '',
+      sidebarLogoVariant: next.sidebarLogoVariant || 'color',
     })
     themePackageInput.value = next.themePackage || ''
     applyTheme(next)
-    MessagePlugin.success('主题已切换')
+    MessagePlugin.success('界面风格已更新')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '主题保存失败')
+    MessagePlugin.error(err instanceof Error ? err.message : '界面风格保存失败，请稍后重试。')
   } finally {
     savingTheme.value = false
   }
@@ -439,12 +503,13 @@ async function resetTheme() {
       applyScope: next.applyScope,
       brandColor: next.brandColor || '#4787F0',
       themePackage: next.themePackage || '',
+      sidebarLogoVariant: next.sidebarLogoVariant || 'color',
     })
     themePackageInput.value = next.themePackage || ''
     applyTheme(next)
-    MessagePlugin.success('已恢复默认主题')
+    MessagePlugin.success('已恢复默认界面风格')
   } catch {
-    MessagePlugin.error('恢复失败')
+    MessagePlugin.error('恢复失败，请稍后重试。')
   } finally {
     savingTheme.value = false
   }
@@ -457,7 +522,7 @@ async function applyThemePackage() {
   }
   const nextPackage = normalizeArcoThemePackage(themePackageInput.value)
   if (!nextPackage) {
-    MessagePlugin.warning('请输入主题字符')
+    MessagePlugin.warning('请输入主题商店样式名称')
     return
   }
   savingTheme.value = true
@@ -475,15 +540,16 @@ async function applyThemePackage() {
       applyScope: next.applyScope,
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: next.themePackage || nextPackage,
+      sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
     })
     themePackageInput.value = next.themePackage || nextPackage
     pendingThemePackage.value = next.themePackage || nextPackage
     pendingThemeBrandColor.value = getThemePackageBrandColor()
     brandFollowDecisionHandled.value = false
     brandFollowDialogVisible.value = true
-    MessagePlugin.success('主题包切换成功')
+    MessagePlugin.success('界面样式已应用')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '主题包切换失败')
+    MessagePlugin.error(err instanceof Error ? err.message : '界面样式应用失败，请检查名称是否正确后重试。')
   } finally {
     savingTheme.value = false
   }
@@ -522,14 +588,15 @@ async function confirmFollowThemeBrandColor() {
       applyScope: next.applyScope,
       brandColor: next.brandColor || pendingThemeBrandColor.value,
       themePackage: next.themePackage || pendingThemePackage.value,
+      sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
     })
     applyTheme(next)
     brandFollowDialogVisible.value = false
-    MessagePlugin.success('品牌色已跟随主题包，即将返回首页')
+    MessagePlugin.success('品牌色已同步，即将返回首页')
     refreshToHome()
   } catch (err) {
     brandFollowDecisionHandled.value = false
-    MessagePlugin.error(err instanceof Error ? err.message : '品牌色同步失败')
+    MessagePlugin.error(err instanceof Error ? err.message : '品牌色同步失败，请稍后重试。')
   } finally {
     savingTheme.value = false
   }
@@ -550,12 +617,13 @@ async function clearThemePackage() {
       applyScope: next.applyScope,
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: '',
+      sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
     })
     themePackageInput.value = ''
     applyTheme(next)
-    MessagePlugin.success('主题包已清除')
+    MessagePlugin.success('已恢复内置界面样式')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '清除失败')
+    MessagePlugin.error(err instanceof Error ? err.message : '恢复失败，请稍后重试。')
   } finally {
     savingTheme.value = false
   }
@@ -565,8 +633,8 @@ async function saveRegistration() {
   savingReg.value = true
   try {
     await setSystemSetting('registration_open', { ...regSettings }, authStore.username)
-    MessagePlugin.success('注册设置已保存')
-  } catch { MessagePlugin.error('保存失败') }
+    MessagePlugin.success('账号开通设置已保存')
+  } catch { MessagePlugin.error('保存失败，请稍后重试。') }
   finally { savingReg.value = false }
 }
 
@@ -574,8 +642,8 @@ async function saveLoginRules() {
   savingLogin.value = true
   try {
     await setSystemSetting('login_rules', { ...loginRulesSettings }, authStore.username)
-    MessagePlugin.success('登录规则已保存')
-  } catch { MessagePlugin.error('保存失败') }
+    MessagePlugin.success('登录安全设置已保存')
+  } catch { MessagePlugin.error('保存失败，请稍后重试。') }
   finally { savingLogin.value = false }
 }
 </script>
@@ -602,6 +670,7 @@ async function saveLoginRules() {
   border: 1px solid var(--border-color);
 }
 .brand-color-panel,
+.logo-color-panel,
 .theme-package-panel {
   display: grid;
   grid-template-columns: minmax(220px, .75fr) minmax(360px, 1.25fr);
@@ -613,6 +682,7 @@ async function saveLoginRules() {
   border: 1px solid var(--border-color);
 }
 .brand-color-panel strong,
+.logo-color-panel strong,
 .theme-package-panel strong {
   display: block;
   margin: 2px 0;
@@ -620,6 +690,7 @@ async function saveLoginRules() {
   font-size: var(--text-lg);
 }
 .brand-color-panel em,
+.logo-color-panel em,
 .theme-package-panel em {
   display: block;
   color: var(--text-secondary);
@@ -657,6 +728,45 @@ async function saveLoginRules() {
   grid-column: 2 / -1;
   color: var(--color-danger);
   font-size: var(--text-xs);
+}
+.logo-color-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  align-self: center;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+}
+.logo-color-switch button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 0;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+}
+.logo-color-switch button:hover,
+.logo-color-switch button.active {
+  color: var(--color-brand-ink);
+  background: var(--bg-active);
+}
+.logo-sample {
+  width: 28px;
+  height: 18px;
+  display: inline-block;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, #0E42D2 0 45%, #77B82A 45% 72%, #14C9C9 72%);
+}
+.logo-sample--white {
+  background: #FFFFFF;
+}
+.logo-sample--black {
+  background: #111827;
 }
 .theme-package-controls {
   display: grid;
@@ -952,12 +1062,14 @@ async function saveLoginRules() {
   .theme-grid { grid-template-columns: 1fr; }
   .theme-current { align-items: flex-start; flex-direction: column; }
   .brand-color-panel,
+  .logo-color-panel,
   .theme-package-panel,
   .theme-scope-panel,
   .theme-preview-board { grid-template-columns: 1fr; }
   .brand-color-controls { grid-template-columns: 44px minmax(0, 1fr); }
   .brand-color-controls :deep(.arco-btn) { grid-column: 1 / -1; }
   .theme-package-controls { grid-template-columns: 1fr; }
+  .logo-color-switch { grid-template-columns: 1fr; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .theme-preview-card { padding: var(--space-3); }

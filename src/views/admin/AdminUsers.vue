@@ -1,17 +1,22 @@
 <template>
   <div class="admin-users">
-    <div class="page-header">
-      <div class="page-header-left">
-        <h2 class="page-title">用户管理</h2>
-        <p class="page-desc">管理系统用户账号、角色和权限</p>
-      </div>
-      <t-button theme="primary" @click="openCreate">
-        <template #icon><t-icon name="add" /></template>
-        添加用户
-      </t-button>
-    </div>
+    <PageHeader title="用户管理" description="管理系统用户账号、角色和权限">
+      <template #meta>
+        <t-tag variant="light" theme="primary">共 {{ filteredUsers.length }} 人</t-tag>
+        <t-tag v-if="searchKeyword || roleFilter" variant="light">已应用筛选</t-tag>
+      </template>
+      <template #actions>
+        <t-button variant="outline" :loading="loading" @click="fetchUsers">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          添加用户
+        </t-button>
+      </template>
+    </PageHeader>
 
-    <!-- 搜索工具栏 -->
     <div class="user-toolbar">
       <t-input
         v-model="searchKeyword"
@@ -31,8 +36,44 @@
       <span class="user-count">共 {{ filteredUsers.length }} 人</span>
     </div>
 
-    <!-- 用户表格 — 无 stripe，纯边框 -->
+    <StatePanel
+      v-if="loading && users.length === 0"
+      state="loading"
+      title="正在加载用户数据"
+      description="系统正在读取当前可管理的账号信息，请稍候。"
+    />
+
+    <StatePanel
+      v-else-if="fetchError"
+      state="error"
+      title="用户列表加载失败"
+      description="刚才没有取到用户数据，可能是网络波动或服务暂时不可用。你可以重试，若仍失败请联系管理员。"
+    >
+      <template #actions>
+        <t-button theme="primary" :loading="loading" @click="fetchUsers">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
+    <StatePanel
+      v-else-if="filteredUsers.length === 0"
+      state="empty"
+      title="未找到符合条件的用户"
+      :description="searchKeyword || roleFilter ? '请调整筛选条件后再试，或直接清除筛选查看全部用户。' : '当前还没有可管理的用户账号。'"
+    >
+      <template #actions>
+        <t-button v-if="searchKeyword || roleFilter" variant="outline" @click="resetFilters">清除筛选</t-button>
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          添加用户
+        </t-button>
+      </template>
+    </StatePanel>
+
     <t-table
+      v-else
       :data="filteredUsers"
       :columns="tableColumns"
       row-key="id"
@@ -108,6 +149,8 @@ import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
 import { MessagePlugin } from '@/ui/message'
 import type { AdminUser, AdminRole, CreateAdminUserDto, UpdateAdminUserDto } from '@/types'
 import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
+import PageHeader from '@/components/PageHeader.vue'
+import StatePanel from '@/components/StatePanel.vue'
 
 const tableColumns = [
   { colKey: 'username', title: '账号', width: 130 },
@@ -140,6 +183,7 @@ function formatDate(iso: string): string {
 
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
+const fetchError = ref('')
 const searchKeyword = ref('')
 const roleFilter = ref<AdminRole | ''>('')
 
@@ -155,9 +199,18 @@ const filteredUsers = computed(() => {
 
 async function fetchUsers() {
   loading.value = true
+  fetchError.value = ''
   try { users.value = await getAdminUsers() }
-  catch { MessagePlugin.error('获取用户列表失败') }
+  catch (err) {
+    fetchError.value = err instanceof Error ? err.message : '获取用户列表失败'
+    MessagePlugin.error(fetchError.value)
+  }
   finally { loading.value = false }
+}
+
+function resetFilters() {
+  searchKeyword.value = ''
+  roleFilter.value = ''
 }
 
 onMounted(fetchUsers)

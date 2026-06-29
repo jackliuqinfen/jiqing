@@ -1,15 +1,18 @@
 <template>
   <div class="file-library">
-    <div class="page-header">
-      <div class="page-header-left">
-        <h2 class="page-title">文件库</h2>
-        <p class="page-desc">按项目名称、文件类型归集审计项目附件</p>
-      </div>
-      <t-button theme="primary" :loading="loading" @click="loadFiles">
-        <template #icon><t-icon name="refresh" /></template>
-        刷新
-      </t-button>
-    </div>
+    <PageHeader title="文件库" description="按项目名称、文件类型归集审计项目附件">
+      <template #meta>
+        <t-tag variant="light" theme="primary">共 {{ filteredFiles.length }} 个文件</t-tag>
+        <t-tag variant="light">项目 {{ projectGroups.length }} 组</t-tag>
+        <t-tag v-if="keyword || fileType || selectedProject" variant="light">已应用筛选</t-tag>
+      </template>
+      <template #actions>
+        <t-button variant="outline" :loading="loading" @click="loadFiles">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+      </template>
+    </PageHeader>
 
     <div class="library-toolbar">
       <t-input v-model="keyword" placeholder="搜索项目名称或文件名" clearable :style="{ width: '280px' }">
@@ -25,76 +28,113 @@
       <span class="library-count">共 {{ filteredFiles.length }} 个文件</span>
     </div>
 
-    <div class="summary-grid">
-      <div class="summary-item">
-        <span>项目数</span>
-        <strong>{{ projectGroups.length }}</strong>
-      </div>
-      <div class="summary-item">
-        <span>文件总量</span>
-        <strong>{{ filteredFiles.length }}</strong>
-      </div>
-      <div class="summary-item">
-        <span>存储占用</span>
-        <strong>{{ formatFileSize(totalSize) }}</strong>
-      </div>
-      <div class="summary-item">
-        <span>可预览</span>
-        <strong>{{ previewableCount }}</strong>
-      </div>
-    </div>
+    <StatePanel
+      v-if="loading && files.length === 0"
+      state="loading"
+      title="正在加载文件库"
+      description="系统正在整理各项目附件，请稍候。"
+    />
 
-    <div class="library-layout">
-      <section class="group-panel">
-        <div class="panel-head">
-          <strong>项目归类</strong>
-          <span>{{ projectGroups.length }} 组</span>
+    <StatePanel
+      v-else-if="fetchError"
+      state="error"
+      title="文件库加载失败"
+      description="文件列表暂时没有读取成功，可能是网络异常或附件服务繁忙。你可以重试，或联系管理员检查上传服务。"
+    >
+      <template #actions>
+        <t-button theme="primary" :loading="loading" @click="loadFiles">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
+    <StatePanel
+      v-else-if="filteredFiles.length === 0"
+      state="empty"
+      title="未找到文件"
+      :description="keyword || fileType || selectedProject ? '请调整筛选条件后再试，或清除筛选查看全部附件。' : '当前还没有归集到附件文件。'"
+    >
+      <template #actions>
+        <t-button v-if="keyword || fileType || selectedProject" variant="outline" @click="clearFilters">清除筛选</t-button>
+        <t-button theme="primary" :loading="loading" @click="loadFiles">
+          <template #icon><t-icon name="refresh" /></template>
+          重新加载
+        </t-button>
+      </template>
+    </StatePanel>
+
+    <template v-else>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <span>项目数</span>
+          <strong>{{ projectGroups.length }}</strong>
         </div>
-        <button
-          type="button"
-          class="group-item"
-          :class="{ 'group-item--active': selectedProject === '' }"
-          @click="selectedProject = ''"
-        >
-          <span>全部项目</span>
-          <strong>{{ files.length }}</strong>
-        </button>
-        <button
-          v-for="group in projectGroups"
-          :key="group.name"
-          type="button"
-          class="group-item"
-          :class="{ 'group-item--active': selectedProject === group.name }"
-          @click="selectedProject = group.name"
-        >
-          <span>{{ group.name }}</span>
-          <strong>{{ group.count }}</strong>
-        </button>
-      </section>
+        <div class="summary-item">
+          <span>文件总量</span>
+          <strong>{{ filteredFiles.length }}</strong>
+        </div>
+        <div class="summary-item">
+          <span>存储占用</span>
+          <strong>{{ formatFileSize(totalSize) }}</strong>
+        </div>
+        <div class="summary-item">
+          <span>可预览</span>
+          <strong>{{ previewableCount }}</strong>
+        </div>
+      </div>
 
-      <section class="file-panel">
-        <div class="type-strip">
+      <div class="library-layout">
+        <section class="group-panel">
+          <div class="panel-head">
+            <strong>项目归类</strong>
+            <span>{{ projectGroups.length }} 组</span>
+          </div>
           <button
-            v-for="type in typeGroups"
-            :key="type.value"
             type="button"
-            class="type-pill"
-            :class="{ 'type-pill--active': fileType === type.value }"
-            @click="fileType = fileType === type.value ? '' : type.value"
+            class="group-item"
+            :class="{ 'group-item--active': selectedProject === '' }"
+            @click="selectedProject = ''"
           >
-            <span>{{ type.label }}</span>
-            <strong>{{ type.count }}</strong>
+            <span>全部项目</span>
+            <strong>{{ files.length }}</strong>
           </button>
-        </div>
+          <button
+            v-for="group in projectGroups"
+            :key="group.name"
+            type="button"
+            class="group-item"
+            :class="{ 'group-item--active': selectedProject === group.name }"
+            @click="selectedProject = group.name"
+          >
+            <span>{{ group.name }}</span>
+            <strong>{{ group.count }}</strong>
+          </button>
+        </section>
 
-        <t-table
-          :data="filteredFiles"
-          :columns="tableColumns"
-          row-key="id"
-          :loading="loading"
-          :bordered="true"
-          hover
-        >
+        <section class="file-panel">
+          <div class="type-strip">
+            <button
+              v-for="type in typeGroups"
+              :key="type.value"
+              type="button"
+              class="type-pill"
+              :class="{ 'type-pill--active': fileType === type.value }"
+              @click="fileType = fileType === type.value ? '' : type.value"
+            >
+              <span>{{ type.label }}</span>
+              <strong>{{ type.count }}</strong>
+            </button>
+          </div>
+
+          <t-table
+            :data="filteredFiles"
+            :columns="tableColumns"
+            row-key="id"
+            :loading="loading"
+            :bordered="true"
+            hover
+          >
           <template #file="{ row }">
             <div class="file-cell">
               <t-icon :name="fileIcon(row)" />
@@ -122,9 +162,10 @@
               <button type="button" @click="downloadFile(row)">下载</button>
             </div>
           </template>
-        </t-table>
-      </section>
-    </div>
+          </t-table>
+        </section>
+      </div>
+    </template>
 
     <div v-if="preview.visible" class="preview-mask">
       <div class="preview-panel">
@@ -158,6 +199,8 @@ import {
 } from '@/api/audit'
 import { MessagePlugin } from '@/ui/message'
 import type { AuditProjectAttachment } from '@/types/audit'
+import PageHeader from '@/components/PageHeader.vue'
+import StatePanel from '@/components/StatePanel.vue'
 
 const tableColumns = [
   { colKey: 'file', title: '文件', width: 320 },
@@ -177,6 +220,7 @@ const fileTypeOptions = [
 
 const files = ref<AuditProjectAttachment[]>([])
 const loading = ref(false)
+const fetchError = ref('')
 const keyword = ref('')
 const fileType = ref('')
 const selectedProject = ref('')
@@ -232,6 +276,12 @@ watch([keyword, fileType], () => {
   selectedProject.value = ''
 })
 
+function clearFilters() {
+  keyword.value = ''
+  fileType.value = ''
+  selectedProject.value = ''
+}
+
 function attachmentName(file: AuditProjectAttachment) {
   return file.originalName || file.file_name || '-'
 }
@@ -286,10 +336,12 @@ function formatDateTime(iso: string) {
 
 async function loadFiles() {
   loading.value = true
+  fetchError.value = ''
   try {
     files.value = await fetchAttachmentLibrary()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '获取文件库失败')
+    fetchError.value = err instanceof Error ? err.message : '获取文件库失败'
+    MessagePlugin.error(fetchError.value)
   } finally {
     loading.value = false
   }
