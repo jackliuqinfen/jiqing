@@ -39,6 +39,7 @@ export interface AuditFieldConfig {
   visibleInGantt: boolean
   placeholder?: string
   defaultValue?: string
+  tableWidth?: number
   sortOrder: number
   enabled: boolean
 }

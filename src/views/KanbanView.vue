@@ -15,12 +15,25 @@
             :key="item.value"
             :aria-label="item.label"
             :class="{ active: viewMode === item.value }"
-            @click="viewMode = item.value"
+            @click="requestViewMode(item.value)"
           >
             <t-icon :name="item.icon" />
             <span>{{ item.label }}</span>
           </button>
         </div>
+        <t-button v-if="authStore.isAdmin && viewMode === 'table'" variant="outline" size="small" @click="openTableSettings">
+          <template #icon><t-icon name="setting" /></template>
+          表格设置
+        </t-button>
+        <t-button
+          v-if="authStore.isAdmin && viewMode === 'table' && tableSettingsDirty"
+          theme="primary"
+          size="small"
+          :loading="tableSettingsSaving"
+          @click="requestSaveTableSettings()"
+        >
+          保存表格设置
+        </t-button>
         <select v-model="layoutMode" class="native-select layout-select" aria-label="布局模式">
           <option value="horizontal">横向</option>
           <option value="vertical">纵向</option>
@@ -166,16 +179,36 @@
             <div class="stage-table-head">
               <div>
                 <h2>{{ stage.title }}</h2>
-                <p>{{ stage.code }} · 按阶段差异字段展示</p>
+                <p>本阶段字段按业务配置展示</p>
               </div>
               <strong>{{ stageCount(stage.code) }} 项</strong>
             </div>
             <div class="stage-table-scroll">
               <table>
+                <colgroup>
+                  <col style="width: 260px; min-width: 220px" />
+                  <col v-for="field in stageTableFields(stage.code)" :key="field.id" :style="{ width: fieldColumnWidth(field) }" />
+                  <col style="width: 84px" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>项目</th>
-                    <th v-for="field in stageTableFields(stage.code)" :key="field.id">{{ field.fieldLabel }}</th>
+                    <th
+                      v-for="field in stageTableFields(stage.code)"
+                      :key="field.id"
+                      class="resizable-th"
+                      :style="{ width: fieldColumnWidth(field), minWidth: fieldColumnWidth(field) }"
+                    >
+                      <span>{{ field.fieldLabel }}</span>
+                      <button
+                        v-if="authStore.isAdmin"
+                        class="column-resize-handle"
+                        type="button"
+                        aria-label="调整列宽"
+                        title="拖拽调整列宽"
+                        @mousedown.prevent="startColumnResize($event, field)"
+                      />
+                    </th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -187,7 +220,9 @@
                         <span>{{ project.projectCode }} · {{ project.contractor.name }}</span>
                       </button>
                     </td>
-                    <td v-for="field in stageTableFields(stage.code)" :key="field.id">{{ displayField(project, field) }}</td>
+                    <td v-for="field in stageTableFields(stage.code)" :key="field.id" :style="{ width: fieldColumnWidth(field), minWidth: fieldColumnWidth(field) }">
+                      {{ displayField(project, field) }}
+                    </td>
                     <td><button class="link-button" @click="openDetail(project)">查看</button></td>
                   </tr>
                   <tr v-if="stageCount(stage.code) === 0">
@@ -275,7 +310,7 @@
           <div class="stage-history">
             <h3>阶段记录</h3>
             <p v-for="stage in store.selectedProject.stages || []" :key="stage.id">
-              {{ stage.stage_name }} · {{ stage.status }} · {{ stage.handler_name || stage.owner || '-' }} · {{ stage.entered_at }}
+              {{ stage.stage_name }} · {{ statusTitle(stage.status) }} · {{ stage.handler_name || stage.owner || '-' }} · {{ stage.entered_at }}
             </p>
             <p v-if="(store.selectedProject.stages || []).length === 0">暂无阶段记录</p>
           </div>
@@ -314,6 +349,84 @@
       </div>
     </aside>
 
+    <aside v-if="tableSettingsVisible" class="drawer">
+      <div class="drawer-panel table-settings-panel">
+        <div class="drawer-head">
+          <div>
+            <h2>表格设置</h2>
+            <p>调整审计看板表格字段、顺序与列宽，保存后会影响当前看板展示。</p>
+          </div>
+          <button class="icon-button" @click="closeTableSettings"><t-icon name="close" /></button>
+        </div>
+
+        <div class="table-settings-body">
+          <div class="table-settings-help">
+            <strong>仅管理员可配置</strong>
+            <span>字段名称、显示状态、阶段归属、排序和列宽会保存为审计看板的表格展示规则。</span>
+          </div>
+          <div class="table-settings-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>显示</th>
+                  <th>字段名称</th>
+                  <th>所属阶段</th>
+                  <th>排序</th>
+                  <th>列宽</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="field in tableSettingsDraft" :key="field.id">
+                  <td>
+                    <input v-model="field.visibleInTable" type="checkbox" @change="markTableSettingsDirty" />
+                  </td>
+                  <td>
+                    <input v-model.trim="field.fieldLabel" class="native-input" placeholder="请输入业务字段名称" @input="markTableSettingsDirty" />
+                    <span class="field-key-hint">{{ field.fieldKey }}</span>
+                  </td>
+                  <td>
+                    <select v-model="field.stageKey" class="native-select" @change="markTableSettingsDirty">
+                      <option value="">全部阶段</option>
+                      <option v-for="stage in store.meta.stages" :key="stage.code" :value="stage.code">{{ stage.title }}</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input v-model.number="field.sortOrder" class="native-input compact-number" type="number" min="0" @input="markTableSettingsDirty" />
+                  </td>
+                  <td>
+                    <input
+                      v-model.number="field.tableWidth"
+                      class="native-input compact-number"
+                      type="number"
+                      :min="field.fieldKey === 'project_name' ? 220 : 96"
+                      @input="updateDraftWidth(field)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="drawer-actions table-settings-actions">
+          <span v-if="tableSettingsDirty" class="dirty-hint">有未保存的表格设置</span>
+          <t-button variant="outline" @click="discardTableSettings">放弃更改</t-button>
+          <t-button theme="primary" :loading="tableSettingsSaving" @click="requestSaveTableSettings()">保存设置</t-button>
+        </div>
+      </div>
+    </aside>
+
+    <div v-if="confirmState.visible" class="confirm-mask">
+      <div class="confirm-panel">
+        <h3>{{ confirmState.title }}</h3>
+        <p>{{ confirmState.message }}</p>
+        <div class="confirm-actions">
+          <button v-if="confirmState.thirdText" type="button" class="ghost-button" @click="confirmThirdAction">{{ confirmState.thirdText }}</button>
+          <button type="button" class="ghost-button" @click="confirmCancelAction">{{ confirmState.cancelText }}</button>
+          <button type="button" class="primary-button" :disabled="tableSettingsSaving" @click="confirmPrimaryAction">{{ confirmState.confirmText }}</button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="attachmentPreview.visible" class="preview-mask">
       <div class="preview-panel">
         <div class="preview-head">
@@ -338,10 +451,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
-import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob } from '@/api/audit'
+import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob, saveFieldConfig } from '@/api/audit'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
 import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
@@ -370,6 +483,26 @@ const attachmentPreview = reactive({
   text: '',
   error: '',
 })
+type TableFieldDraft = AuditFieldConfig & { tableWidth: number }
+const tableSettingsVisible = ref(false)
+const tableSettingsDirty = ref(false)
+const tableSettingsSaving = ref(false)
+const tableSettingsDraft = ref<TableFieldDraft[]>([])
+const tableWidthOverrides = reactive<Record<string, number>>({})
+const allowNextRouteLeave = ref(false)
+const pendingLeaveAction = ref<null | (() => void | Promise<void>)>(null)
+const resizingColumn = ref<null | { id: string; startX: number; startWidth: number; minWidth: number }>(null)
+const confirmState = reactive({
+  visible: false,
+  title: '',
+  message: '',
+  confirmText: '确定',
+  cancelText: '取消',
+  thirdText: '',
+  onConfirm: null as null | (() => void | Promise<void>),
+  onCancel: null as null | (() => void | Promise<void>),
+  onThird: null as null | (() => void | Promise<void>),
+})
 
 const viewModes: { value: AuditViewMode; label: string; icon: string }[] = [
   { value: 'kanban', label: '看板', icon: 'view-column' },
@@ -392,6 +525,7 @@ const summaryCards = computed(() => [
 
 onMounted(async () => {
   await store.refreshAll()
+  window.addEventListener('beforeunload', handleBeforeUnload)
   const projectId = String(route.query.projectId || '').trim()
   if (projectId) {
     const target = store.projects.find((item) => item.id === projectId) || null
@@ -409,6 +543,25 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  removeColumnResizeListeners()
+})
+
+onBeforeRouteLeave((to) => {
+  if (allowNextRouteLeave.value) {
+    allowNextRouteLeave.value = false
+    return true
+  }
+  if (!tableSettingsDirty.value) return true
+  pendingLeaveAction.value = async () => {
+    allowNextRouteLeave.value = true
+    await router.push(to.fullPath)
+  }
+  showUnsavedTableSettingsPrompt()
+  return false
+})
+
 function money(value: number) {
   if (!value) return '0'
   if (value >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`
@@ -420,11 +573,43 @@ function displayField(project: AuditProject, field: AuditFieldConfig) {
   const value = store.readField(project, field)
   if (field.fieldType === 'number') return money(Number(value))
   if (typeof value === 'boolean') return value ? '是' : '否'
-  return value || '-'
+  if (value === null || value === undefined || value === '') return '-'
+  return optionValueTitle(field, value)
 }
 
 function stageTitle(code: string) {
   return store.meta.stages.find((stage) => stage.code === code)?.title || code
+}
+
+function statusTitle(value: string) {
+  const labels: Record<string, string> = {
+    not_started: '未开始',
+    active: '进行中',
+    delayed: '已逾期',
+    completed: '已完成',
+    paused: '暂停',
+    submitted: '报审待受理',
+    first_audit: '一级初审',
+    second_audit: '二级复审',
+    conclusion: '定案结论',
+    archived: '办结归档',
+  }
+  return labels[value] || value || '-'
+}
+
+function optionValueTitle(field: AuditFieldConfig, value: unknown) {
+  const raw = String(value)
+  if (field.optionGroup) {
+    const option = optionList(field.optionGroup).find((item) => item.optionValue === raw)
+    if (option) return option.optionLabel
+  }
+  if (field.optionGroup === 'stage' || field.fieldKey === 'current_stage' || field.fieldKey === 'stage' || field.bindField === 'stage') {
+    return stageTitle(raw)
+  }
+  if (field.optionGroup === 'status' || field.fieldKey === 'status' || field.bindField === 'status') {
+    return statusTitle(raw)
+  }
+  return raw || '-'
 }
 
 function stageCount(code: string) {
@@ -433,6 +618,272 @@ function stageCount(code: string) {
 
 function stageTableFields(code: string) {
   return store.tableFieldsByStage[code] || store.tableFields
+}
+
+function normalizeColumnWidth(width?: number, minWidth = 96) {
+  const value = Number(width || 140)
+  return Math.max(minWidth, Number.isFinite(value) ? Math.round(value) : 140)
+}
+
+function fieldMinWidth(field: AuditFieldConfig) {
+  return field.fieldKey === 'project_name' ? 220 : 96
+}
+
+function fieldColumnWidth(field: AuditFieldConfig) {
+  return `${normalizeColumnWidth(tableWidthOverrides[field.id] ?? field.tableWidth, fieldMinWidth(field))}px`
+}
+
+function cloneTableField(field: AuditFieldConfig): TableFieldDraft {
+  return {
+    ...field,
+    fieldLabel: field.fieldLabel || field.fieldName || field.fieldKey,
+    stageKey: field.stageKey || '',
+    tableWidth: normalizeColumnWidth(tableWidthOverrides[field.id] ?? field.tableWidth, fieldMinWidth(field)),
+  }
+}
+
+function initTableSettingsDraft() {
+  tableSettingsDraft.value = store.meta.fieldConfigs
+    .filter((field) => field.enabled)
+    .map(cloneTableField)
+    .sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
+}
+
+function markTableSettingsDirty() {
+  tableSettingsDirty.value = true
+}
+
+function openTableSettings() {
+  initTableSettingsDraft()
+  tableSettingsVisible.value = true
+}
+
+function closeTableSettings() {
+  if (!tableSettingsDirty.value) {
+    tableSettingsVisible.value = false
+    return
+  }
+  pendingLeaveAction.value = () => {
+    tableSettingsVisible.value = false
+  }
+  showUnsavedTableSettingsPrompt()
+}
+
+function updateDraftWidth(field: TableFieldDraft) {
+  field.tableWidth = normalizeColumnWidth(field.tableWidth, fieldMinWidth(field))
+  tableWidthOverrides[field.id] = field.tableWidth
+  markTableSettingsDirty()
+}
+
+function findDraftField(id: string) {
+  return tableSettingsDraft.value.find((item) => item.id === id)
+}
+
+function ensureDraftField(field: AuditFieldConfig) {
+  if (!tableSettingsDraft.value.length) initTableSettingsDraft()
+  let draft = findDraftField(field.id)
+  if (!draft) {
+    draft = cloneTableField(field)
+    tableSettingsDraft.value.push(draft)
+  }
+  return draft
+}
+
+function startColumnResize(event: MouseEvent, field: AuditFieldConfig) {
+  if (!authStore.isAdmin) return
+  const draft = ensureDraftField(field)
+  resizingColumn.value = {
+    id: field.id,
+    startX: event.clientX,
+    startWidth: normalizeColumnWidth(tableWidthOverrides[field.id] ?? draft.tableWidth ?? field.tableWidth, fieldMinWidth(field)),
+    minWidth: fieldMinWidth(field),
+  }
+  document.addEventListener('mousemove', handleColumnResize)
+  document.addEventListener('mouseup', stopColumnResize)
+}
+
+function handleColumnResize(event: MouseEvent) {
+  if (!resizingColumn.value) return
+  const nextWidth = normalizeColumnWidth(resizingColumn.value.startWidth + event.clientX - resizingColumn.value.startX, resizingColumn.value.minWidth)
+  tableWidthOverrides[resizingColumn.value.id] = nextWidth
+  const draft = findDraftField(resizingColumn.value.id)
+  if (draft) draft.tableWidth = nextWidth
+  markTableSettingsDirty()
+}
+
+function stopColumnResize() {
+  resizingColumn.value = null
+  removeColumnResizeListeners()
+}
+
+function removeColumnResizeListeners() {
+  document.removeEventListener('mousemove', handleColumnResize)
+  document.removeEventListener('mouseup', stopColumnResize)
+}
+
+function hasFieldConfigChanged(original: AuditFieldConfig, draft: TableFieldDraft) {
+  return (
+    original.fieldLabel !== draft.fieldLabel ||
+    Boolean(original.visibleInTable) !== Boolean(draft.visibleInTable) ||
+    (original.stageKey || '') !== (draft.stageKey || '') ||
+    Number(original.sortOrder || 0) !== Number(draft.sortOrder || 0) ||
+    normalizeColumnWidth(original.tableWidth, fieldMinWidth(original)) !== normalizeColumnWidth(draft.tableWidth, fieldMinWidth(original))
+  )
+}
+
+function changedTableSettings() {
+  const originals = new Map(store.meta.fieldConfigs.map((field) => [field.id, field]))
+  return tableSettingsDraft.value
+    .map((draft) => {
+      const original = originals.get(draft.id)
+      return original && hasFieldConfigChanged(original, draft) ? { original, draft } : null
+    })
+    .filter((item): item is { original: AuditFieldConfig; draft: TableFieldDraft } => Boolean(item))
+}
+
+function requestSaveTableSettings(afterSave?: () => void | Promise<void>) {
+  if (!tableSettingsDirty.value) {
+    MessagePlugin.warning('当前没有需要保存的表格设置')
+    return
+  }
+  openConfirm({
+    title: '确认保存表格设置？',
+    message: '保存后将影响审计看板表格展示，请确认字段名称、显示状态、阶段归属和列宽已调整正确。',
+    confirmText: '保存设置',
+    cancelText: '继续编辑',
+    onConfirm: async () => {
+      await saveTableSettings()
+      if (afterSave) await afterSave()
+    },
+  })
+}
+
+async function saveTableSettings() {
+  if (!tableSettingsDraft.value.length) initTableSettingsDraft()
+  const changed = changedTableSettings()
+  if (!changed.length) {
+    tableSettingsDirty.value = false
+    MessagePlugin.warning('当前没有需要保存的表格设置')
+    return
+  }
+  tableSettingsSaving.value = true
+  try {
+    for (const { original, draft } of changed) {
+      await saveFieldConfig({
+        ...original,
+        fieldLabel: draft.fieldLabel,
+        fieldName: draft.fieldLabel,
+        visibleInTable: Boolean(draft.visibleInTable),
+        stageKey: draft.stageKey || '',
+        sortOrder: Number(draft.sortOrder || 0),
+        tableWidth: normalizeColumnWidth(draft.tableWidth, fieldMinWidth(original)),
+      })
+    }
+    await store.refreshAll()
+    for (const key of Object.keys(tableWidthOverrides)) delete tableWidthOverrides[key]
+    tableSettingsDirty.value = false
+    tableSettingsVisible.value = false
+    initTableSettingsDraft()
+    MessagePlugin.success('表格设置已保存')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '表格设置保存失败，请稍后重试或联系管理员')
+    throw err
+  } finally {
+    tableSettingsSaving.value = false
+  }
+}
+
+function discardTableSettings() {
+  initTableSettingsDraft()
+  for (const key of Object.keys(tableWidthOverrides)) delete tableWidthOverrides[key]
+  tableSettingsDirty.value = false
+  tableSettingsVisible.value = false
+  const action = pendingLeaveAction.value
+  pendingLeaveAction.value = null
+  action?.()
+}
+
+function showUnsavedTableSettingsPrompt() {
+  openConfirm({
+    title: '表格设置尚未保存',
+    message: '当前字段显示、排序或列宽还没有保存。可以保存后离开，也可以放弃本次更改。',
+    confirmText: '保存并离开',
+    cancelText: '继续编辑',
+    thirdText: '放弃更改',
+    onConfirm: async () => {
+      await saveTableSettings()
+      const action = pendingLeaveAction.value
+      pendingLeaveAction.value = null
+      await action?.()
+    },
+    onThird: () => {
+      discardTableSettings()
+    },
+  })
+}
+
+function requestViewMode(nextMode: AuditViewMode) {
+  if (nextMode === viewMode.value) return
+  if (!tableSettingsDirty.value) {
+    viewMode.value = nextMode
+    return
+  }
+  pendingLeaveAction.value = () => {
+    viewMode.value = nextMode
+  }
+  showUnsavedTableSettingsPrompt()
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!tableSettingsDirty.value) return
+  event.preventDefault()
+  event.returnValue = '当前表格设置尚未保存，是否离开？'
+}
+
+function openConfirm(options: {
+  title: string
+  message: string
+  confirmText: string
+  cancelText: string
+  thirdText?: string
+  onConfirm?: () => void | Promise<void>
+  onCancel?: () => void | Promise<void>
+  onThird?: () => void | Promise<void>
+}) {
+  confirmState.visible = true
+  confirmState.title = options.title
+  confirmState.message = options.message
+  confirmState.confirmText = options.confirmText
+  confirmState.cancelText = options.cancelText
+  confirmState.thirdText = options.thirdText || ''
+  confirmState.onConfirm = options.onConfirm || null
+  confirmState.onCancel = options.onCancel || null
+  confirmState.onThird = options.onThird || null
+}
+
+function closeConfirm() {
+  confirmState.visible = false
+  confirmState.onConfirm = null
+  confirmState.onCancel = null
+  confirmState.onThird = null
+}
+
+async function confirmPrimaryAction() {
+  const action = confirmState.onConfirm
+  closeConfirm()
+  await action?.()
+}
+
+async function confirmCancelAction() {
+  const action = confirmState.onCancel
+  closeConfirm()
+  await action?.()
+}
+
+async function confirmThirdAction() {
+  const action = confirmState.onThird
+  closeConfirm()
+  await action?.()
 }
 
 function goProject(projectId: string) {
@@ -993,19 +1444,23 @@ async function logout() {
 .stage-table-rail__text {
   writing-mode: vertical-rl;
   text-orientation: mixed;
+  display: inline-block;
   font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0;
   white-space: nowrap;
   transform: rotate(180deg);
+  transform-origin: center;
 }
 .stage-table-rail__count {
   writing-mode: vertical-rl;
   text-orientation: mixed;
+  display: inline-block;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   white-space: nowrap;
   transform: rotate(180deg);
+  transform-origin: center;
 }
 .stage-table-panel {
   min-width: 0;
@@ -1031,6 +1486,7 @@ async function logout() {
   width: 100%;
   min-width: 980px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .stage-table-scroll th, .stage-table-scroll td {
   border-bottom: 1px solid var(--border-color);
@@ -1038,12 +1494,40 @@ async function logout() {
   text-align: left;
   font-size: var(--text-sm);
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 .stage-table-scroll th {
+  position: relative;
   background: var(--bg-page);
   color: var(--text-secondary);
   font-weight: 600;
   white-space: nowrap;
+}
+.resizable-th {
+  padding-right: 18px !important;
+  user-select: none;
+}
+.resizable-th > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  border: 0;
+  border-right: 2px solid transparent;
+  background: transparent;
+  cursor: col-resize;
+}
+.column-resize-handle:hover,
+.column-resize-handle:focus-visible {
+  border-right-color: var(--color-brand-500);
+  background: color-mix(in srgb, var(--color-brand-500) 8%, transparent);
+  outline: none;
 }
 .stage-table-project { min-width: 220px; }
 .stage-table-project .project-link {
@@ -1100,6 +1584,11 @@ async function logout() {
   border-left: 1px solid var(--border-color-strong);
   box-shadow: var(--shadow-overlay);
 }
+.table-settings-panel {
+  width: min(960px, 100vw);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
 .drawer-head {
   display: flex;
   justify-content: space-between;
@@ -1123,6 +1612,119 @@ async function logout() {
 .form-field b { color: var(--color-danger); margin-left: 2px; }
 .custom-option { display: flex; gap: var(--space-2); }
 .drawer-actions { grid-column: 1 / -1; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.table-settings-body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5);
+}
+.table-settings-help {
+  display: grid;
+  gap: 4px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-color);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.table-settings-help strong { color: var(--text-primary); }
+.table-settings-table {
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+.table-settings-table table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+}
+.table-settings-table th,
+.table-settings-table td {
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 12px;
+  text-align: left;
+  font-size: var(--text-sm);
+  vertical-align: top;
+}
+.table-settings-table th {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.table-settings-table tr:last-child td { border-bottom: 0; }
+.field-key-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+.compact-number { width: 96px; }
+.table-settings-actions {
+  grid-column: auto;
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-color);
+}
+.dirty-hint {
+  margin-right: auto;
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}
+.confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: rgba(15, 23, 42, .42);
+}
+.confirm-panel {
+  width: min(420px, 92vw);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+.confirm-panel h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.confirm-panel p {
+  margin: var(--space-3) 0 var(--space-4);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  font-size: var(--text-sm);
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.ghost-button,
+.primary-button {
+  min-height: 34px;
+  border-radius: var(--radius-md);
+  padding: 0 14px;
+  font: inherit;
+  cursor: pointer;
+}
+.ghost-button {
+  border: 1px solid var(--border-color);
+  background: #fff;
+  color: var(--text-secondary);
+}
+.primary-button {
+  border: 1px solid var(--color-brand-500);
+  background: var(--color-brand-500);
+  color: var(--text-on-brand);
+}
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+}
 
 .detail-status { justify-content: space-between; padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-color); }
 .stage-pill { color: var(--color-brand-600); background: var(--color-brand-50); border: 1px solid var(--color-brand-100); padding: 3px 8px; }

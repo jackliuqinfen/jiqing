@@ -844,6 +844,7 @@ def ensure_compatible_columns(conn):
             "is_required": "INTEGER DEFAULT 0",
             "placeholder": "TEXT DEFAULT ''",
             "default_value": "TEXT DEFAULT ''",
+            "table_width": "INTEGER DEFAULT 140",
             "is_enabled": "INTEGER DEFAULT 1",
         },
         "audit_field_options": {
@@ -1230,6 +1231,7 @@ def camel_config(row):
         "visibleInGantt": bool(row["visible_in_gantt"]),
         "placeholder": row["placeholder"],
         "defaultValue": row["default_value"],
+        "tableWidth": row["table_width"],
         "sortOrder": row["sort_order"],
         "enabled": bool(row["enabled"]),
     }
@@ -2763,14 +2765,14 @@ class Handler(BaseHTTPRequestHandler):
             INSERT INTO audit_field_configs
             (id, entity_type, field_key, field_label, field_type, option_group, bind_field, required,
              visible_in_card, visible_in_table, visible_in_detail, visible_in_form, visible_in_gantt,
-             sort_order, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             table_width, sort_order, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
              entity_type = excluded.entity_type, field_key = excluded.field_key, field_label = excluded.field_label,
              field_type = excluded.field_type, option_group = excluded.option_group, bind_field = excluded.bind_field,
              required = excluded.required, visible_in_card = excluded.visible_in_card, visible_in_table = excluded.visible_in_table,
              visible_in_detail = excluded.visible_in_detail, visible_in_form = excluded.visible_in_form,
-             visible_in_gantt = excluded.visible_in_gantt, sort_order = excluded.sort_order,
+             visible_in_gantt = excluded.visible_in_gantt, table_width = excluded.table_width, sort_order = excluded.sort_order,
              enabled = excluded.enabled, updated_at = excluded.updated_at
             """,
             (
@@ -2787,6 +2789,7 @@ class Handler(BaseHTTPRequestHandler):
                 int(data.get("visibleInDetail", True)),
                 int(data.get("visibleInForm", True)),
                 int(bool(data.get("visibleInGantt"))),
+                int(data.get("tableWidth") or 140),
                 int(data.get("sortOrder") or 0),
                 int(data.get("enabled", True)),
                 data.get("createdAt", ts),

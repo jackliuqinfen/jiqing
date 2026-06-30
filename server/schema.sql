@@ -247,6 +247,7 @@ CREATE TABLE IF NOT EXISTS audit_field_configs (
   visible_in_gantt INTEGER DEFAULT 0,
   placeholder TEXT DEFAULT '',
   default_value TEXT DEFAULT '',
+  table_width INTEGER DEFAULT 140,
   sort_order INTEGER DEFAULT 0,
   enabled INTEGER DEFAULT 1,
   is_enabled INTEGER DEFAULT 1,
