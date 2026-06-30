@@ -424,6 +424,19 @@ export interface ProjectFile {
   canPreview: boolean
 }
 
+export interface ProjectEvidenceFile extends ProjectFile {
+  source: 'project' | 'audit'
+  sourceLabel: string
+  stage: string
+  stageLabel: string
+  managerName?: string
+  evidenceStatus: '待补充' | '已提交' | '已确认' | '需更正' | string
+  createdAt?: string
+  file_name?: string
+  file_type?: string
+  uploaded_at?: string
+}
+
 export interface ProjectSettlement {
   id: string
   projectId: string
@@ -517,6 +530,21 @@ export interface ProjectSummary {
   missingDocuments: number
   contractMissing: number
   variationAmount: number
+}
+
+export interface WorkItem {
+  id: string
+  type: string
+  projectId: string
+  auditProjectId: string
+  projectName: string
+  owner: string
+  dueDate: string
+  level: 'danger' | 'warning' | 'primary' | 'normal' | string
+  source: string
+  action: string
+  description: string
+  status: string
 }
 
 export interface ProjectFilters {

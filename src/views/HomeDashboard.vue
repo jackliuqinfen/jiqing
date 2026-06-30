@@ -2,9 +2,9 @@
   <div class="command-dashboard">
     <section class="command-hero" aria-label="首页数据看板">
       <div class="hero-copy">
-        <span class="hero-state"><i /> 系统稳态运行</span>
-        <h2>稳态指挥台</h2>
-        <p>面向工程管理内网的运行中枢，聚合审计吞吐、时限风险、金额口径和模块建设状态。</p>
+        <span class="hero-state"><i /> 今日待办已汇总</span>
+        <h2>工程项目工作台</h2>
+        <p>优先呈现待办、逾期、资料缺失和审计进展，帮助业务人员快速判断下一步处理事项。</p>
         <div class="hero-signals">
           <span v-for="signal in heroSignals" :key="signal.label">
             <em>{{ signal.label }}</em>
@@ -31,14 +31,14 @@
         </div>
         <div class="console-health-grid">
           <article>
-            <span>运行负载</span>
-            <strong>{{ operationalLoad }}%</strong>
-            <i :style="{ width: `${operationalLoad}%` }" />
+            <span>待我处理</span>
+            <strong>{{ workItems.length }}</strong>
+            <i :style="{ width: `${clamp(workItems.length * 12, 8, 100)}%` }" />
           </article>
           <article>
-            <span>风险队列</span>
-            <strong>{{ riskQueue.length }}</strong>
-            <i :style="{ width: `${clamp(riskQueue.length * 18, 8, 100)}%` }" />
+            <span>已逾期</span>
+            <strong>{{ overdueWorkItems }}</strong>
+            <i :style="{ width: `${clamp(overdueWorkItems * 18, 8, 100)}%` }" />
           </article>
           <article>
             <span>完成率</span>
@@ -114,21 +114,21 @@
       <article class="chart-panel">
         <div class="panel-head">
           <div>
-            <h3>风险队列</h3>
-            <p>延期与即将到期项目优先关注</p>
+            <h3>待办与异常</h3>
+            <p>逾期、资料缺失、金额异常和待确认结论优先处理</p>
           </div>
-          <span>{{ riskQueue.length }} 项</span>
+          <span>{{ workItems.length }} 项</span>
         </div>
         <div class="risk-list">
-          <div v-for="project in riskQueue" :key="project.id" class="risk-row">
-            <i :class="{ urgent: project.isDelayed }" />
+          <div v-for="item in workItems.slice(0, 6)" :key="item.id" class="risk-row">
+            <i :class="{ urgent: item.level === 'danger' }" />
             <div>
-              <strong>{{ project.projectName }}</strong>
-              <span>{{ project.managerName || '未分配' }} · {{ project.auditDeadline || '未设期限' }}</span>
+              <strong>{{ item.projectName }}</strong>
+              <span>{{ item.type }} · {{ item.owner || '未分配' }} · {{ item.dueDate || '未设期限' }}</span>
             </div>
-            <em>{{ project.isDelayed ? `延期 ${project.delayDays || 0} 天` : '即将到期' }}</em>
+            <em>{{ item.action }}</em>
           </div>
-          <div v-if="!riskQueue.length" class="empty-risk">当前无高优先级时限风险</div>
+          <div v-if="!workItems.length" class="empty-risk">当前没有待处理事项</div>
         </div>
       </article>
 
@@ -168,13 +168,21 @@ import { computed, onMounted, ref } from 'vue'
 import type { ISpec } from '@visactor/vchart/esm/core'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuditStore } from '@/store/audit'
+import { fetchWorkItems } from '@/api/projects'
+import type { WorkItem } from '@/types'
 
 const store = useAuditStore()
 const selectedRange = ref('本月')
+const workItems = ref<WorkItem[]>([])
 const rangeOptions = ['本月', '本季度', '本年', '自定义日期']
 
-onMounted(() => {
-  store.refreshAll()
+onMounted(async () => {
+  await store.refreshAll()
+  try {
+    workItems.value = await fetchWorkItems(80)
+  } catch {
+    workItems.value = []
+  }
 })
 
 const todayText = new Date().toLocaleDateString('zh-CN', {
@@ -212,11 +220,7 @@ const completionRate = computed(() => {
   return Math.round((store.summary.completedProjects / store.summary.totalProjects) * 100)
 })
 
-const operationalLoad = computed(() => {
-  if (!store.summary.totalProjects) return 0
-  const active = store.summary.inAuditProjects + store.summary.overdueProjects + store.summary.upcomingDueProjects
-  return clamp(Math.round((active / store.summary.totalProjects) * 100), 8, 100)
-})
+const overdueWorkItems = computed(() => workItems.value.filter((item) => item.type === '已逾期').length)
 
 const kpiCards = computed(() => [
   { label: '审计项目总数', value: store.summary.totalProjects, hint: '数据库实时统计', level: 'normal', sparkline: overviewSparkline('totalProjects', store.summary.totalProjects) },
@@ -228,9 +232,9 @@ const kpiCards = computed(() => [
 ])
 
 const missionItems = computed(() => [
-  { label: '风险守望', value: `${store.summary.overdueProjects + store.summary.upcomingDueProjects} 项`, hint: '延期与到期提醒' },
+  { label: '待我处理', value: `${workItems.value.length} 项`, hint: '异常与待办合计' },
+  { label: '资料缺失', value: `${workItems.value.filter((item) => item.type === '资料缺失').length} 项`, hint: '需补齐后推进' },
   { label: '审计吞吐', value: `${store.summary.inAuditProjects}/${store.summary.completedProjects}`, hint: '进行中 / 已完成' },
-  { label: '金额口径', value: money(store.summary.totalSubmittedAmount), hint: '累计送审金额' },
 ])
 
 const heroSignals = computed(() => [
@@ -254,8 +258,6 @@ const statusRows = computed(() => store.overview.statusDistribution)
 const trendRows = computed(() => store.overview.trendData)
 
 const amountRows = computed(() => store.overview.amountTop)
-
-const riskQueue = computed(() => store.overview.riskQueue)
 
 function cssVar(name: string, fallback: string) {
   if (typeof window === 'undefined') return fallback

@@ -646,6 +646,156 @@ def project_log(conn, project_id, action, content, user=None, before=None, after
     )
 
 
+def evidence_status_from_project_file(row):
+    if not bool(row_get(row, "is_current", 1)):
+        return "需更正"
+    category_key = row_get(row, "category_key", "")
+    if category_key in {"first_audit", "second_audit", "settlement_book"}:
+        return "已确认"
+    return "已提交"
+
+
+def work_item_payload(item_id, item_type, project_id, audit_project_id, project_name, owner, due_date, level, source, action, description):
+    return {
+        "id": item_id,
+        "type": item_type,
+        "projectId": project_id or "",
+        "auditProjectId": audit_project_id or "",
+        "projectName": project_name or "未命名项目",
+        "owner": owner or "未分配",
+        "dueDate": due_date or "",
+        "level": level,
+        "source": source,
+        "action": action,
+        "description": description,
+        "status": "待处理",
+    }
+
+
+def query_work_items(conn, limit=80):
+    today = date.today().isoformat()
+    upcoming = (date.today() + timedelta(days=7)).isoformat()
+    items = []
+
+    for row in conn.execute("SELECT * FROM project_records WHERE COALESCE(is_deleted, 0) = 0").fetchall():
+        project_id = row["id"]
+        audit_project_id = row["audit_project_id"]
+        name = row["project_name"]
+        owner = row["manager_name"] or row["contractor_name"]
+        planned_end = row["planned_end_date"]
+        if int(row["missing_required_count"] or 0) > 0:
+            items.append(work_item_payload(
+                f"missing-doc-{project_id}",
+                "资料缺失",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                planned_end,
+                "warning",
+                "项目资料",
+                "补充资料",
+                f"仍缺少 {int(row['missing_required_count'] or 0)} 类必填资料，请补齐后再推进审计。",
+            ))
+        if planned_end and planned_end < today and row["project_status"] != "completed":
+            items.append(work_item_payload(
+                f"project-overdue-{project_id}",
+                "已逾期",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                planned_end,
+                "danger",
+                "项目管理",
+                "查看项目",
+                "项目计划完成日期已过，请确认当前进展和下一步处理人。",
+            ))
+        elif planned_end and today <= planned_end <= upcoming and row["project_status"] != "completed":
+            items.append(work_item_payload(
+                f"project-upcoming-{project_id}",
+                "即将到期",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                planned_end,
+                "warning",
+                "项目管理",
+                "查看项目",
+                "项目即将到达计划完成日期，请提前确认资料和审批进展。",
+            ))
+        if row["settlement_status"] == "rejected":
+            items.append(work_item_payload(
+                f"rejected-{project_id}",
+                "已驳回",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                planned_end,
+                "danger",
+                "付款结算",
+                "处理退回",
+                "结算事项已退回，请查看退回原因并补充说明或资料。",
+            ))
+        contract_amount = float(row["contract_amount"] or 0)
+        submitted_amount = float(row["submitted_amount"] or 0)
+        variation_amount = float(row["variation_amount"] or 0)
+        if contract_amount and (submitted_amount > contract_amount * 1.2 or variation_amount > contract_amount * 0.1):
+            items.append(work_item_payload(
+                f"amount-risk-{project_id}",
+                "金额异常",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                planned_end,
+                "warning",
+                "金额管理",
+                "核对金额",
+                "送审金额或变更签证金额偏高，请核对合同、签证和送审口径。",
+            ))
+
+    for row in conn.execute("SELECT * FROM audit_projects WHERE status != 'deleted'").fetchall():
+        project_id = row["project_id"]
+        audit_project_id = row["id"]
+        name = row["project_name"]
+        owner = row["manager_name"] or row["contractor_name"]
+        deadline = row["planned_end_date"] or row["audit_deadline"]
+        if deadline and deadline < today and row["current_stage"] != "archived":
+            items.append(work_item_payload(
+                f"audit-overdue-{audit_project_id}",
+                "已逾期",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                deadline,
+                "danger",
+                "审计看板",
+                "查看审计",
+                "审计计划完成日期已过，请确认阶段责任人和处理进展。",
+            ))
+        if row["current_stage"] == "conclusion":
+            items.append(work_item_payload(
+                f"conclusion-{audit_project_id}",
+                "待确认结论",
+                project_id,
+                audit_project_id,
+                name,
+                owner,
+                deadline,
+                "primary",
+                "审计看板",
+                "确认结论",
+                "项目已进入定案结论阶段，请确认定案金额、附件和归档条件。",
+            ))
+
+    order = {"danger": 0, "warning": 1, "primary": 2, "normal": 3}
+    return sorted(items, key=lambda item: (order.get(item["level"], 9), item["dueDate"] or "9999-99-99", item["projectName"]))[:limit]
+
+
 def refresh_project_rollups(conn, project_id):
     cats = conn.execute("SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
     current = conn.execute(
@@ -710,6 +860,7 @@ def bootstrap():
         seed_project_document_categories(conn)
         seed_field_configs(conn)
         seed_options(conn)
+        ensure_stage_field_defaults(conn)
         count = conn.execute("SELECT COUNT(*) AS c FROM audit_projects").fetchone()["c"]
         if count == 0:
             seed_projects(conn)
@@ -943,6 +1094,11 @@ def seed_field_configs(conn):
         ("status", "项目状态", "select", "status", "status", 0, 1, 1, 1, 1, 0, 130),
         ("is_delayed", "是否延期", "boolean", "", "isDelayed", 0, 1, 1, 1, 0, 0, 140),
         ("submitted_amount", "送审金额", "number", "", "amount.submittedAmount", 0, 0, 1, 1, 1, 0, 150),
+        ("first_audit_amount", "初审金额", "number", "", "amount.firstAuditAmount", 0, 0, 1, 1, 1, 0, 152),
+        ("second_audit_amount", "复审金额", "number", "", "amount.secondAuditAmount", 0, 0, 1, 1, 1, 0, 154),
+        ("audit_difference", "核减金额", "number", "", "amount.auditDifference", 0, 0, 1, 1, 1, 0, 156),
+        ("final_payable", "定案金额", "number", "", "amount.finalPayable", 0, 0, 1, 1, 1, 0, 158),
+        ("paid_amount", "已付款金额", "number", "", "amount.paidAmount", 0, 0, 1, 1, 1, 0, 159),
         ("current_stage", "当前阶段", "select", "stage", "stage", 1, 1, 1, 1, 1, 1, 160),
         ("doc_status", "资料状态", "select", "doc_status", "docStatus", 0, 0, 1, 1, 1, 0, 170),
         ("description", "项目描述", "textarea", "", "description", 0, 0, 0, 1, 1, 0, 180),
@@ -959,6 +1115,55 @@ def seed_field_configs(conn):
             """,
             (new_id(), *cfg, ts, ts),
         )
+
+
+def ensure_stage_field_defaults(conn):
+    configured = conn.execute(
+        "SELECT COUNT(*) AS c FROM audit_field_configs WHERE COALESCE(stage_key, '') != ''"
+    ).fetchone()["c"]
+    if configured:
+        return
+    stage_fields = {
+        "submitted": {
+            "audited_unit": 20,
+            "submitted_amount": 30,
+            "doc_status": 40,
+            "start_date": 50,
+            "manager_name": 60,
+        },
+        "first_audit": {
+            "manager_name": 20,
+            "first_audit_amount": 30,
+            "audit_difference": 40,
+            "remark_coordination": 50,
+        },
+        "second_audit": {
+            "second_audit_amount": 30,
+            "audit_difference": 40,
+            "remark_coordination": 50,
+        },
+        "conclusion": {
+            "final_payable": 30,
+            "audit_difference": 40,
+            "actual_end_date": 50,
+            "doc_status": 60,
+        },
+        "archived": {
+            "actual_end_date": 30,
+            "doc_status": 40,
+            "paid_amount": 50,
+        },
+    }
+    for stage, fields in stage_fields.items():
+        for field_key, sort_order in fields.items():
+            conn.execute(
+                """
+                UPDATE audit_field_configs
+                SET stage_key = ?, sort_order = ?, visible_in_table = 1
+                WHERE field_key = ? AND COALESCE(stage_key, '') = ''
+                """,
+                (stage, sort_order, field_key),
+            )
 
 
 def seed_options(conn):
@@ -1658,6 +1863,125 @@ class Handler(BaseHTTPRequestHandler):
             },
         })
 
+    def work_items(self, conn, params):
+        if not self.require_user(conn):
+            return
+        limit = max(min(int(params.get("limit", ["80"])[0] or 80), 200), 1)
+        self.respond(200, {"success": True, "data": query_work_items(conn, limit)})
+
+    def project_evidence_library(self, conn, params):
+        if not self.require_user(conn):
+            return
+        keyword = (params.get("keyword", [""])[0] or "").strip()
+        file_type = (params.get("fileType", params.get("file_type", [""]))[0] or "").strip()
+        stage = (params.get("stage", [""])[0] or "").strip()
+        uploader = (params.get("uploader", [""])[0] or "").strip()
+        stage_title = {code: title for code, title, _ in STAGES}
+        evidence = []
+
+        file_where = ["COALESCE(f.is_deleted, 0) = 0"]
+        file_values = []
+        if keyword:
+            like = f"%{keyword}%"
+            file_where.append("(p.project_name LIKE ? OR p.project_code LIKE ? OR f.display_name LIKE ? OR f.original_name LIKE ?)")
+            file_values.extend([like, like, like, like])
+        if uploader:
+            file_where.append("(f.uploaded_by_name LIKE ? OR f.uploaded_by LIKE ?)")
+            file_values.extend([f"%{uploader}%", f"%{uploader}%"])
+        if file_type:
+            if file_type == "image":
+                file_where.append("f.mime_type LIKE 'image/%'")
+            elif file_type == "pdf":
+                file_where.append("(f.file_ext = '.pdf' OR f.mime_type = 'application/pdf')")
+            elif file_type == "text":
+                file_where.append("(f.mime_type LIKE 'text/%' OR f.file_ext IN ('.txt', '.csv', '.md', '.json', '.xml', '.log'))")
+            elif file_type == "audio":
+                file_where.append("f.mime_type LIKE 'audio/%'")
+            elif file_type == "video":
+                file_where.append("f.mime_type LIKE 'video/%'")
+            else:
+                file_where.append(
+                    "NOT (f.mime_type LIKE 'image/%' OR f.file_ext = '.pdf' OR f.mime_type = 'application/pdf' "
+                    "OR f.mime_type LIKE 'text/%' OR f.file_ext IN ('.txt', '.csv', '.md', '.json', '.xml', '.log') "
+                    "OR f.mime_type LIKE 'audio/%' OR f.mime_type LIKE 'video/%')"
+                )
+        rows = conn.execute(
+            f"""
+            SELECT f.*, p.project_name, p.project_code, p.audit_stage, p.audit_project_id, p.manager_name, c.category_name
+            FROM project_files f
+            LEFT JOIN project_records p ON p.id = f.project_id
+            LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+            WHERE {" AND ".join(file_where)}
+            ORDER BY p.project_name COLLATE NOCASE, f.uploaded_at DESC
+            LIMIT 500
+            """,
+            file_values,
+        ).fetchall()
+        for row in rows:
+            if stage and row_get(row, "audit_stage") != stage:
+                continue
+            item = project_file_payload(row)
+            evidence.append({
+                **item,
+                "source": "project",
+                "sourceLabel": "项目资料",
+                "stage": row_get(row, "audit_stage") or "",
+                "stageLabel": stage_title.get(row_get(row, "audit_stage"), "项目资料"),
+                "managerName": row_get(row, "manager_name"),
+                "evidenceStatus": evidence_status_from_project_file(row),
+            })
+
+        audit_where = ["COALESCE(a.is_deleted, 0) = 0"]
+        audit_values = []
+        if keyword:
+            like = f"%{keyword}%"
+            audit_where.append("(p.project_name LIKE ? OR p.project_code LIKE ? OR a.original_name LIKE ? OR a.file_name LIKE ?)")
+            audit_values.extend([like, like, like, like])
+        if uploader:
+            audit_where.append("(a.uploaded_by_name LIKE ? OR a.uploaded_by LIKE ?)")
+            audit_values.extend([f"%{uploader}%", f"%{uploader}%"])
+        if stage:
+            audit_where.append("p.current_stage = ?")
+            audit_values.append(stage)
+        rows = conn.execute(
+            f"""
+            SELECT a.*, p.project_name AS library_project_name, p.project_code AS library_project_code,
+                   p.manager_name AS library_manager_name, p.current_stage
+            FROM audit_project_attachments a
+            LEFT JOIN audit_projects p ON p.id = a.project_id
+            WHERE {" AND ".join(audit_where)}
+            ORDER BY p.project_name COLLATE NOCASE, COALESCE(NULLIF(a.created_at, ''), a.uploaded_at) DESC
+            LIMIT 500
+            """,
+            audit_values,
+        ).fetchall()
+        for row in rows:
+            item = attachment_payload(row)
+            if file_type:
+                ext = (item.get("fileExt") or "").lower()
+                mime = item.get("mimeType") or ""
+                category = "image" if mime.startswith("image/") else ("pdf" if ext == ".pdf" or mime == "application/pdf" else ("text" if mime.startswith("text/") or ext in TEXT_PREVIEW_SUFFIXES else "other"))
+                if category != file_type:
+                    continue
+            evidence.append({
+                **item,
+                "projectName": row_get(row, "library_project_name") or "未关联项目",
+                "projectCode": row_get(row, "library_project_code"),
+                "managerName": row_get(row, "library_manager_name"),
+                "displayName": item.get("originalName") or item.get("file_name") or "审计附件",
+                "categoryKey": "audit_attachment",
+                "categoryName": "审计附件",
+                "uploadedAt": item.get("createdAt") or item.get("uploaded_at") or "",
+                "source": "audit",
+                "sourceLabel": "审计证据",
+                "stage": row_get(row, "current_stage") or "",
+                "stageLabel": stage_title.get(row_get(row, "current_stage"), "审计阶段"),
+                "evidenceStatus": "已提交",
+            })
+
+        evidence.sort(key=lambda item: (item.get("projectName") or "", item.get("uploadedAt") or item.get("createdAt") or ""), reverse=True)
+        self.respond(200, {"success": True, "data": evidence[:500]})
+
     def list_project_records(self, conn, params):
         if not self.require_user(conn):
             return
@@ -1752,6 +2076,74 @@ class Handler(BaseHTTPRequestHandler):
         conn.commit()
         row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
         self.respond(201, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
+
+    def start_project_audit(self, conn, project_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        row = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        current_audit_id = (row["audit_project_id"] or "").strip()
+        if current_audit_id and conn.execute("SELECT id FROM audit_projects WHERE id = ? AND status != 'deleted'", (current_audit_id,)).fetchone():
+            self.respond(400, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
+            return
+        ts = now_iso()
+        audit_id = new_id()
+        stage = "submitted"
+        deadline = row["planned_end_date"] or data.get("auditDeadline") or ""
+        conn.execute(
+            """
+            INSERT INTO audit_projects
+            (id, project_id, project_code, project_name, audited_unit, audit_type, category, priority,
+             contractor_name, contractor_phone, contract_amount, submitted_amount, paid_amount,
+             submit_date, audit_deadline, start_date, planned_end_date, doc_status, current_stage,
+             status, progress_percent, manager_name, description, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                audit_id,
+                project_id,
+                row["project_code"],
+                row["project_name"],
+                row["owner_unit"] or row["construction_unit"],
+                data.get("auditType") or "工程审计",
+                data.get("category") or "竣工总结算",
+                data.get("priority") or "S2",
+                row["contractor_name"],
+                row["contractor_contact"],
+                float(row["contract_amount"] or 0),
+                float(row["submitted_amount"] or row["contract_amount"] or 0),
+                float(row["paid_amount"] or 0),
+                date.today().isoformat(),
+                deadline,
+                row["planned_start_date"] or date.today().isoformat(),
+                deadline,
+                "资料齐全" if int(row["missing_required_count"] or 0) == 0 else "资料待补充",
+                stage,
+                "active",
+                10,
+                row["manager_name"] or row["contractor_name"],
+                row["description"],
+                ts,
+                ts,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO audit_project_stages (id, project_id, stage_code, stage_name, entered_at, owner, status, progress_percent, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+            (new_id(), audit_id, stage, "报审待受理", ts, row["manager_name"] or row["contractor_name"], 10, 10),
+        )
+        conn.execute(
+            "UPDATE project_records SET audit_project_id = ?, audit_stage = ?, settlement_status = CASE WHEN settlement_status = 'not_started' THEN 'pending' ELSE settlement_status END, updated_at = ?, updated_by = ? WHERE id = ?",
+            (audit_id, stage, ts, user["username"], project_id),
+        )
+        log_action(conn, audit_id, "create", user["username"], "从项目主档案发起审计", after={"projectId": project_id})
+        project_log(conn, project_id, "audit.start", "发起审计流程", user, after={"auditProjectId": audit_id})
+        self.write_operation_log(conn, "project.audit.start", user, "project_record", project_id, detail={"auditProjectId": audit_id})
+        conn.commit()
+        audit_row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (audit_id,)).fetchone()
+        self.respond(201, {"success": True, "data": project_payload(conn, audit_row)})
 
     def update_project_record(self, conn, project_id, data):
         user = self.require_role(conn, {"admin", "editor"})
@@ -2468,8 +2860,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.project_meta(conn)
                 elif path == "/api/projects/summary":
                     self.project_summary(conn)
+                elif path == "/api/work-items":
+                    self.work_items(conn, params)
                 elif path == "/api/projects":
                     self.list_project_records(conn, params)
+                elif path == "/api/project-evidence":
+                    self.project_evidence_library(conn, params)
                 elif path == "/api/project-files":
                     self.list_project_files(conn, params)
                 elif path == "/api/project-settlements":
@@ -2590,6 +2986,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.reset_theme(conn)
                 elif path == "/api/projects":
                     self.create_project_record(conn, data)
+                elif re.match(r"^/api/projects/([^/]+)/start-audit$", path):
+                    self.start_project_audit(conn, re.match(r"^/api/projects/([^/]+)/start-audit$", path).group(1), data)
                 elif re.match(r"^/api/projects/([^/]+)/settlements$", path):
                     data["projectId"] = re.match(r"^/api/projects/([^/]+)/settlements$", path).group(1)
                     self.upsert_project_settlement(conn, data)

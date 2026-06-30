@@ -61,6 +61,25 @@
     </header>
 
     <main class="audit-main">
+      <section v-if="workItems.length" class="work-item-strip" aria-label="待办与异常">
+        <div class="work-item-strip__head">
+          <strong>待办与异常</strong>
+          <span>{{ workItems.length }} 项需关注</span>
+        </div>
+        <button
+          v-for="item in workItems.slice(0, 4)"
+          :key="item.id"
+          type="button"
+          class="work-item-card"
+          :data-level="item.level"
+          @click="openWorkItem(item)"
+        >
+          <span>{{ item.type }}</span>
+          <strong>{{ item.projectName }}</strong>
+          <em>{{ item.description }}</em>
+        </button>
+      </section>
+
       <section class="summary-grid">
         <article v-for="card in summaryCards" :key="card.label" class="summary-card">
           <span>{{ card.label }}</span>
@@ -110,7 +129,7 @@
       </t-alert>
 
       <div v-if="store.loading && store.projects.length === 0" class="center-state">
-        <t-loading size="large" text="正在加载数据库数据..." />
+        <t-loading size="large" text="正在加载审计项目..." />
       </div>
 
       <section v-else-if="viewMode === 'kanban'" class="kanban-board">
@@ -455,8 +474,10 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob, saveFieldConfig } from '@/api/audit'
+import { fetchWorkItems } from '@/api/projects'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
+import type { WorkItem } from '@/types'
 import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
 
 const router = useRouter()
@@ -473,6 +494,7 @@ const formValues = reactive<Record<string, string>>({})
 const customOptionValues = reactive<Record<string, string>>({})
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachmentUploading = ref(false)
+const workItems = ref<WorkItem[]>([])
 const attachmentPreview = reactive({
   visible: false,
   loading: false,
@@ -525,6 +547,11 @@ const summaryCards = computed(() => [
 
 onMounted(async () => {
   await store.refreshAll()
+  try {
+    workItems.value = await fetchWorkItems(20)
+  } catch {
+    workItems.value = []
+  }
   window.addEventListener('beforeunload', handleBeforeUnload)
   const projectId = String(route.query.projectId || '').trim()
   if (projectId) {
@@ -890,6 +917,16 @@ function goProject(projectId: string) {
   router.push({ path: '/project-management', query: { projectId } })
 }
 
+function openWorkItem(item: WorkItem) {
+  if (item.auditProjectId) {
+    router.push({ path: '/audit', query: { projectId: item.auditProjectId } })
+    return
+  }
+  if (item.projectId) {
+    router.push({ path: '/project-management', query: { projectId: item.projectId } })
+  }
+}
+
 function isOverdue(project: AuditProject) {
   return Boolean(project.deadline.auditDeadline && project.deadline.auditDeadline < new Date().toISOString().slice(0, 10) && project.stage !== 'archived')
 }
@@ -1249,6 +1286,54 @@ async function logout() {
 
 .audit-main { padding: var(--space-5); }
 .audit-shell--embedded .audit-main { padding: 0; }
+.work-item-strip {
+  display: grid;
+  grid-template-columns: 160px repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.work-item-strip__head,
+.work-item-card {
+  min-height: 92px;
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+}
+.work-item-strip__head {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+.work-item-strip__head strong { font-size: var(--text-lg); }
+.work-item-strip__head span,
+.work-item-card span,
+.work-item-card em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.work-item-card {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+.work-item-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-item-card em {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.work-item-card[data-level='danger'] { border-left: 3px solid var(--color-danger); }
+.work-item-card[data-level='warning'] { border-left: 3px solid var(--color-warning); }
+.work-item-card[data-level='primary'] { border-left: 3px solid var(--color-brand-500); }
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));

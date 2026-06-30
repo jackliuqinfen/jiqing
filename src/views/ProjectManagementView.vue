@@ -150,6 +150,23 @@
             </div>
             <div class="detail-head__actions">
               <t-button size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</t-button>
+              <t-button
+                v-if="currentProject.auditProjectId"
+                size="small"
+                variant="outline"
+                @click="goAudit(currentProject.auditProjectId)"
+              >
+                查看审计进度
+              </t-button>
+              <t-button
+                v-else
+                size="small"
+                variant="outline"
+                :loading="auditStarting"
+                @click="startAudit(currentProject)"
+              >
+                发起审计
+              </t-button>
               <t-button size="small" theme="primary" @click="openFileDialog()">上传资料</t-button>
             </div>
           </div>
@@ -211,14 +228,15 @@
               <div>
                 <span class="mini-label">审计联动</span>
                 <strong>{{ currentProject.auditProjectId ? '已关联审计看板卡片' : '尚未关联审计看板' }}</strong>
-                <p>项目主数据会与审计看板共享 project_id，便于后续的资料状态和结算状态同步。</p>
+                <p>{{ currentProject.auditProjectId ? '审计看板将读取项目主数据，并维护阶段、金额和审计记录。' : '可从项目主档案发起审计，系统会自动带入项目名称、金额、负责人和计划日期。' }}</p>
               </div>
               <t-button
-                variant="outline"
-                :disabled="!currentProject.auditProjectId"
-                @click="goAudit(currentProject.auditProjectId)"
+                :variant="currentProject.auditProjectId ? 'outline' : undefined"
+                :theme="currentProject.auditProjectId ? 'default' : 'primary'"
+                :loading="auditStarting"
+                @click="currentProject.auditProjectId ? goAudit(currentProject.auditProjectId) : startAudit(currentProject)"
               >
-                查看审计卡片
+                {{ currentProject.auditProjectId ? '查看审计进度' : '发起审计' }}
               </t-button>
             </div>
 
@@ -384,8 +402,8 @@
           <t-input-number v-model="projectForm.paidAmount" :min="0" :precision="2" />
         </label>
         <label>
-          <span>审计联动编号</span>
-          <t-input v-model="projectForm.auditProjectId" placeholder="可填写审计看板项目 ID" />
+          <span>审计联动</span>
+          <t-input v-model="projectForm.auditProjectId" readonly placeholder="保存项目后可从详情中发起审计" />
         </label>
         <label class="dialog-span-2">
           <span>付款条款</span>
@@ -549,6 +567,7 @@ import {
   fetchProjectSummary,
   saveProjectSettlement,
   saveProjectVariation,
+  startProjectAudit,
   updateProjectRecord,
   updateProjectSettlement,
   updateProjectVariation,
@@ -645,6 +664,7 @@ const records = ref<ProjectRecord[]>([])
 const currentProject = ref<ProjectRecord | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
+const auditStarting = ref(false)
 const error = ref('')
 const total = ref(0)
 const page = ref(1)
@@ -1019,6 +1039,28 @@ async function saveProject() {
     MessagePlugin.error(err instanceof Error ? err.message : '保存失败')
   } finally {
     projectDialog.saving = false
+  }
+}
+
+async function startAudit(record: ProjectRecord) {
+  if (!record?.id) return
+  if (record.auditProjectId) {
+    MessagePlugin.warning('该项目已进入审计流程，请直接查看审计进度')
+    return
+  }
+  if (!window.confirm(`确认将「${record.projectName}」发起审计流程？系统会自动带入项目主数据。`)) return
+  auditStarting.value = true
+  try {
+    const auditProject = await startProjectAudit(record.id)
+    MessagePlugin.success('已发起审计流程')
+    await loadSummary()
+    await loadRecords()
+    await loadCurrentProject(record.id)
+    goAudit(auditProject.id)
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '发起审计失败，请稍后重试或联系管理员')
+  } finally {
+    auditStarting.value = false
   }
 }
 

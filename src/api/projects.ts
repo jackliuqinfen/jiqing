@@ -2,13 +2,16 @@ import { getAuthToken } from '@/api/system'
 import type {
   ProjectFile,
   ProjectFilters,
+  ProjectEvidenceFile,
   ProjectMeta,
   ProjectOperationLog,
   ProjectRecord,
   ProjectSettlement,
   ProjectSummary,
   ProjectVariation,
+  WorkItem,
 } from '@/types'
+import type { AuditProject } from '@/types/audit'
 import type { ApiResult } from '@/types/audit'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
@@ -66,6 +69,23 @@ export function fetchProjectRecords(filters?: Partial<ProjectFilters>): Promise<
       pageSize: Number(payload.meta?.pageSize || filters?.pageSize || 20),
     }
   })
+}
+
+export function fetchWorkItems(limit = 80): Promise<WorkItem[]> {
+  return request(`/work-items?limit=${encodeURIComponent(String(limit))}`)
+}
+
+export function fetchProjectEvidence(params?: { keyword?: string; fileType?: string; stage?: string; uploader?: string }): Promise<ProjectEvidenceFile[]> {
+  const query = new URLSearchParams()
+  if (params?.keyword) query.set('keyword', params.keyword)
+  if (params?.fileType) query.set('fileType', params.fileType)
+  if (params?.stage) query.set('stage', params.stage)
+  if (params?.uploader) query.set('uploader', params.uploader)
+  return request(`/project-evidence${query.toString() ? `?${query.toString()}` : ''}`)
+}
+
+export function startProjectAudit(projectId: string): Promise<AuditProject> {
+  return request(`/projects/${projectId}/start-audit`, { method: 'POST', body: JSON.stringify({}) })
 }
 
 export function fetchProjectRecord(id: string): Promise<ProjectRecord> {

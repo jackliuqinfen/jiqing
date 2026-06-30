@@ -1,10 +1,10 @@
 <template>
   <div class="file-library">
-    <PageHeader title="文件库" description="按项目名称、文件类型归集审计项目附件">
+    <PageHeader title="项目资料中心" description="统一归集项目资料与审计证据，按项目、类型和阶段快速筛选">
       <template #meta>
         <t-tag variant="light" theme="primary">共 {{ filteredFiles.length }} 个文件</t-tag>
         <t-tag variant="light">项目 {{ projectGroups.length }} 组</t-tag>
-        <t-tag v-if="keyword || fileType || selectedProject" variant="light">已应用筛选</t-tag>
+        <t-tag v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="light">已应用筛选</t-tag>
       </template>
       <template #actions>
         <t-button variant="outline" :loading="loading" @click="loadFiles">
@@ -25,6 +25,8 @@
         :style="{ width: '150px' }"
         :options="fileTypeOptions"
       />
+      <t-select v-model="selectedStage" placeholder="审计阶段" clearable :style="{ width: '170px' }" :options="stageOptions" />
+      <t-input v-model="uploader" placeholder="上传人" clearable :style="{ width: '160px' }" />
       <span class="library-count">共 {{ filteredFiles.length }} 个文件</span>
     </div>
 
@@ -53,10 +55,10 @@
       v-else-if="filteredFiles.length === 0"
       state="empty"
       title="未找到文件"
-      :description="keyword || fileType || selectedProject ? '请调整筛选条件后再试，或清除筛选查看全部附件。' : '当前还没有归集到附件文件。'"
+      :description="keyword || fileType || selectedProject || selectedStage || uploader ? '请调整筛选条件后再试，或清除筛选查看全部资料。' : '当前还没有归集到项目资料或审计证据。'"
     >
       <template #actions>
-        <t-button v-if="keyword || fileType || selectedProject" variant="outline" @click="clearFilters">清除筛选</t-button>
+        <t-button v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="outline" @click="clearFilters">清除筛选</t-button>
         <t-button theme="primary" :loading="loading" @click="loadFiles">
           <template #icon><t-icon name="refresh" /></template>
           重新加载
@@ -150,10 +152,16 @@
               <span>{{ row.projectCode || row.managerName || '—' }}</span>
             </div>
           </template>
+          <template #stage="{ row }">
+            <div class="uploaded-cell">
+              <strong>{{ row.stageLabel || '项目资料' }}</strong>
+              <span>{{ row.sourceLabel }} · {{ row.evidenceStatus }}</span>
+            </div>
+          </template>
           <template #uploaded="{ row }">
             <div class="uploaded-cell">
               <strong>{{ row.uploadedByName || row.uploadedBy || '-' }}</strong>
-              <span>{{ formatDateTime(row.createdAt || row.uploaded_at || '') }}</span>
+              <span>{{ formatDateTime(row.uploadedAt || row.createdAt || row.uploaded_at || '') }}</span>
             </div>
           </template>
           <template #actions="{ row }">
@@ -194,17 +202,18 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import {
   fetchAttachmentDownloadBlob,
-  fetchAttachmentLibrary,
   fetchAttachmentPreviewBlob,
 } from '@/api/audit'
+import { fetchProjectEvidence, fetchProjectFileDownloadBlob, fetchProjectFilePreviewBlob } from '@/api/projects'
 import { MessagePlugin } from '@/ui/message'
-import type { AuditProjectAttachment } from '@/types/audit'
+import type { ProjectEvidenceFile } from '@/types'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 
 const tableColumns = [
   { colKey: 'file', title: '文件', width: 320 },
   { colKey: 'project', title: '项目名称' },
+  { colKey: 'stage', title: '归属', width: 180 },
   { colKey: 'uploaded', title: '上传信息', width: 190 },
   { colKey: 'actions', title: '操作', width: 130 },
 ]
@@ -218,12 +227,22 @@ const fileTypeOptions = [
   { label: '其他', value: 'other' },
 ]
 
-const files = ref<AuditProjectAttachment[]>([])
+const stageOptions = [
+  { label: '报审待受理', value: 'submitted' },
+  { label: '一级初审', value: 'first_audit' },
+  { label: '二级复审', value: 'second_audit' },
+  { label: '定案结论', value: 'conclusion' },
+  { label: '办结归档', value: 'archived' },
+]
+
+const files = ref<ProjectEvidenceFile[]>([])
 const loading = ref(false)
 const fetchError = ref('')
 const keyword = ref('')
 const fileType = ref('')
 const selectedProject = ref('')
+const selectedStage = ref('')
+const uploader = ref('')
 
 const preview = reactive({
   visible: false,
@@ -238,9 +257,12 @@ const preview = reactive({
 
 const filteredFiles = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
+  const uploaderKeyword = uploader.value.trim().toLowerCase()
   return files.value.filter((file) => {
     if (selectedProject.value && (file.projectName || '未关联项目') !== selectedProject.value) return false
+    if (selectedStage.value && file.stage !== selectedStage.value) return false
     if (fileType.value && fileCategory(file) !== fileType.value) return false
+    if (uploaderKeyword && ![file.uploadedByName, file.uploadedBy].join(' ').toLowerCase().includes(uploaderKeyword)) return false
     if (!kw) return true
     return [attachmentName(file), file.projectName, file.projectCode, file.managerName, typeLabel(file)]
       .join(' ')
@@ -272,7 +294,7 @@ const typeGroups = computed(() => {
 const totalSize = computed(() => filteredFiles.value.reduce((sum, file) => sum + Number(file.fileSize || 0), 0))
 const previewableCount = computed(() => filteredFiles.value.filter((file) => file.canPreview).length)
 
-watch([keyword, fileType], () => {
+watch([keyword, fileType, selectedStage, uploader], () => {
   selectedProject.value = ''
 })
 
@@ -280,13 +302,15 @@ function clearFilters() {
   keyword.value = ''
   fileType.value = ''
   selectedProject.value = ''
+  selectedStage.value = ''
+  uploader.value = ''
 }
 
-function attachmentName(file: AuditProjectAttachment) {
-  return file.originalName || file.file_name || '-'
+function attachmentName(file: ProjectEvidenceFile) {
+  return file.displayName || file.originalName || file.file_name || '-'
 }
 
-function fileCategory(file: AuditProjectAttachment) {
+function fileCategory(file: ProjectEvidenceFile) {
   const mime = file.mimeType || file.file_type || ''
   const ext = (file.fileExt || '').toLowerCase()
   if (mime.startsWith('image/')) return 'image'
@@ -297,12 +321,12 @@ function fileCategory(file: AuditProjectAttachment) {
   return 'other'
 }
 
-function typeLabel(file: AuditProjectAttachment) {
+function typeLabel(file: ProjectEvidenceFile) {
   const option = fileTypeOptions.find((item) => item.value === fileCategory(file))
   return option?.label || file.mimeType || file.file_type || '其他'
 }
 
-function fileIcon(file: AuditProjectAttachment) {
+function fileIcon(file: ProjectEvidenceFile) {
   const category = fileCategory(file)
   if (category === 'image') return 'image'
   if (category === 'text') return 'file-copy'
@@ -310,7 +334,7 @@ function fileIcon(file: AuditProjectAttachment) {
   return 'file-paste'
 }
 
-function previewKind(file: AuditProjectAttachment) {
+function previewKind(file: ProjectEvidenceFile) {
   const category = fileCategory(file)
   if (['image', 'pdf', 'text', 'audio', 'video'].includes(category)) return category
   return 'unsupported'
@@ -338,7 +362,12 @@ async function loadFiles() {
   loading.value = true
   fetchError.value = ''
   try {
-    files.value = await fetchAttachmentLibrary()
+    files.value = await fetchProjectEvidence({
+      keyword: keyword.value,
+      fileType: fileType.value,
+      stage: selectedStage.value,
+      uploader: uploader.value,
+    })
   } catch (err) {
     fetchError.value = err instanceof Error ? err.message : '获取文件库失败'
     MessagePlugin.error(fetchError.value)
@@ -347,7 +376,7 @@ async function loadFiles() {
   }
 }
 
-async function openPreview(file: AuditProjectAttachment) {
+async function openPreview(file: ProjectEvidenceFile) {
   closePreview()
   preview.visible = true
   preview.loading = true
@@ -359,7 +388,7 @@ async function openPreview(file: AuditProjectAttachment) {
       preview.error = '该文件类型暂不支持在线预览，请下载查看'
       return
     }
-    const blob = await fetchAttachmentPreviewBlob(file.id)
+    const blob = file.source === 'project' ? await fetchProjectFilePreviewBlob(file.id) : await fetchAttachmentPreviewBlob(file.id)
     if (preview.kind === 'text') preview.text = await blob.text()
     else preview.url = URL.createObjectURL(blob)
   } catch (err) {
@@ -382,9 +411,9 @@ function closePreview() {
   preview.error = ''
 }
 
-async function downloadFile(file: AuditProjectAttachment) {
+async function downloadFile(file: ProjectEvidenceFile) {
   try {
-    const blob = await fetchAttachmentDownloadBlob(file.id)
+    const blob = file.source === 'project' ? await fetchProjectFileDownloadBlob(file.id) : await fetchAttachmentDownloadBlob(file.id)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
