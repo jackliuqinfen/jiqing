@@ -155,21 +155,49 @@
         </div>
       </section>
 
-      <section v-else class="table-view">
-        <table>
-          <thead>
-            <tr>
-              <th v-for="field in store.tableFields" :key="field.id">{{ field.fieldLabel }}</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="project in store.projects" :key="project.id">
-              <td v-for="field in store.tableFields" :key="field.id">{{ displayField(project, field) }}</td>
-              <td><button class="link-button" @click="openDetail(project)">查看</button></td>
-            </tr>
-          </tbody>
-        </table>
+      <section v-else class="stage-table-view">
+        <article v-for="stage in store.meta.stages" :key="stage.code" class="stage-table-card">
+          <div class="stage-table-rail" :style="{ '--stage-color': stage.color }">
+            <span class="stage-table-rail__line" />
+            <span class="stage-table-rail__text">{{ stage.title }}</span>
+            <span class="stage-table-rail__count">{{ stageCount(stage.code) }}</span>
+          </div>
+          <div class="stage-table-panel">
+            <div class="stage-table-head">
+              <div>
+                <h2>{{ stage.title }}</h2>
+                <p>{{ stage.code }} · 按阶段差异字段展示</p>
+              </div>
+              <strong>{{ stageCount(stage.code) }} 项</strong>
+            </div>
+            <div class="stage-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th v-for="field in stageTableFields(stage.code)" :key="field.id">{{ field.fieldLabel }}</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="project in store.projectsByStage[stage.code]" :key="project.id">
+                    <td class="stage-table-project">
+                      <button class="project-link" type="button" @click="openDetail(project)">
+                        <strong>{{ project.projectName }}</strong>
+                        <span>{{ project.projectCode }} · {{ project.contractor.name }}</span>
+                      </button>
+                    </td>
+                    <td v-for="field in stageTableFields(stage.code)" :key="field.id">{{ displayField(project, field) }}</td>
+                    <td><button class="link-button" @click="openDetail(project)">查看</button></td>
+                  </tr>
+                  <tr v-if="stageCount(stage.code) === 0">
+                    <td :colspan="stageTableFields(stage.code).length + 2" class="stage-table-empty">该阶段暂无项目</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section v-if="!store.loading" class="pager">
@@ -401,6 +429,10 @@ function stageTitle(code: string) {
 
 function stageCount(code: string) {
   return store.projectsByStage[code]?.length || 0
+}
+
+function stageTableFields(code: string) {
+  return store.tableFieldsByStage[code] || store.tableFields
 }
 
 function goProject(projectId: string) {
@@ -893,7 +925,7 @@ async function logout() {
 .overdue { color: var(--color-danger); font-weight: 600; }
 .empty-column { padding: var(--space-5); text-align: center; color: var(--text-tertiary); font-size: var(--text-sm); }
 
-.gantt-view, .table-view {
+.gantt-view, .table-view, .stage-table-view {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -927,6 +959,116 @@ async function logout() {
 .table-view table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .table-view th, .table-view td { border-bottom: 1px solid var(--border-color); padding: 10px; text-align: left; font-size: var(--text-sm); }
 .table-view th { background: var(--bg-muted); color: var(--text-secondary); font-weight: 600; }
+.stage-table-view {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.stage-table-card {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: stretch;
+  min-width: 0;
+}
+.stage-table-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 100%;
+  padding: var(--space-3) 0;
+  color: var(--stage-color, var(--color-brand-500));
+}
+.stage-table-rail__line {
+  width: 2px;
+  flex: 1 1 auto;
+  min-height: 36px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--stage-color, var(--color-brand-500)) 72%, white);
+  opacity: .9;
+}
+.stage-table-rail__text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transform: rotate(180deg);
+}
+.stage-table-rail__count {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transform: rotate(180deg);
+}
+.stage-table-panel {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+.stage-table-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-muted);
+}
+.stage-table-head h2 { margin: 0; font-size: var(--text-lg); }
+.stage-table-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-xs); }
+.stage-table-head strong { font-size: var(--text-lg); }
+.stage-table-scroll { overflow: auto; }
+.stage-table-scroll table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+.stage-table-scroll th, .stage-table-scroll td {
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 14px;
+  text-align: left;
+  font-size: var(--text-sm);
+  vertical-align: top;
+}
+.stage-table-scroll th {
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stage-table-project { min-width: 220px; }
+.stage-table-project .project-link {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+}
+.stage-table-project .project-link strong {
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.stage-table-project .project-link span {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.stage-table-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: var(--space-5) !important;
+}
 .link-button { border: 0; background: transparent; color: var(--color-brand-500); cursor: pointer; }
 .pager {
   display: flex;
@@ -1097,6 +1239,30 @@ async function logout() {
 
 .layout-vertical .kanban-board { grid-template-columns: 1fr; }
 .layout-vertical .kanban-column { max-height: none; }
+.layout-vertical .column-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+.layout-vertical .column-head h2 {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  margin: 0;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.layout-vertical .column-head span {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
+}
+.layout-vertical .column-head strong {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
+}
+.layout-vertical .column-body { min-height: 180px; }
 .layout-compact .audit-main { padding: var(--space-3); }
 .layout-compact .summary-grid { grid-template-columns: repeat(4, 1fr); gap: var(--space-2); }
 .layout-compact .project-card { padding: var(--space-2); }
@@ -1122,5 +1288,20 @@ async function logout() {
   .small-filter, .date-filter { width: 100%; }
   .segmented span { display: none; }
   .gantt-head, .gantt-row { grid-template-columns: 220px 520px; }
+  .stage-table-card { grid-template-columns: 1fr; }
+  .stage-table-rail {
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: auto;
+    padding: 0 0 var(--space-2);
+  }
+  .stage-table-rail__line,
+  .stage-table-rail__text,
+  .stage-table-rail__count {
+    writing-mode: horizontal-tb;
+    text-orientation: initial;
+    transform: none;
+  }
+  .stage-table-rail__line { width: 40px; height: 2px; min-height: 0; flex: 0 0 auto; }
 }
 </style>

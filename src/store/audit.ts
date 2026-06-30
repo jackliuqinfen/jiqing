@@ -81,6 +81,26 @@ export const useAuditStore = defineStore('audit', () => {
   const tableFields = computed(() => meta.value.fieldConfigs.filter((f) => f.visibleInTable && f.enabled))
   const detailFields = computed(() => meta.value.fieldConfigs.filter((f) => f.visibleInDetail && f.enabled))
   const formFields = computed(() => meta.value.fieldConfigs.filter((f) => f.visibleInForm && f.enabled))
+  const commonTableFields = computed(() => tableFields.value.filter((field) => !field.stageKey))
+
+  function uniqueFieldConfigs(fields: AuditFieldConfig[]) {
+    const seen = new Set<string>()
+    return fields.filter((field) => {
+      const key = field.fieldKey || field.id
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  const tableFieldsByStage = computed<Record<string, AuditFieldConfig[]>>(() => {
+    const grouped: Record<string, AuditFieldConfig[]> = {}
+    for (const stage of meta.value.stages) {
+      const stageSpecific = tableFields.value.filter((field) => field.stageKey === stage.code)
+      grouped[stage.code] = uniqueFieldConfigs([...commonTableFields.value, ...stageSpecific])
+    }
+    return grouped
+  })
 
   const projectsByStage = computed<Record<string, AuditProject[]>>(() => {
     const grouped: Record<string, AuditProject[]> = {}
@@ -220,6 +240,7 @@ export const useAuditStore = defineStore('audit', () => {
     overview,
     cardFields,
     tableFields,
+    tableFieldsByStage,
     detailFields,
     formFields,
     projectsByStage,
