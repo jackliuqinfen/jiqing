@@ -38,24 +38,130 @@
       </button>
     </section>
 
+    <section class="project-dashboard" aria-label="项目总览">
+      <article class="dashboard-panel dashboard-panel--hero">
+        <div class="dashboard-panel__head">
+          <div>
+            <span class="mini-label">今日重点</span>
+            <h3>项目总览工作台</h3>
+            <p>先看风险、到期、资料缺口，再进入对应项目处理。</p>
+          </div>
+          <t-button size="small" theme="primary" variant="outline" @click="applyDashboardAction('risk')">查看风险项目</t-button>
+        </div>
+        <div class="focus-metrics">
+          <button type="button" @click="applyDashboardAction('due')">
+            <span>即将到期</span>
+            <strong>{{ dueSoonProjects.length }}</strong>
+            <em>7 天内计划完成</em>
+          </button>
+          <button type="button" @click="applyDashboardAction('risk')">
+            <span>风险项目</span>
+            <strong>{{ riskProjects.length }}</strong>
+            <em>资料缺口或超期</em>
+          </button>
+          <button type="button" @click="applyDashboardAction('missing')">
+            <span>待补资料</span>
+            <strong>{{ summary.missingDocuments }}</strong>
+            <em>影响审计流转</em>
+          </button>
+        </div>
+      </article>
+
+      <article class="dashboard-panel">
+        <div class="dashboard-panel__head">
+          <div>
+            <h3>负责人分布</h3>
+            <p>点击负责人快速查看对应项目。</p>
+          </div>
+        </div>
+        <div class="owner-list">
+          <button v-for="owner in ownerDistribution" :key="owner.name" type="button" @click="filterByOwner(owner.name)">
+            <span>{{ owner.name }}</span>
+            <strong>{{ owner.count }}</strong>
+          </button>
+          <p v-if="ownerDistribution.length === 0" class="quiet-empty">暂无负责人数据</p>
+        </div>
+      </article>
+
+      <article class="dashboard-panel">
+        <div class="dashboard-panel__head">
+          <div>
+            <h3>最近更新</h3>
+            <p>优先回到刚变化的项目。</p>
+          </div>
+        </div>
+        <div class="recent-list">
+          <button v-for="project in recentProjects" :key="project.id" type="button" @click="selectProject(project)">
+            <strong>{{ project.projectName }}</strong>
+            <span>{{ project.managerName || '未分配负责人' }} · {{ shortDate(project.updatedAt) }}</span>
+          </button>
+          <p v-if="recentProjects.length === 0" class="quiet-empty">暂无最近更新</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="project-work-items" aria-label="待办与异常">
+      <div class="project-work-items__head">
+        <div>
+          <span class="mini-label">待办与异常</span>
+          <h3>优先处理事项</h3>
+          <p>来自资料缺失、到期提醒、金额异常和审计结论确认。</p>
+        </div>
+        <t-button size="small" variant="outline" @click="applyDashboardAction('risk')">查看风险项目</t-button>
+      </div>
+      <div class="project-work-list">
+        <button
+          v-for="item in projectWorkItems"
+          :key="item.id"
+          type="button"
+          class="project-work-card"
+          :data-level="item.level"
+          @click="openProjectWorkItem(item)"
+        >
+          <span>{{ item.type }}</span>
+          <strong>{{ item.projectName || '未命名项目' }}</strong>
+          <em>{{ item.owner || '未分配负责人' }} · {{ item.dueDate || '未设期限' }}</em>
+          <b>{{ item.action || '查看处理' }}</b>
+        </button>
+        <p v-if="projectWorkItems.length === 0" class="quiet-empty">当前没有需要优先处理的事项。</p>
+      </div>
+    </section>
+
     <section class="toolbar">
-      <t-input v-model="filters.keyword" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="loadRecords">
+      <t-input v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
         <template #prefix-icon><t-icon name="search" /></template>
       </t-input>
-      <t-select v-model="filters.projectStatus" clearable placeholder="项目状态" :options="meta.projectStatuses" @change="loadRecords" />
-      <t-select v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="meta.settlementStatuses" @change="loadRecords" />
-      <t-input v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="loadRecords" />
+      <t-select v-model="filters.projectStatus" clearable placeholder="项目状态" :options="meta.projectStatuses" @change="applyToolbarFilters" />
+      <t-select v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="meta.settlementStatuses" @change="applyToolbarFilters" />
+      <t-input v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="applyToolbarFilters" />
       <label class="toolbar-check">
-        <input v-model="filters.onlyMissingDocuments" type="checkbox" @change="loadRecords" />
+        <input v-model="filters.onlyMissingDocuments" type="checkbox" @change="applyToolbarFilters" />
         仅看资料不齐
       </label>
-      <t-select v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="loadRecords" />
-      <t-button theme="primary" @click="loadRecords">查询</t-button>
+      <t-select v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
+      <t-button theme="primary" @click="applyToolbarFilters">查询</t-button>
       <t-button variant="outline" @click="resetFilters">重置</t-button>
     </section>
 
+    <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
+      <span>已应用筛选</span>
+      <button v-for="chip in activeFilterChips" :key="chip.key" type="button" @click="clearActiveFilterChip(chip.key)">
+        {{ chip.label }}：{{ chip.value }}
+        <b aria-hidden="true">×</b>
+      </button>
+      <button type="button" class="active-filter-strip__clear" @click="resetFilters">清除全部</button>
+    </section>
+
     <t-alert v-if="error" theme="error" :close="false" class="page-alert">
-      <template #message>{{ error }}</template>
+      <template #message>
+        <div class="recoverable-alert">
+          <div>
+            <strong>数据加载失败</strong>
+            <span>{{ error }}</span>
+          </div>
+          <t-button size="small" variant="outline" :loading="loading" @click="loadAll">重新加载</t-button>
+        </div>
+      </template>
     </t-alert>
 
     <StatePanel
@@ -85,66 +191,151 @@
             <p>点击项目名称查看资料、结算和签证详情。</p>
           </div>
           <div class="panel-head__meta">
-            <span>共 {{ total }} 条</span>
+            <span>当前显示 {{ displayRecords.length }} 条 / 共 {{ total }} 条</span>
             <span>第 {{ page }} / {{ totalPages }} 页</span>
           </div>
         </div>
 
-        <t-table :data="records" :columns="tableColumns" :loading="loading" bordered hover>
-          <template #project="{ row }">
-            <button class="project-link" type="button" @click="selectProject(row)">
-              <strong>{{ row.projectName }}</strong>
-              <span>{{ row.projectCode }} · {{ row.managerName || row.contractorName }}</span>
-            </button>
-          </template>
-          <template #status="{ row }">
-            <div class="status-stack">
-              <t-tag variant="light" :theme="statusTheme(row.projectStatus)">{{ projectStatusLabel(row.projectStatus) }}</t-tag>
-              <t-tag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</t-tag>
-            </div>
-          </template>
-          <template #docs="{ row }">
-            <div class="progress-cell">
-              <strong>{{ row.documentCompletion }}%</strong>
-              <span>{{ row.missingRequiredCount > 0 ? `缺 ${row.missingRequiredCount} 类` : '资料齐全' }}</span>
-            </div>
-          </template>
-          <template #amount="{ row }">
-            <div class="amount-cell">
-              <strong>{{ formatWan(row.contractAmount || row.submittedAmount || 0) }}</strong>
-              <span>合同 / 送审</span>
-            </div>
-          </template>
-          <template #audit="{ row }">
-            <div class="audit-cell">
-              <span>一审：{{ row.firstAuditMaterialStatus }}</span>
-              <span>二审：{{ row.secondAuditMaterialStatus }}</span>
-            </div>
-          </template>
-          <template #actions="{ row }">
-            <div class="action-cell">
-              <button type="button" @click="selectProject(row)">查看</button>
-              <button type="button" @click="openProjectForm(row)">编辑</button>
-              <button type="button" :disabled="!canDelete" @click="confirmDeleteProject(row)">删除</button>
-            </div>
-          </template>
-        </t-table>
+        <div class="list-utility-bar">
+          <div class="saved-views" aria-label="保存的筛选方案">
+            <button type="button" :class="{ active: activeSavedView === 'all' }" @click="applySavedProjectView('all')">全部项目</button>
+            <button type="button" :class="{ active: activeSavedView === 'risk' }" @click="applySavedProjectView('risk')">风险优先</button>
+            <button type="button" :class="{ active: activeSavedView === 'audit' }" @click="applySavedProjectView('audit')">已进审计</button>
+          </div>
+          <div v-if="savedFilterViews.length" class="custom-views" aria-label="我的筛选方案">
+            <span
+              v-for="view in savedFilterViews"
+              :key="view.id"
+              class="custom-view-chip"
+              :class="{ active: activeCustomFilterId === view.id }"
+            >
+              <button type="button" @click="applySavedFilterView(view)">{{ view.name }}</button>
+              <button type="button" aria-label="删除筛选方案" @click="deleteSavedFilterView(view)">×</button>
+            </span>
+          </div>
+          <div class="table-tools">
+            <span v-if="selectedRecords.length">已选 {{ selectedRecords.length }} 项</span>
+            <t-button size="small" variant="outline" :disabled="displayRecords.length === 0" @click="selectCurrentPage">选择当前页</t-button>
+            <t-button size="small" variant="outline" :disabled="selectedRecords.length === 0" @click="batchMarkFocus">标记关注</t-button>
+            <t-button
+              size="small"
+              theme="primary"
+              variant="outline"
+              :loading="batchAuditing"
+              :disabled="batchAuditCandidates.length === 0"
+              @click="batchStartAudit"
+            >
+              批量发起审计
+            </t-button>
+            <t-button size="small" variant="text" :disabled="selectedRecords.length === 0" @click="clearProjectSelection">清空选择</t-button>
+            <t-button size="small" variant="outline" @click="saveCurrentFilterView">保存筛选</t-button>
+            <t-select v-model="groupBy" :options="projectGroupOptions" size="small" style="width: 138px" />
+            <t-button size="small" variant="outline" @click="columnSettingsVisible = !columnSettingsVisible">列显示</t-button>
+          </div>
+        </div>
 
-        <div class="pager">
-          <span>共 {{ total }} 条，第 {{ page }} 页</span>
+        <div v-if="columnSettingsVisible" class="column-settings-panel">
+          <label v-for="column in configurableColumns" :key="column.colKey">
+            <input
+              type="checkbox"
+              :checked="visibleProjectColumnKeys.includes(String(column.colKey))"
+              @change="toggleProjectColumn(String(column.colKey))"
+            />
+            {{ column.title }}
+          </label>
+        </div>
+
+        <StatePanel
+          v-if="displayRecords.length === 0"
+          class="view-empty-state"
+          state="empty"
+          title="当前筛选下暂无项目"
+          description="可以调整筛选条件，或切换到全部项目查看完整台账。"
+        />
+
+        <div v-else class="project-table-groups" :class="{ 'project-table-groups--plain': groupBy === 'none' }">
+          <section v-for="group in groupedDisplayRecords" :key="group.key" class="project-table-group">
+            <header v-if="groupBy !== 'none'" class="project-table-group__head">
+              <div>
+                <strong>{{ group.label }}</strong>
+                <span>{{ group.hint }}</span>
+              </div>
+              <em>{{ group.records.length }} 项</em>
+            </header>
+            <t-table
+              :data="group.records"
+              :columns="tableColumns"
+              :loading="loading"
+              :table-layout="'fixed'"
+              :horizontal-scroll-affixed-bottom="true"
+              bordered
+              hover
+            >
+              <template #select="{ row }">
+                <input
+                  type="checkbox"
+                  :checked="selectedProjectIds.includes(row.id)"
+                  aria-label="选择项目"
+                  @change="toggleProjectSelection(row.id)"
+                />
+              </template>
+              <template #project="{ row }">
+                <button class="project-link" type="button" @click="selectProject(row)">
+                  <strong>{{ row.projectName }}</strong>
+                  <span>{{ row.projectCode }} · {{ row.managerName || row.contractorName }}</span>
+                </button>
+              </template>
+              <template #status="{ row }">
+                <div class="status-stack">
+                  <t-tag variant="light" :theme="statusTheme(row.projectStatus)">{{ projectStatusLabel(row.projectStatus) }}</t-tag>
+                  <t-tag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</t-tag>
+                </div>
+              </template>
+              <template #docs="{ row }">
+                <div class="progress-cell">
+                  <strong>{{ row.documentCompletion }}%</strong>
+                  <span>{{ row.missingRequiredCount > 0 ? `缺 ${row.missingRequiredCount} 类` : '资料齐全' }}</span>
+                </div>
+              </template>
+              <template #amount="{ row }">
+                <div class="amount-cell">
+                  <strong>{{ formatWan(row.contractAmount || row.submittedAmount || 0) }}</strong>
+                  <span>合同 / 送审</span>
+                </div>
+              </template>
+              <template #audit="{ row }">
+                <div class="audit-cell">
+                  <span>一审：{{ materialStatusLabel(row.firstAuditMaterialStatus) }}</span>
+                  <span>二审：{{ materialStatusLabel(row.secondAuditMaterialStatus) }}</span>
+                </div>
+              </template>
+              <template #actions="{ row }">
+                <div class="action-cell">
+                  <button type="button" @click="selectProject(row)">查看</button>
+                  <button type="button" @click="openProjectForm(row)">编辑</button>
+                  <button type="button" :disabled="!canDelete" @click="confirmDeleteProject(row)">删除</button>
+                </div>
+              </template>
+            </t-table>
+          </section>
+        </div>
+
+        <div v-if="displayRecords.length > 0" class="pager">
+          <span>当前显示 {{ displayRecords.length }} 条 / 共 {{ total }} 条，第 {{ page }} 页</span>
           <t-select v-model="filters.pageSize" :options="pageSizeOptions" style="width: 120px" @change="loadRecords" />
           <t-button variant="outline" :disabled="page <= 1" @click="changePage(page - 1)">上一页</t-button>
           <t-button variant="outline" :disabled="page >= totalPages" @click="changePage(page + 1)">下一页</t-button>
         </div>
       </div>
 
-      <aside class="detail-panel">
+      <section class="detail-panel" aria-label="项目详情">
         <template v-if="detailLoading">
           <StatePanel state="loading" title="正在加载项目详情" description="请稍候，正在读取该项目的资料和结算信息。" />
         </template>
         <template v-else-if="currentProject">
           <div class="detail-head">
             <div>
+              <span class="stage-pill">{{ projectStatusLabel(currentProject.projectStatus) }}</span>
               <h3>{{ currentProject.projectName }}</h3>
               <p>{{ currentProject.projectCode }} · {{ currentProject.constructionUnit || currentProject.ownerUnit || '未填写建设单位' }}</p>
             </div>
@@ -171,6 +362,24 @@
             </div>
           </div>
 
+          <div class="project-detail-brief">
+            <article>
+              <span>项目负责人</span>
+              <strong>{{ currentProject.managerName || '未分配' }}</strong>
+              <em>{{ currentProject.contractorContact || '暂无联系电话' }}</em>
+            </article>
+            <article>
+              <span>计划周期</span>
+              <strong>{{ shortDate(currentProject.plannedStartDate) }} - {{ shortDate(currentProject.plannedEndDate) }}</strong>
+              <em :class="{ overdue: isProjectOverdue(currentProject) }">{{ isProjectOverdue(currentProject) ? '已超过计划完成时间' : '按计划跟进' }}</em>
+            </article>
+            <article>
+              <span>协作单位</span>
+              <strong>{{ currentProject.contractorName || currentProject.ownerUnit || '未填写' }}</strong>
+              <em>{{ currentProject.companyRole || '工程咨询' }}</em>
+            </article>
+          </div>
+
           <div class="detail-metrics">
             <article>
               <span>资料完整度</span>
@@ -188,6 +397,20 @@
               <span>联动审计</span>
               <strong>{{ currentProject.auditProjectId ? '已关联' : '未关联' }}</strong>
             </article>
+          </div>
+
+          <div class="next-action-panel">
+            <div class="section-head">
+              <strong>下一步建议</strong>
+              <span>根据资料、期限和审计联动状态生成</span>
+            </div>
+            <div class="next-action-list">
+              <button v-for="item in projectActionHints" :key="item.label" type="button" :data-level="item.level" @click="item.action">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.title }}</strong>
+                <em>{{ item.description }}</em>
+              </button>
+            </div>
           </div>
 
           <div class="detail-tabs" role="tablist" aria-label="项目详情分区">
@@ -216,18 +439,18 @@
               </article>
               <article>
                 <span>一审资料</span>
-                <strong>{{ currentProject.firstAuditMaterialStatus }}</strong>
+                <strong>{{ materialStatusLabel(currentProject.firstAuditMaterialStatus) }}</strong>
               </article>
               <article>
                 <span>二审资料</span>
-                <strong>{{ currentProject.secondAuditMaterialStatus }}</strong>
+                <strong>{{ materialStatusLabel(currentProject.secondAuditMaterialStatus) }}</strong>
               </article>
             </div>
 
             <div class="link-box">
               <div>
                 <span class="mini-label">审计联动</span>
-                <strong>{{ currentProject.auditProjectId ? '已关联审计看板卡片' : '尚未关联审计看板' }}</strong>
+                <strong>{{ currentProject.auditProjectId ? '已进入审计流程' : '尚未进入审计流程' }}</strong>
                 <p>{{ currentProject.auditProjectId ? '审计看板将读取项目主数据，并维护阶段、金额和审计记录。' : '可从项目主档案发起审计，系统会自动带入项目名称、金额、负责人和计划日期。' }}</p>
               </div>
               <t-button
@@ -238,6 +461,22 @@
               >
                 {{ currentProject.auditProjectId ? '查看审计进度' : '发起审计' }}
               </t-button>
+            </div>
+
+            <div class="project-timeline-card">
+              <div class="section-head">
+                <strong>项目推进脉络</strong>
+                <span>按关键业务节点快速回看</span>
+              </div>
+              <div class="project-timeline">
+                <article v-for="item in projectTimeline" :key="item.label" :class="{ done: item.done }">
+                  <span />
+                  <div>
+                    <strong>{{ item.label }}</strong>
+                    <p>{{ item.text }}</p>
+                  </div>
+                </article>
+              </div>
             </div>
 
             <div class="document-grid">
@@ -261,11 +500,19 @@
                       <span>{{ file.displayName }}</span>
                       <small>V{{ file.versionNo }}</small>
                     </button>
-                    <span v-if="filesByCategory(category.categoryKey).length === 0" class="file-empty">暂无资料</span>
+                    <button
+                      v-if="filesByCategory(category.categoryKey).length === 0"
+                      type="button"
+                      class="inline-empty-action"
+                      @click="openFileDialog(category)"
+                    >
+                      <strong>{{ category.required ? '必填资料待补充' : '暂无归档资料' }}</strong>
+                      <span>点击上传{{ category.categoryName }}</span>
+                    </button>
                   </div>
                   <div class="doc-actions">
                     <t-button size="small" variant="outline" @click="openFileDialog(category)">上传资料</t-button>
-                    <span>{{ category.categoryKey }}</span>
+                    <span>{{ filesByCategory(category.categoryKey).length ? `${filesByCategory(category.categoryKey).length} 份资料` : '待补充' }}</span>
                   </div>
                 </div>
               </article>
@@ -298,6 +545,11 @@
                 </div>
               </template>
             </t-table>
+            <div v-if="(currentProject.files || []).length === 0" class="detail-empty-action">
+              <strong>当前项目还没有上传资料</strong>
+              <span>建议先上传合同、招投标、过程资料或结算资料，后续审计会直接引用这些文件。</span>
+              <t-button size="small" theme="primary" @click="openFileDialog()">上传资料</t-button>
+            </div>
           </div>
 
           <div v-else-if="activeTab === 'settlements'" class="detail-section">
@@ -322,6 +574,11 @@
                 </div>
               </template>
             </t-table>
+            <div v-if="(currentProject.settlements || []).length === 0" class="detail-empty-action">
+              <strong>尚未维护付款结算记录</strong>
+              <span>补充结算记录后，可以在项目台账中同步查看付款进度和结算状态。</span>
+              <t-button size="small" theme="primary" @click="openSettlementDialog()">新增结算</t-button>
+            </div>
           </div>
 
           <div v-else-if="activeTab === 'variations'" class="detail-section">
@@ -346,6 +603,11 @@
                 </div>
               </template>
             </t-table>
+            <div v-if="(currentProject.variations || []).length === 0" class="detail-empty-action">
+              <strong>暂无变更签证记录</strong>
+              <span>如项目发生工程量、范围或金额调整，可在这里记录变更签证。</span>
+              <t-button size="small" theme="primary" @click="openVariationDialog()">新增签证</t-button>
+            </div>
           </div>
 
           <div v-else class="detail-section">
@@ -358,11 +620,14 @@
                 <strong>{{ log.content }}</strong>
                 <span>{{ log.operatorName || '系统' }} · {{ formatDate(log.createdAt) }}</span>
               </article>
-              <div v-if="(currentProject.logs || []).length === 0" class="log-empty">暂无操作记录</div>
+              <div v-if="(currentProject.logs || []).length === 0" class="detail-empty-action">
+                <strong>暂无操作记录</strong>
+                <span>保存项目信息、上传资料、发起审计或维护结算后，会自动形成操作记录。</span>
+              </div>
             </div>
           </div>
         </template>
-      </aside>
+      </section>
     </section>
 
     <t-dialog
@@ -441,6 +706,19 @@
     </t-dialog>
 
     <t-dialog
+      v-model:visible="confirmState.visible"
+      :header="confirmState.title"
+      :confirm-btn="{ content: confirmState.confirmText, theme: confirmState.danger ? 'danger' : 'primary', loading: confirmState.loading }"
+      :cancel-btn="{ content: confirmState.cancelText }"
+      width="520px"
+      @confirm="confirmPrimaryAction"
+      @cancel="closeConfirm"
+      @close="closeConfirm"
+    >
+      <p class="confirm-message">{{ confirmState.message }}</p>
+    </t-dialog>
+
+    <t-dialog
       v-model:visible="settlementDialog.visible"
       :header="settlementDialog.mode === 'create' ? '新增结算' : '编辑结算'"
       :confirm-btn="{ content: '保存结算', loading: settlementDialog.saving }"
@@ -505,7 +783,7 @@
         </label>
         <label>
           <span>签证状态</span>
-          <t-input v-model="variationForm.variationStatus" placeholder="pending / approved / rejected" />
+          <t-input v-model="variationForm.variationStatus" placeholder="例如：待确认、已确认、需更正" />
         </label>
         <label>
           <span>签证类型</span>
@@ -548,13 +826,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { MessagePlugin } from '@/ui/message'
 import { formatWan } from '@/utils/format'
-import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation } from '@/types'
+import { friendlyErrorMessage } from '@/utils/errors'
+import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
 import {
   createProjectRecord,
   deleteProjectFile,
@@ -565,6 +844,7 @@ import {
   fetchProjectRecord,
   fetchProjectRecords,
   fetchProjectSummary,
+  fetchWorkItems,
   saveProjectSettlement,
   saveProjectVariation,
   startProjectAudit,
@@ -578,14 +858,29 @@ import {
 const router = useRouter()
 const route = useRoute()
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
+type BuiltInProjectView = 'all' | 'risk' | 'audit'
+type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
+type ProjectFilterChip = {
+  key: string
+  label: string
+  value: string
+}
+type SavedProjectFilterView = {
+  id: string
+  name: string
+  filters: ProjectFilters
+}
 
-const tableColumns = [
-  { colKey: 'project', title: '项目', width: 320 },
+const SAVED_PROJECT_FILTERS_KEY = 'project-management-saved-filters'
+
+const baseTableColumns = [
+  { colKey: 'select', title: '选择', width: 64, fixed: 'left' },
+  { colKey: 'project', title: '项目', width: 320, fixed: 'left' },
   { colKey: 'status', title: '状态', width: 170 },
   { colKey: 'docs', title: '资料', width: 110 },
   { colKey: 'amount', title: '金额', width: 140 },
   { colKey: 'audit', title: '审计联动', width: 170 },
-  { colKey: 'actions', title: '操作', width: 160 },
+  { colKey: 'actions', title: '操作', width: 160, fixed: 'right' },
 ]
 
 const fileColumns = [
@@ -624,6 +919,13 @@ const pageSizeOptions = [
   { label: '50 条/页', value: 50 },
 ]
 
+const projectGroupOptions = [
+  { label: '不分组', value: 'none' },
+  { label: '按项目状态', value: 'status' },
+  { label: '按负责人', value: 'owner' },
+  { label: '按审计联动', value: 'audit' },
+]
+
 const tabs: Array<{ label: string; value: DetailTab }> = [
   { label: '概览', value: 'overview' },
   { label: '资料', value: 'files' },
@@ -638,6 +940,10 @@ const filters = reactive<ProjectFilters>({
   settlementStatus: '',
   managerName: '',
   onlyMissingDocuments: false,
+  onlyAuditLinked: false,
+  onlyRisk: false,
+  onlyUpcomingDue: false,
+  onlyMonthlyNew: false,
   sort: 'updatedAt',
   page: 1,
   pageSize: 10,
@@ -665,7 +971,16 @@ const currentProject = ref<ProjectRecord | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
 const auditStarting = ref(false)
+const batchAuditing = ref(false)
 const error = ref('')
+const columnSettingsVisible = ref(false)
+const selectedProjectIds = ref<string[]>([])
+const activeSavedView = ref<BuiltInProjectView>('all')
+const activeCustomFilterId = ref('')
+const savedFilterViews = ref<SavedProjectFilterView[]>([])
+const groupBy = ref<ProjectGroupBy>('none')
+const visibleProjectColumnKeys = ref(['select', 'project', 'status', 'docs', 'amount', 'audit', 'actions'])
+const workItems = ref<WorkItem[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
@@ -674,6 +989,16 @@ const activeSummaryKey = ref('')
 const canDelete = true
 
 const projectDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false })
+const confirmState = reactive({
+  visible: false,
+  title: '',
+  message: '',
+  confirmText: '确认',
+  cancelText: '取消',
+  danger: false,
+  loading: false,
+  onConfirm: null as null | (() => void | Promise<void>),
+})
 const fileDialog = reactive({
   visible: false,
   saving: false,
@@ -749,15 +1074,162 @@ const projectFieldsRight: Array<{ key: ProjectFormKey; label: string; placeholde
 ]
 
 const categoryOptions = computed(() => meta.categories.map((item) => ({ label: item.categoryName, value: item.categoryKey })))
+const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
+const configurableColumns = computed(() => baseTableColumns.filter((column) => !['select', 'project', 'actions'].includes(String(column.colKey))))
+const displayRecords = computed(() => records.value)
+const activeFilterChips = computed<ProjectFilterChip[]>(() => {
+  const chips: ProjectFilterChip[] = []
+  if (filters.keyword) chips.push({ key: 'keyword', label: '关键词', value: filters.keyword })
+  if (filters.projectStatus) chips.push({ key: 'projectStatus', label: '项目状态', value: projectStatusLabel(filters.projectStatus) })
+  if (filters.settlementStatus) chips.push({ key: 'settlementStatus', label: '结算状态', value: settlementStatusLabel(filters.settlementStatus) })
+  if (filters.managerName) chips.push({ key: 'managerName', label: '负责人', value: filters.managerName })
+  if (filters.onlyMissingDocuments) chips.push({ key: 'onlyMissingDocuments', label: '资料状态', value: '仅看资料不齐' })
+  if (filters.onlyAuditLinked) chips.push({ key: 'onlyAuditLinked', label: '审计联动', value: '已进入审计流程' })
+  if (filters.onlyRisk) chips.push({ key: 'onlyRisk', label: '风险范围', value: '风险优先' })
+  if (filters.onlyUpcomingDue) chips.push({ key: 'onlyUpcomingDue', label: '计划时间', value: '7 天内到期' })
+  if (filters.onlyMonthlyNew) chips.push({ key: 'onlyMonthlyNew', label: '创建时间', value: '本月新增' })
+  if (filters.sort && filters.sort !== 'updatedAt') {
+    chips.push({ key: 'sort', label: '排序', value: sortOptions.find((item) => item.value === filters.sort)?.label || filters.sort })
+  }
+  return chips
+})
+const groupedDisplayRecords = computed(() => {
+  if (groupBy.value === 'none') {
+    return [{ key: 'all', label: '全部项目', hint: '当前筛选结果', records: displayRecords.value }]
+  }
+  const groups = new Map<string, ProjectRecord[]>()
+  for (const record of displayRecords.value) {
+    const key = projectGroupKey(record)
+    groups.set(key, [...(groups.get(key) || []), record])
+  }
+  return Array.from(groups.entries())
+    .map(([key, groupRecords]) => ({
+      key,
+      label: projectGroupLabel(key),
+      hint: projectGroupHint(key, groupRecords),
+      records: groupRecords,
+    }))
+    .sort((a, b) => {
+      if (a.key === 'unassigned') return 1
+      if (b.key === 'unassigned') return -1
+      return b.records.length - a.records.length || a.label.localeCompare(b.label, 'zh-CN')
+    })
+})
+const selectedRecords = computed(() => displayRecords.value.filter((record) => selectedProjectIds.value.includes(record.id)))
+const batchAuditCandidates = computed(() => selectedRecords.value.filter((record) => !record.auditProjectId))
+const projectActionHints = computed(() => {
+  const project = currentProject.value
+  if (!project) return []
+  const items: Array<{ label: string; title: string; description: string; level: string; action: () => void }> = []
+  if (project.missingRequiredCount > 0) {
+    items.push({
+      label: '资料补齐',
+      title: `仍缺 ${project.missingRequiredCount} 类资料`,
+      description: '先补齐关键资料，避免影响审计和结算推进。',
+      level: 'warning',
+      action: () => { activeTab.value = 'files' },
+    })
+  }
+  if (isProjectOverdue(project)) {
+    items.push({
+      label: '期限风险',
+      title: '计划完成时间已超期',
+      description: '建议优先核对责任人、计划时间和当前处理节点。',
+      level: 'danger',
+      action: () => { activeTab.value = 'overview' },
+    })
+  }
+  items.push(project.auditProjectId
+    ? {
+        label: '审计联动',
+        title: '查看审计进度',
+        description: '进入审计看板查看当前阶段、资料状态和操作记录。',
+        level: 'primary',
+        action: () => goAudit(project.auditProjectId),
+      }
+    : {
+        label: '审计联动',
+        title: '发起审计流程',
+        description: '发起后会自动带入项目主数据，避免重复录入。',
+        level: 'primary',
+        action: () => startAudit(project),
+      })
+  if (!items.some((item) => item.level === 'warning' || item.level === 'danger')) {
+    items.unshift({
+      label: '项目状态',
+      title: '当前项目可正常推进',
+      description: '资料、期限和审计联动暂无明显阻塞。',
+      level: 'success',
+      action: () => { activeTab.value = 'overview' },
+    })
+  }
+  return items.slice(0, 3)
+})
+const projectTimeline = computed(() => {
+  const project = currentProject.value
+  if (!project) return []
+  return [
+    {
+      label: '项目建档',
+      text: project.createdAt ? `${shortDate(project.createdAt)} 已纳入项目台账` : '已纳入项目台账',
+      done: true,
+    },
+    {
+      label: '资料归集',
+      text: project.missingRequiredCount > 0 ? `仍需补充 ${project.missingRequiredCount} 类资料` : '关键资料已齐备',
+      done: project.missingRequiredCount === 0,
+    },
+    {
+      label: '结算推进',
+      text: settlementStatusLabel(project.settlementStatus),
+      done: ['approved', 'paid', 'completed'].includes(project.settlementStatus),
+    },
+    {
+      label: '审计联动',
+      text: project.auditProjectId ? '已进入审计流程' : '尚未进入审计流程',
+      done: Boolean(project.auditProjectId),
+    },
+  ]
+})
 
 const summaryCards = computed(() => [
   { key: 'all', label: '项目总数', value: summary.totalProjects, hint: '全部项目主数据' },
   { key: 'active', label: '进行中', value: summary.activeProjects, hint: '正在推进的项目' },
   { key: 'settlement', label: '结算中', value: summary.settlementProjects, hint: '进入付款结算的项目' },
-  { key: 'audit', label: '已联动审计', value: summary.auditLinkedProjects, hint: '已绑定 project_id 的项目' },
+  { key: 'audit', label: '已联动审计', value: summary.auditLinkedProjects, hint: '已进入审计流程的项目' },
   { key: 'missing', label: '资料不齐', value: summary.missingDocuments, hint: '需要补资料的项目' },
   { key: 'variation', label: '变更签证金额', value: formatWan(summary.variationAmount || 0), hint: '汇总已维护的签证金额' },
 ])
+
+const recentProjects = computed(() => [...records.value]
+  .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
+  .slice(0, 5))
+
+const dueSoonProjects = computed(() => records.value.filter((record) => {
+  if (!record.plannedEndDate) return false
+  const today = new Date()
+  const end = new Date(record.plannedEndDate)
+  const diffDays = Math.ceil((end.getTime() - today.getTime()) / 86400000)
+  return diffDays >= 0 && diffDays <= 7 && record.projectStatus !== 'completed'
+}))
+
+const riskProjects = computed(() => records.value.filter((record) => {
+  return record.missingRequiredCount > 0 || isProjectOverdue(record) || record.settlementStatus === 'rejected'
+}))
+
+const projectWorkItems = computed(() => workItems.value.filter((item) => item.projectId || item.auditProjectId).slice(0, 4))
+
+const ownerDistribution = computed(() => {
+  const counts = new Map<string, number>()
+  for (const record of records.value) {
+    const owner = record.managerName || record.contractorName || '未分配'
+    counts.set(owner, (counts.get(owner) || 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+})
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -788,6 +1260,49 @@ function variationStatusLabel(value: string) {
   return map[value] || value || '未设置'
 }
 
+function materialStatusLabel(value: string) {
+  const map: Record<string, string> = {
+    pending: '待处理',
+    not_started: '待处理',
+    submitted: '已提交',
+    complete: '已确认',
+    completed: '已确认',
+    confirmed: '已确认',
+    missing: '待补充',
+    rejected: '需更正',
+  }
+  return map[value] || value || '未设置'
+}
+
+function projectGroupKey(record: ProjectRecord) {
+  if (groupBy.value === 'status') return record.projectStatus || 'unassigned'
+  if (groupBy.value === 'owner') return record.managerName || record.contractorName || 'unassigned'
+  if (groupBy.value === 'audit') return record.auditProjectId ? 'audit-linked' : 'audit-pending'
+  return 'all'
+}
+
+function projectGroupLabel(key: string) {
+  if (groupBy.value === 'status') return projectStatusLabel(key)
+  if (groupBy.value === 'owner') return key === 'unassigned' ? '未分配负责人' : key
+  if (groupBy.value === 'audit') return key === 'audit-linked' ? '已进入审计流程' : '尚未进入审计流程'
+  return '全部项目'
+}
+
+function projectGroupHint(key: string, groupRecords: ProjectRecord[]) {
+  if (groupBy.value === 'status') {
+    const riskCount = groupRecords.filter((record) => record.missingRequiredCount > 0 || isProjectOverdue(record)).length
+    return riskCount > 0 ? `${riskCount} 项需优先关注` : '当前状态下暂无明显阻塞'
+  }
+  if (groupBy.value === 'owner') {
+    const linkedCount = groupRecords.filter((record) => record.auditProjectId).length
+    return `${linkedCount} 项已进入审计流程`
+  }
+  if (groupBy.value === 'audit') {
+    return key === 'audit-linked' ? '可进入审计看板查看阶段进度' : '可从项目详情发起审计'
+  }
+  return '当前筛选结果'
+}
+
 function formatSize(size: number) {
   if (!size) return '0 B'
   if (size < 1024) return `${size} B`
@@ -798,6 +1313,17 @@ function formatSize(size: number) {
 function formatDate(iso: string) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function shortDate(iso: string) {
+  if (!iso) return '暂无更新'
+  return new Date(iso).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+
+function isProjectOverdue(record: ProjectRecord) {
+  if (!record.plannedEndDate || record.projectStatus === 'completed') return false
+  const today = new Date().toISOString().slice(0, 10)
+  return record.plannedEndDate < today
 }
 
 function filesByCategory(categoryKey: string) {
@@ -862,28 +1388,441 @@ function clearFilters() {
   filters.settlementStatus = ''
   filters.managerName = ''
   filters.onlyMissingDocuments = false
+  filters.onlyAuditLinked = false
+  filters.onlyRisk = false
+  filters.onlyUpcomingDue = false
+  filters.onlyMonthlyNew = false
   filters.sort = 'updatedAt'
   filters.page = 1
   filters.pageSize = 10
 }
 
+function normalizeProjectFilters(value: Partial<ProjectFilters> = {}): ProjectFilters {
+  return {
+    keyword: value.keyword || '',
+    projectStatus: value.projectStatus || '',
+    settlementStatus: value.settlementStatus || '',
+    managerName: value.managerName || '',
+    onlyMissingDocuments: Boolean(value.onlyMissingDocuments),
+    onlyAuditLinked: Boolean(value.onlyAuditLinked),
+    onlyRisk: Boolean(value.onlyRisk),
+    onlyUpcomingDue: Boolean(value.onlyUpcomingDue),
+    onlyMonthlyNew: Boolean(value.onlyMonthlyNew),
+    sort: value.sort || 'updatedAt',
+    page: Number(value.page || 1),
+    pageSize: Number(value.pageSize || 10),
+  }
+}
+
+function assignProjectFilters(value: Partial<ProjectFilters>) {
+  Object.assign(filters, normalizeProjectFilters(value))
+}
+
+function snapshotProjectFilters(): ProjectFilters {
+  return normalizeProjectFilters({
+    ...filters,
+    page: 1,
+  })
+}
+
+function loadSavedFilterViews() {
+  try {
+    const raw = window.localStorage.getItem(SAVED_PROJECT_FILTERS_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Array<Partial<SavedProjectFilterView>>
+    savedFilterViews.value = parsed
+      .filter((item) => item.id && item.name && item.filters)
+      .slice(0, 8)
+      .map((item) => ({
+        id: String(item.id),
+        name: String(item.name).slice(0, 20),
+        filters: normalizeProjectFilters(item.filters || {}),
+      }))
+  } catch {
+    savedFilterViews.value = []
+  }
+}
+
+function persistSavedFilterViews() {
+  window.localStorage.setItem(SAVED_PROJECT_FILTERS_KEY, JSON.stringify(savedFilterViews.value.slice(0, 8)))
+}
+
+function saveCurrentFilterView() {
+  const name = window.prompt('为当前筛选方案命名，例如：本周待处理项目')
+  const trimmed = name?.trim()
+  if (!trimmed) return
+  const id = `filter-${Date.now()}`
+  const view = {
+    id,
+    name: trimmed.slice(0, 20),
+    filters: snapshotProjectFilters(),
+  }
+  savedFilterViews.value = [view, ...savedFilterViews.value.filter((item) => item.name !== view.name)].slice(0, 8)
+  persistSavedFilterViews()
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = id
+  MessagePlugin.success('筛选方案已保存')
+}
+
+function applySavedFilterView(view: SavedProjectFilterView) {
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = view.id
+  activeSummaryKey.value = 'custom'
+  selectedProjectIds.value = []
+  assignProjectFilters({ ...view.filters, page: 1 })
+  loadRecords()
+}
+
+function openConfirm(options: {
+  title: string
+  message: string
+  confirmText?: string
+  cancelText?: string
+  danger?: boolean
+  onConfirm: () => void | Promise<void>
+}) {
+  confirmState.visible = true
+  confirmState.title = options.title
+  confirmState.message = options.message
+  confirmState.confirmText = options.confirmText || '确认'
+  confirmState.cancelText = options.cancelText || '取消'
+  confirmState.danger = Boolean(options.danger)
+  confirmState.loading = false
+  confirmState.onConfirm = options.onConfirm
+}
+
+function closeConfirm() {
+  if (confirmState.loading) return
+  confirmState.visible = false
+  confirmState.onConfirm = null
+}
+
+async function confirmPrimaryAction() {
+  const action = confirmState.onConfirm
+  if (!action) {
+    closeConfirm()
+    return
+  }
+  confirmState.loading = true
+  try {
+    await action()
+    confirmState.visible = false
+    confirmState.onConfirm = null
+  } finally {
+    confirmState.loading = false
+  }
+}
+
+function deleteSavedFilterView(view: SavedProjectFilterView) {
+  openConfirm({
+    title: '删除筛选方案？',
+    message: `删除「${view.name}」后，不会影响项目数据，只会移除这个快捷筛选入口。`,
+    confirmText: '删除方案',
+    danger: true,
+    onConfirm: () => {
+      savedFilterViews.value = savedFilterViews.value.filter((item) => item.id !== view.id)
+      if (activeCustomFilterId.value === view.id) activeCustomFilterId.value = ''
+      persistSavedFilterViews()
+      MessagePlugin.success('筛选方案已删除')
+    },
+  })
+}
+
+async function openProjectFromRoute() {
+  const targetId = String(route.query.projectId || '')
+  if (!targetId) return false
+  const targetRecord = records.value.find((item) => item.id === targetId)
+  await loadCurrentProject(targetRecord?.id || targetId)
+  activeTab.value = 'overview'
+  return true
+}
+
+function applyRouteFilters() {
+  const query = route.query
+  const view = String(query.view || '').trim()
+  const projectStatus = String(query.projectStatus || '').trim()
+  const sort = String(query.sort || '').trim()
+  const managerName = String(query.managerName || '').trim()
+  const onlyMissingDocuments = String(query.onlyMissingDocuments || '').trim()
+  const onlyMonthlyNew = String(query.onlyMonthlyNew || '').trim()
+
+  if (view === 'risk') {
+    activeSummaryKey.value = 'risk'
+    activeSavedView.value = 'risk'
+    activeCustomFilterId.value = ''
+    filters.onlyRisk = true
+    filters.sort = 'plannedEndDate'
+  } else if (view === 'audit') {
+    activeSummaryKey.value = 'audit'
+    activeSavedView.value = 'audit'
+    activeCustomFilterId.value = ''
+    filters.onlyAuditLinked = true
+  } else if (view === 'due') {
+    activeSummaryKey.value = 'due'
+    activeSavedView.value = 'all'
+    activeCustomFilterId.value = ''
+    filters.onlyUpcomingDue = true
+    filters.sort = 'plannedEndDate'
+  }
+
+  if (projectStatus) {
+    filters.projectStatus = projectStatus
+    activeSummaryKey.value = projectStatus
+  }
+  if (managerName) {
+    filters.managerName = managerName
+    activeSummaryKey.value = 'owner'
+  }
+  if (onlyMissingDocuments === '1' || onlyMissingDocuments === 'true') {
+    filters.onlyMissingDocuments = true
+    activeSummaryKey.value = 'missing'
+  }
+  if (onlyMonthlyNew === '1' || onlyMonthlyNew === 'true') {
+    filters.onlyMonthlyNew = true
+    activeSummaryKey.value = 'monthly'
+    activeSavedView.value = 'all'
+    activeCustomFilterId.value = ''
+  }
+  if (sort) filters.sort = sort
+  filters.page = 1
+}
+
 function applySummaryFilter(key: string) {
   activeSummaryKey.value = key
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = ''
+  selectedProjectIds.value = []
+  filters.projectStatus = ''
+  filters.settlementStatus = ''
+  filters.onlyMissingDocuments = false
+  filters.onlyAuditLinked = false
+  filters.onlyRisk = false
+  filters.onlyUpcomingDue = false
+  filters.onlyMonthlyNew = false
   if (key === 'active') filters.projectStatus = 'active'
   else if (key === 'settlement') filters.settlementStatus = 'pending'
-  else if (key === 'audit') filters.onlyMissingDocuments = false
+  else if (key === 'audit') filters.onlyAuditLinked = true
   else if (key === 'missing') filters.onlyMissingDocuments = true
-  else {
-    filters.projectStatus = ''
-    filters.settlementStatus = ''
-    filters.onlyMissingDocuments = false
-  }
   filters.page = 1
   loadRecords()
 }
 
+function applyToolbarFilters() {
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = ''
+  activeSummaryKey.value = filters.onlyMissingDocuments ? 'missing' : ''
+  selectedProjectIds.value = []
+  filters.onlyAuditLinked = false
+  filters.onlyRisk = false
+  filters.onlyUpcomingDue = false
+  filters.onlyMonthlyNew = false
+  filters.page = 1
+  loadRecords()
+}
+
+function clearActiveFilterChip(key: string) {
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = ''
+  activeSummaryKey.value = ''
+  selectedProjectIds.value = []
+  if (key === 'keyword') filters.keyword = ''
+  if (key === 'projectStatus') filters.projectStatus = ''
+  if (key === 'settlementStatus') filters.settlementStatus = ''
+  if (key === 'managerName') filters.managerName = ''
+  if (key === 'onlyMissingDocuments') filters.onlyMissingDocuments = false
+  if (key === 'onlyAuditLinked') filters.onlyAuditLinked = false
+  if (key === 'onlyRisk') filters.onlyRisk = false
+  if (key === 'onlyUpcomingDue') filters.onlyUpcomingDue = false
+  if (key === 'onlyMonthlyNew') filters.onlyMonthlyNew = false
+  if (key === 'sort') filters.sort = 'updatedAt'
+  filters.page = 1
+  loadRecords()
+}
+
+function applyDashboardAction(action: 'risk' | 'due' | 'missing') {
+  activeSummaryKey.value = action
+  activeSavedView.value = action === 'risk' ? 'risk' : 'all'
+  activeCustomFilterId.value = ''
+  selectedProjectIds.value = []
+  filters.projectStatus = ''
+  filters.settlementStatus = ''
+  filters.managerName = ''
+  filters.onlyMissingDocuments = action === 'missing'
+  filters.onlyAuditLinked = false
+  filters.onlyRisk = action === 'risk'
+  filters.onlyUpcomingDue = action === 'due'
+  filters.onlyMonthlyNew = false
+  filters.sort = action === 'due' ? 'plannedEndDate' : 'updatedAt'
+  filters.page = 1
+  loadRecords()
+}
+
+function applySavedProjectView(view: BuiltInProjectView) {
+  activeSavedView.value = view
+  activeCustomFilterId.value = ''
+  activeSummaryKey.value = view
+  selectedProjectIds.value = []
+  filters.keyword = ''
+  filters.projectStatus = ''
+  filters.settlementStatus = ''
+  filters.managerName = ''
+  filters.onlyMissingDocuments = false
+  filters.onlyAuditLinked = view === 'audit'
+  filters.onlyRisk = view === 'risk'
+  filters.onlyUpcomingDue = false
+  filters.onlyMonthlyNew = false
+  filters.sort = view === 'risk' ? 'plannedEndDate' : 'updatedAt'
+  filters.page = 1
+  if (view === 'audit') {
+    MessagePlugin.success('已切换到已进审计项目视图')
+  }
+  loadRecords()
+}
+
+function toggleProjectColumn(key: string) {
+  if (['select', 'project', 'actions'].includes(key)) return
+  if (visibleProjectColumnKeys.value.includes(key)) {
+    visibleProjectColumnKeys.value = visibleProjectColumnKeys.value.filter((item) => item !== key)
+  } else {
+    const order = baseTableColumns.map((column) => String(column.colKey))
+    visibleProjectColumnKeys.value = [...visibleProjectColumnKeys.value, key].sort((a, b) => order.indexOf(a) - order.indexOf(b))
+  }
+}
+
+function toggleProjectSelection(id: string) {
+  selectedProjectIds.value = selectedProjectIds.value.includes(id)
+    ? selectedProjectIds.value.filter((item) => item !== id)
+    : [...selectedProjectIds.value, id]
+}
+
+function selectCurrentPage() {
+  selectedProjectIds.value = Array.from(new Set([...selectedProjectIds.value, ...displayRecords.value.map((record) => record.id)]))
+  MessagePlugin.success(`已选择当前显示的 ${displayRecords.value.length} 个项目`)
+}
+
+function clearProjectSelection() {
+  selectedProjectIds.value = []
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  const tag = element.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || element.isContentEditable
+}
+
+function focusProjectKeywordInput() {
+  const input = document.querySelector<HTMLInputElement>('.project-keyword-input input')
+  input?.focus()
+  input?.select()
+}
+
+function handleProjectKeyboard(event: KeyboardEvent) {
+  const shouldFocusSearch = event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')
+  if (shouldFocusSearch && !isEditableTarget(event.target)) {
+    event.preventDefault()
+    focusProjectKeywordInput()
+    return
+  }
+  if (event.key !== 'Escape') return
+  if (columnSettingsVisible.value) {
+    columnSettingsVisible.value = false
+    return
+  }
+  if (selectedProjectIds.value.length) {
+    selectedProjectIds.value = []
+    MessagePlugin.success('已清空选择')
+  }
+}
+
+function batchMarkFocus() {
+  if (!selectedRecords.value.length) {
+    MessagePlugin.warning('请先选择需要处理的项目')
+    return
+  }
+  MessagePlugin.success(`已将 ${selectedRecords.value.length} 个项目加入本次关注`)
+}
+
+async function batchStartAudit() {
+  if (!selectedRecords.value.length) {
+    MessagePlugin.warning('请先选择需要发起审计的项目')
+    return
+  }
+  const candidates = batchAuditCandidates.value
+  const skipped = selectedRecords.value.length - candidates.length
+  if (!candidates.length) {
+    MessagePlugin.warning('所选项目均已进入审计流程，无需重复发起')
+    return
+  }
+  const message = skipped
+    ? `确认将 ${candidates.length} 个项目发起审计流程？另有 ${skipped} 个已进入审计流程，将自动跳过。`
+    : `确认将 ${candidates.length} 个项目发起审计流程？系统会自动带入项目主数据。`
+  openConfirm({
+    title: '批量发起审计？',
+    message,
+    confirmText: '发起审计',
+    onConfirm: async () => {
+      await runBatchStartAudit(candidates)
+    },
+  })
+}
+
+async function runBatchStartAudit(candidates: ProjectRecord[]) {
+  batchAuditing.value = true
+  try {
+    for (const record of candidates) {
+      await startProjectAudit(record.id)
+    }
+    MessagePlugin.success(`已发起 ${candidates.length} 个项目的审计流程`)
+    clearProjectSelection()
+    await loadSummary()
+    await loadRecords()
+    if (currentProject.value) await loadCurrentProject(currentProject.value.id)
+  } catch (err) {
+    MessagePlugin.error(friendlyErrorMessage(err, '批量发起审计失败，请稍后重试或联系管理员'))
+  } finally {
+    batchAuditing.value = false
+  }
+}
+
+function filterByOwner(owner: string) {
+  filters.managerName = owner === '未分配' ? '' : owner
+  filters.projectStatus = ''
+  filters.settlementStatus = ''
+  filters.onlyMissingDocuments = false
+  filters.onlyAuditLinked = false
+  filters.onlyRisk = false
+  filters.onlyUpcomingDue = false
+  filters.onlyMonthlyNew = false
+  filters.page = 1
+  activeSummaryKey.value = 'owner'
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = ''
+  selectedProjectIds.value = []
+  loadRecords()
+}
+
+async function openProjectWorkItem(item: WorkItem) {
+  if (item.projectId) {
+    const local = records.value.find((record) => record.id === item.projectId)
+    if (local) {
+      await selectProject(local)
+    } else {
+      await loadCurrentProject(item.projectId)
+      activeTab.value = 'overview'
+    }
+    MessagePlugin.success('已定位到待处理项目')
+    return
+  }
+  if (item.auditProjectId) {
+    router.push({ path: '/audit', query: { projectId: item.auditProjectId } })
+  }
+}
+
 function resetFilters() {
   activeSummaryKey.value = ''
+  activeSavedView.value = 'all'
+  activeCustomFilterId.value = ''
   clearFilters()
   loadRecords()
 }
@@ -952,6 +1891,14 @@ async function loadSummary() {
   Object.assign(summary, value)
 }
 
+async function loadWorkItems() {
+  try {
+    workItems.value = await fetchWorkItems(40)
+  } catch {
+    workItems.value = []
+  }
+}
+
 async function loadRecords() {
   loading.value = true
   error.value = ''
@@ -962,18 +1909,22 @@ async function loadRecords() {
       pageSize: filters.pageSize,
     })
     records.value = result.data
+    selectedProjectIds.value = selectedProjectIds.value.filter((id) => displayRecords.value.some((item) => item.id === id))
     total.value = result.total
     page.value = result.page
     pageSize.value = result.pageSize
     if (!currentProject.value || !records.value.find((item) => item.id === currentProject.value?.id)) {
-      const targetId = String(route.query.projectId || '')
-      const targetRecord = targetId ? records.value.find((item) => item.id === targetId) : null
-      if (targetRecord) await loadCurrentProject(targetRecord.id)
-      else if (records.value[0]) await loadCurrentProject(records.value[0].id)
-      else currentProject.value = null
+      if (await openProjectFromRoute()) {
+        return
+      }
+      if (records.value[0]) {
+        await loadCurrentProject(records.value[0].id)
+      } else {
+        currentProject.value = null
+      }
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '项目列表加载失败'
+    error.value = friendlyErrorMessage(err, '项目列表加载失败，请稍后重试或联系管理员')
     MessagePlugin.error(error.value)
   } finally {
     loading.value = false
@@ -985,7 +1936,8 @@ async function loadCurrentProject(id: string) {
   try {
     currentProject.value = await fetchProjectRecord(id)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '项目详情加载失败')
+    currentProject.value = null
+    MessagePlugin.error(friendlyErrorMessage(err, '项目详情加载失败，请稍后重试或联系管理员'))
   } finally {
     detailLoading.value = false
   }
@@ -994,10 +1946,11 @@ async function loadCurrentProject(id: string) {
 async function loadAll() {
   loading.value = true
   try {
-    await Promise.all([loadMeta(), loadSummary()])
+    await Promise.all([loadMeta(), loadSummary(), loadWorkItems()])
+    applyRouteFilters()
     await loadRecords()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '加载失败'
+    error.value = friendlyErrorMessage(err, '数据加载失败，请稍后重试或联系管理员')
     MessagePlugin.error(error.value)
   } finally {
     loading.value = false
@@ -1036,7 +1989,7 @@ async function saveProject() {
     await loadRecords()
     await selectProject(result)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '保存失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '项目保存失败，请稍后重试或联系管理员'))
   } finally {
     projectDialog.saving = false
   }
@@ -1048,7 +2001,17 @@ async function startAudit(record: ProjectRecord) {
     MessagePlugin.warning('该项目已进入审计流程，请直接查看审计进度')
     return
   }
-  if (!window.confirm(`确认将「${record.projectName}」发起审计流程？系统会自动带入项目主数据。`)) return
+  openConfirm({
+    title: '发起审计流程？',
+    message: `将「${record.projectName}」发起审计流程，系统会自动带入项目名称、编号、负责人和金额等主数据。`,
+    confirmText: '发起审计',
+    onConfirm: async () => {
+      await runStartAudit(record)
+    },
+  })
+}
+
+async function runStartAudit(record: ProjectRecord) {
   auditStarting.value = true
   try {
     const auditProject = await startProjectAudit(record.id)
@@ -1058,7 +2021,7 @@ async function startAudit(record: ProjectRecord) {
     await loadCurrentProject(record.id)
     goAudit(auditProject.id)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '发起审计失败，请稍后重试或联系管理员')
+    MessagePlugin.error(friendlyErrorMessage(err, '发起审计失败，请稍后重试或联系管理员'))
   } finally {
     auditStarting.value = false
   }
@@ -1092,7 +2055,7 @@ async function saveFile() {
     await loadCurrentProject(fileDialog.projectId)
     await loadRecords()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '资料上传失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '资料上传失败，请检查文件后重试'))
   } finally {
     fileDialog.saving = false
   }
@@ -1117,7 +2080,7 @@ async function saveSettlement() {
     await loadCurrentProject(currentProject.value.id)
     await loadSummary()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '结算保存失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '结算保存失败，请稍后重试或联系管理员'))
   } finally {
     settlementDialog.saving = false
   }
@@ -1142,7 +2105,7 @@ async function saveVariation() {
     await loadCurrentProject(currentProject.value.id)
     await loadSummary()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '签证保存失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '签证保存失败，请稍后重试或联系管理员'))
   } finally {
     variationDialog.saving = false
   }
@@ -1156,7 +2119,7 @@ async function saveRename() {
     renameDialog.visible = false
     if (currentProject.value) await loadCurrentProject(currentProject.value.id)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '重命名失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '资料名称更新失败，请稍后重试'))
   } finally {
     renameDialog.saving = false
   }
@@ -1169,7 +2132,7 @@ async function previewFile(file: ProjectFile) {
     window.open(url, '_blank', 'noopener,noreferrer')
     window.setTimeout(() => URL.revokeObjectURL(url), 5000)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '预览失败，请下载查看')
+    MessagePlugin.error(friendlyErrorMessage(err, '预览失败，请下载后查看'))
   }
 }
 
@@ -1183,29 +2146,51 @@ async function downloadFile(file: ProjectFile) {
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 3000)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '下载失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '下载失败，请稍后重试'))
   }
 }
 
 async function confirmDeleteProject(record: ProjectRecord) {
-  if (!window.confirm(`确认删除项目「${record.projectName}」吗？删除后可在数据库恢复前不可见。`)) return
+  openConfirm({
+    title: '删除项目？',
+    message: `删除「${record.projectName}」后，该项目将不再出现在项目台账中。请确认已不需要继续跟踪。`,
+    confirmText: '删除项目',
+    danger: true,
+    onConfirm: async () => {
+      await runDeleteProject(record)
+    },
+  })
+}
+
+async function runDeleteProject(record: ProjectRecord) {
   try {
     await deleteProjectRecord(record.id)
     MessagePlugin.success('项目已删除')
     await loadAll()
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '删除失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '项目删除失败，请稍后重试或联系管理员'))
   }
 }
 
 async function confirmDeleteFile(file: ProjectFile) {
-  if (!window.confirm(`确认删除资料「${file.displayName}」吗？`)) return
+  openConfirm({
+    title: '删除资料？',
+    message: `删除「${file.displayName}」后，该资料将不再出现在当前项目资料中心。`,
+    confirmText: '删除资料',
+    danger: true,
+    onConfirm: async () => {
+      await runDeleteFile(file)
+    },
+  })
+}
+
+async function runDeleteFile(file: ProjectFile) {
   try {
     await deleteProjectFile(file.id)
     MessagePlugin.success('资料已删除')
     if (currentProject.value) await loadCurrentProject(currentProject.value.id)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '删除失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '资料删除失败，请稍后重试'))
   }
 }
 
@@ -1213,7 +2198,23 @@ function goAudit(id: string) {
   router.push({ path: '/audit', query: { projectId: id } })
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadSavedFilterViews()
+  window.addEventListener('keydown', handleProjectKeyboard)
+  loadAll()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleProjectKeyboard)
+})
+
+watch(
+  () => route.query.projectId,
+  async (projectId, previousProjectId) => {
+    if (!projectId || projectId === previousProjectId) return
+    await openProjectFromRoute()
+  },
+)
 </script>
 
 <style scoped>
@@ -1252,6 +2253,178 @@ onMounted(loadAll)
 .summary-card strong { display: block; margin: 6px 0 4px; font-size: var(--text-2xl); }
 .summary-card em { color: var(--text-tertiary); font-size: var(--text-xs); }
 
+.project-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr) minmax(280px, 0.9fr);
+  gap: var(--space-3);
+}
+
+.dashboard-panel {
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.dashboard-panel--hero {
+  background: linear-gradient(135deg, var(--color-brand-50), var(--bg-surface) 58%);
+  border-color: var(--color-brand-200);
+}
+
+.dashboard-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.dashboard-panel__head h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.dashboard-panel__head p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.focus-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.focus-metrics button,
+.owner-list button,
+.recent-list button {
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.focus-metrics button {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-3);
+}
+
+.focus-metrics span,
+.focus-metrics em,
+.owner-list span,
+.recent-list span,
+.quiet-empty {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.focus-metrics strong {
+  font-size: var(--text-2xl);
+}
+
+.owner-list,
+.recent-list {
+  display: grid;
+  gap: 8px;
+}
+
+.owner-list button,
+.recent-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 9px 10px;
+}
+
+.recent-list button {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.recent-list strong,
+.recent-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-work-items {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.project-work-items__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.project-work-items__head h3 {
+  margin: 4px 0;
+  font-size: var(--text-lg);
+}
+
+.project-work-items__head p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.project-work-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.project-work-card {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--color-brand-500);
+  cursor: pointer;
+}
+
+.project-work-card[data-level='danger'] {
+  border-left-color: var(--color-danger);
+}
+
+.project-work-card[data-level='warning'] {
+  border-left-color: var(--color-warning);
+}
+
+.project-work-card span,
+.project-work-card em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.project-work-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.project-work-card b {
+  color: var(--color-brand-600);
+  font-size: var(--text-xs);
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) repeat(5, minmax(0, 1fr)) auto auto;
@@ -1270,13 +2443,86 @@ onMounted(loadAll)
   font-size: var(--text-sm);
 }
 
+.active-filter-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.active-filter-strip > span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.active-filter-strip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.active-filter-strip button:hover,
+.active-filter-strip button:focus-visible {
+  color: var(--color-brand-600);
+  border-color: var(--color-brand-300);
+  outline: none;
+}
+
+.active-filter-strip b {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.active-filter-strip__clear {
+  color: var(--color-brand-600) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
 .page-alert {
   border-radius: var(--radius-md);
 }
 
+.recoverable-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.recoverable-alert > div {
+  display: grid;
+  gap: 2px;
+}
+
+.recoverable-alert strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.recoverable-alert span,
+.confirm-message {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.confirm-message {
+  margin: 0;
+}
+
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(360px, 1fr);
+  grid-template-columns: 1fr;
   gap: var(--space-4);
   align-items: start;
 }
@@ -1339,6 +2585,161 @@ onMounted(loadAll)
   font-size: var(--text-xs);
 }
 
+.list-utility-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-3);
+  padding: var(--space-2);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+
+.saved-views,
+.custom-views,
+.table-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.saved-views button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+}
+
+.saved-views button.active {
+  color: var(--color-brand-600);
+  background: var(--bg-surface);
+  border-color: var(--color-brand-300);
+}
+
+.custom-views {
+  flex: 1 1 260px;
+}
+
+.custom-view-chip {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.custom-view-chip.active {
+  border-color: var(--color-brand-300);
+  box-shadow: 0 0 0 2px var(--color-brand-50);
+}
+
+.custom-view-chip button {
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.custom-view-chip button:first-child {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-view-chip button:last-child {
+  color: var(--text-tertiary);
+  border-left: 1px solid var(--border-color);
+}
+
+.custom-view-chip.active button:first-child,
+.custom-view-chip button:hover,
+.custom-view-chip button:focus-visible {
+  color: var(--color-brand-600);
+  outline: none;
+}
+
+.table-tools span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.column-settings-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+}
+
+.column-settings-panel label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.view-empty-state {
+  margin-top: var(--space-3);
+}
+
+.project-table-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.project-table-groups--plain {
+  gap: 0;
+}
+
+.project-table-group {
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.project-table-groups--plain .project-table-group {
+  border: 0;
+}
+
+.project-table-group__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.project-table-group__head div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.project-table-group__head strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.project-table-group__head span,
+.project-table-group__head em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
 .project-link {
   display: grid;
   gap: 2px;
@@ -1396,14 +2797,43 @@ onMounted(loadAll)
 
 .detail-panel {
   padding: var(--space-4);
-  position: sticky;
-  top: var(--space-4);
+  position: static;
 }
 
 .detail-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-2);
   margin: var(--space-4) 0;
+}
+
+.project-detail-brief {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.project-detail-brief article {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+
+.project-detail-brief span,
+.project-detail-brief em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.project-detail-brief strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
 }
 
 .detail-metrics article,
@@ -1425,6 +2855,58 @@ onMounted(loadAll)
   display: block;
   margin-top: 6px;
   font-size: var(--text-md);
+}
+
+.next-action-panel {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.next-action-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.next-action-list button {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--color-brand-500);
+  cursor: pointer;
+}
+
+.next-action-list button[data-level='danger'] { border-left-color: var(--color-danger); }
+.next-action-list button[data-level='warning'] { border-left-color: var(--color-warning); }
+.next-action-list button[data-level='success'] { border-left-color: var(--color-success); }
+
+.next-action-list button:hover,
+.next-action-list button:focus-visible {
+  border-color: var(--color-brand-300);
+  box-shadow: var(--shadow-elevated);
+  outline: none;
+}
+
+.next-action-list span,
+.next-action-list em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.next-action-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
 }
 
 .detail-tabs {
@@ -1473,8 +2955,66 @@ onMounted(loadAll)
   font-size: var(--text-xs);
 }
 
+.stage-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+  border: 1px solid var(--color-brand-200);
+  font-size: var(--text-xs);
+}
+
 .mini-label {
   color: var(--color-brand-600);
+  font-size: var(--text-xs);
+}
+
+.project-timeline-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.project-timeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.project-timeline article {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.project-timeline article > span {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+}
+
+.project-timeline article.done > span {
+  background: var(--color-success);
+}
+
+.project-timeline strong {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.project-timeline p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
@@ -1522,6 +3062,35 @@ onMounted(loadAll)
 .file-pill span { font-size: var(--text-xs); }
 .file-pill small { color: var(--text-tertiary); font-size: 10px; }
 
+.inline-empty-action {
+  display: grid;
+  gap: 3px;
+  min-height: 42px;
+  padding: 7px 9px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.inline-empty-action:hover,
+.inline-empty-action:focus-visible {
+  border-color: var(--color-brand-300);
+  color: var(--color-brand-600);
+  outline: none;
+}
+
+.inline-empty-action strong {
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.inline-empty-action span {
+  color: inherit;
+  font-size: var(--text-xs);
+}
+
 .doc-actions {
   display: flex;
   align-items: center;
@@ -1554,6 +3123,26 @@ onMounted(loadAll)
   color: var(--text-secondary);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+.detail-empty-action {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-color);
+}
+
+.detail-empty-action strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.detail-empty-action span {
+  max-width: 680px;
+  font-size: var(--text-xs);
 }
 
 .dialog-grid {
@@ -1592,6 +3181,8 @@ onMounted(loadAll)
 
 @media (max-width: 1280px) {
   .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .project-dashboard { grid-template-columns: 1fr; }
+  .project-work-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
@@ -1601,6 +3192,9 @@ onMounted(loadAll)
   .summary-grid,
   .document-grid,
   .detail-metrics,
+  .project-detail-brief,
+  .project-timeline,
+  .next-action-list,
   .info-grid,
   .dialog-grid { grid-template-columns: 1fr; }
   .dialog-span-2,
@@ -1610,10 +3204,13 @@ onMounted(loadAll)
   }
   .pager,
   .link-box,
+  .list-utility-bar,
+  .project-work-items__head,
   .panel-head,
   .detail-head {
     align-items: stretch;
     flex-direction: column;
   }
+  .project-work-list { grid-template-columns: 1fr; }
 }
 </style>

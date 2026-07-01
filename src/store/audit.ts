@@ -37,6 +37,8 @@ const DEFAULT_FILTERS: AuditFilters = {
   startDate: '',
   endDate: '',
   onlyOverdue: false,
+  onlyUpcomingDue: false,
+  onlyMonthlyNew: false,
   page: 1,
   pageSize: 10,
   sort: 'stage',

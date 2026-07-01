@@ -193,6 +193,8 @@ export interface AuditFilters {
   startDate: string
   endDate: string
   onlyOverdue: boolean
+  onlyUpcomingDue?: boolean
+  onlyMonthlyNew?: boolean
   page: number
   pageSize: number
   sort: string

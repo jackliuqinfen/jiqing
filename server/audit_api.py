@@ -1383,6 +1383,15 @@ def project_where(params):
     if params.get("only_overdue", [""])[0] in ("1", "true"):
         where.append("audit_deadline < ? AND current_stage != 'archived'")
         values.append(date.today().isoformat())
+    if params.get("only_upcoming_due", [""])[0] in ("1", "true"):
+        today = date.today().isoformat()
+        upcoming = (date.today() + timedelta(days=7)).isoformat()
+        where.append("COALESCE(planned_end_date, audit_deadline) >= ? AND COALESCE(planned_end_date, audit_deadline) <= ? AND current_stage != 'archived'")
+        values.extend([today, upcoming])
+    if params.get("only_monthly_new", [""])[0] in ("1", "true"):
+        month_prefix = date.today().strftime("%Y-%m")
+        where.append("created_at LIKE ?")
+        values.append(f"{month_prefix}%")
     return where, values
 
 
@@ -1574,10 +1583,11 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def not_found(self):
-        self.respond(404, {"success": False, "error": "Not found"})
+        self.respond(404, {"success": False, "error": "未找到相关记录，请确认数据是否已同步。"})
 
     def handle_error(self, exc):
-        self.respond(500, {"success": False, "error": str(exc)})
+        print(f"[audit_api] request failed: {exc}")
+        self.respond(500, {"success": False, "error": "数据处理失败，请稍后重试或联系管理员。"})
 
     def client_ip(self):
         forwarded = self.headers.get("X-Forwarded-For", "")
@@ -1723,8 +1733,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             original_name, content = parse_multipart_file(self)
-        except ValueError as exc:
-            self.respond(400, {"success": False, "error": str(exc)})
+        except ValueError:
+            self.respond(400, {"success": False, "error": "文件上传失败，请重新选择文件后再试。"})
             return
         if is_path_like_filename(original_name):
             self.respond(400, {"success": False, "error": "不支持上传文件夹或路径型文件名"})
@@ -2006,6 +2016,21 @@ class Handler(BaseHTTPRequestHandler):
                     values.append(value)
         if params.get("onlyMissingDocuments", [""])[0] in ("1", "true"):
             where.append("missing_required_count > 0")
+        if params.get("onlyAuditLinked", [""])[0] in ("1", "true"):
+            where.append("COALESCE(audit_project_id, '') != ''")
+        if params.get("onlyRisk", [""])[0] in ("1", "true"):
+            today = date.today().isoformat()
+            where.append("(missing_required_count > 0 OR (planned_end_date != '' AND planned_end_date < ? AND project_status != 'completed') OR settlement_status = 'rejected')")
+            values.append(today)
+        if params.get("onlyUpcomingDue", [""])[0] in ("1", "true"):
+            today = date.today().isoformat()
+            upcoming = (date.today() + timedelta(days=7)).isoformat()
+            where.append("(planned_end_date != '' AND planned_end_date >= ? AND planned_end_date <= ? AND project_status != 'completed')")
+            values.extend([today, upcoming])
+        if params.get("onlyMonthlyNew", [""])[0] in ("1", "true"):
+            month_start = date.today().replace(day=1).isoformat()
+            where.append("created_at >= ?")
+            values.append(month_start)
         sort = params.get("sort", ["updatedAt"])[0]
         sort_map = {
             "updatedAt": "updated_at DESC",
@@ -2249,8 +2274,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             fields, file_part = parse_multipart_form(self)
-        except ValueError as exc:
-            self.respond(400, {"success": False, "error": str(exc)})
+        except ValueError:
+            self.respond(400, {"success": False, "error": "资料上传失败，请重新选择文件后再试。"})
             return
         original_name, content = file_part
         category_key = (fields.get("categoryKey") or fields.get("category_key") or "").strip()

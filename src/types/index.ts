@@ -553,6 +553,10 @@ export interface ProjectFilters {
   settlementStatus: string
   managerName: string
   onlyMissingDocuments: boolean
+  onlyAuditLinked?: boolean
+  onlyRisk?: boolean
+  onlyUpcomingDue?: boolean
+  onlyMonthlyNew?: boolean
   sort: string
   page: number
   pageSize: number

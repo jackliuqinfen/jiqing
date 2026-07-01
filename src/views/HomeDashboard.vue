@@ -50,15 +50,23 @@
     </section>
 
     <section class="mission-strip" aria-label="运行关注">
-      <article v-for="item in missionItems" :key="item.label">
+      <button v-for="item in missionItems" :key="item.label" type="button" @click="openMission(item)">
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
         <em>{{ item.hint }}</em>
-      </article>
+      </button>
     </section>
 
     <section class="kpi-grid" aria-label="核心指标">
-      <article v-for="card in kpiCards" :key="card.label" class="kpi-card" :data-level="card.level">
+      <button
+        v-for="card in kpiCards"
+        :key="card.label"
+        type="button"
+        class="kpi-card"
+        :data-level="card.level"
+        :aria-label="`${card.label}，${card.hint}，点击查看详情`"
+        @click="openKpi(card)"
+      >
         <div class="kpi-head">
           <span>{{ card.label }}</span>
           <em>{{ card.hint }}</em>
@@ -67,7 +75,7 @@
         <div class="sparkline" aria-hidden="true">
           <i v-for="(point, index) in card.sparkline" :key="index" :style="{ height: `${point}%` }" />
         </div>
-      </article>
+      </button>
     </section>
 
     <section class="dashboard-grid">
@@ -120,14 +128,14 @@
           <span>{{ workItems.length }} 项</span>
         </div>
         <div class="risk-list">
-          <div v-for="item in workItems.slice(0, 6)" :key="item.id" class="risk-row">
+          <button v-for="item in workItems.slice(0, 6)" :key="item.id" type="button" class="risk-row" @click="openWorkItem(item)">
             <i :class="{ urgent: item.level === 'danger' }" />
             <div>
               <strong>{{ item.projectName }}</strong>
               <span>{{ item.type }} · {{ item.owner || '未分配' }} · {{ item.dueDate || '未设期限' }}</span>
             </div>
             <em>{{ item.action }}</em>
-          </div>
+          </button>
           <div v-if="!workItems.length" class="empty-risk">当前没有待处理事项</div>
         </div>
       </article>
@@ -135,17 +143,17 @@
       <article class="module-panel">
         <div class="panel-head">
           <div>
-            <h3>模块建设状态</h3>
-            <p>工程管理系统 1.0 范围</p>
+            <h3>业务模块入口</h3>
+            <p>按日常工作场景快速进入</p>
           </div>
-          <span>路线图</span>
+          <span>常用入口</span>
         </div>
         <div class="module-list">
-          <div v-for="item in moduleStatus" :key="item.name" class="module-row">
+          <button v-for="item in moduleStatus" :key="item.name" type="button" class="module-row" @click="openModule(item)">
             <span :class="item.enabled ? 'dot dot--live' : 'dot'" />
             <strong>{{ item.name }}</strong>
             <em>{{ item.status }}</em>
-          </div>
+          </button>
         </div>
       </article>
 
@@ -165,6 +173,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { ISpec } from '@visactor/vchart/esm/core'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuditStore } from '@/store/audit'
@@ -172,9 +181,22 @@ import { fetchWorkItems } from '@/api/projects'
 import type { WorkItem } from '@/types'
 
 const store = useAuditStore()
+const router = useRouter()
 const selectedRange = ref('本月')
 const workItems = ref<WorkItem[]>([])
 const rangeOptions = ['本月', '本季度', '本年', '自定义日期']
+
+type DashboardTarget = { path: string; query?: Record<string, string | undefined> }
+type KpiCard = {
+  label: string
+  value: number | string
+  hint: string
+  level: string
+  sparkline: number[]
+  target: DashboardTarget
+}
+type MissionItem = { label: string; value: string; hint: string; target: DashboardTarget }
+type ModuleStatusItem = { name: string; status: string; enabled: boolean; target: DashboardTarget }
 
 onMounted(async () => {
   await store.refreshAll()
@@ -222,19 +244,19 @@ const completionRate = computed(() => {
 
 const overdueWorkItems = computed(() => workItems.value.filter((item) => item.type === '已逾期').length)
 
-const kpiCards = computed(() => [
-  { label: '审计项目总数', value: store.summary.totalProjects, hint: '数据库实时统计', level: 'normal', sparkline: overviewSparkline('totalProjects', store.summary.totalProjects) },
-  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: overviewSparkline('inAuditProjects', store.summary.inAuditProjects + 8) },
-  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: overviewSparkline('completedProjects', store.summary.completedProjects + 16) },
-  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: overviewSparkline('overdueProjects', store.summary.overdueProjects + 24) },
-  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: overviewSparkline('monthlyNewProjects', store.summary.monthlyNewProjects + 32) },
-  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: overviewSparkline('upcomingDueProjects', store.summary.upcomingDueProjects + 40) },
+const kpiCards = computed<KpiCard[]>(() => [
+  { label: '审计项目总数', value: store.summary.totalProjects, hint: '当前项目合计', level: 'normal', sparkline: overviewSparkline('totalProjects', store.summary.totalProjects), target: { path: '/audit' } },
+  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: overviewSparkline('inAuditProjects', store.summary.inAuditProjects + 8), target: { path: '/audit', query: { status: 'active' } } },
+  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: overviewSparkline('completedProjects', store.summary.completedProjects + 16), target: { path: '/audit', query: { stage: 'archived' } } },
+  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: overviewSparkline('overdueProjects', store.summary.overdueProjects + 24), target: { path: '/audit', query: { onlyOverdue: '1', sort: 'plannedEndDate' } } },
+  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: overviewSparkline('monthlyNewProjects', store.summary.monthlyNewProjects + 32), target: { path: '/project-management', query: { onlyMonthlyNew: '1', sort: 'updatedAt' } } },
+  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: overviewSparkline('upcomingDueProjects', store.summary.upcomingDueProjects + 40), target: { path: '/project-management', query: { view: 'due', sort: 'plannedEndDate' } } },
 ])
 
-const missionItems = computed(() => [
-  { label: '待我处理', value: `${workItems.value.length} 项`, hint: '异常与待办合计' },
-  { label: '资料缺失', value: `${workItems.value.filter((item) => item.type === '资料缺失').length} 项`, hint: '需补齐后推进' },
-  { label: '审计吞吐', value: `${store.summary.inAuditProjects}/${store.summary.completedProjects}`, hint: '进行中 / 已完成' },
+const missionItems = computed<MissionItem[]>(() => [
+  { label: '待我处理', value: `${workItems.value.length} 项`, hint: '异常与待办合计', target: { path: '/audit', query: { focus: 'work-items' } } },
+  { label: '资料缺失', value: `${workItems.value.filter((item) => item.type === '资料缺失').length} 项`, hint: '需补齐后推进', target: { path: '/project-management', query: { onlyMissingDocuments: '1' } } },
+  { label: '审计吞吐', value: `${store.summary.inAuditProjects}/${store.summary.completedProjects}`, hint: '进行中 / 已完成', target: { path: '/audit', query: { sort: 'stage' } } },
 ])
 
 const heroSignals = computed(() => [
@@ -345,12 +367,38 @@ const amountLineSpec = computed<ISpec>(() => ({
   animationAppear: { duration: 820, easing: 'cubicOut' },
 } as ISpec))
 
-const moduleStatus = [
-  { name: '审计看板', status: '已启用', enabled: true },
-  { name: '项目管理', status: '建设中', enabled: false },
-  { name: '招投标看板', status: '建设中', enabled: false },
-  { name: '财务看板', status: '建设中', enabled: false },
-  { name: '资料管理', status: '规划中', enabled: false },
+function openTarget(target: DashboardTarget) {
+  router.push({ path: target.path, query: target.query || {} })
+}
+
+function openKpi(card: KpiCard) {
+  openTarget(card.target)
+}
+
+function openMission(item: MissionItem) {
+  openTarget(item.target)
+}
+
+function openWorkItem(item: WorkItem) {
+  if (item.auditProjectId) {
+    router.push({ path: '/audit', query: { projectId: item.auditProjectId } })
+    return
+  }
+  if (item.projectId) {
+    router.push({ path: '/project-management', query: { projectId: item.projectId } })
+  }
+}
+
+function openModule(item: ModuleStatusItem) {
+  openTarget(item.target)
+}
+
+const moduleStatus: ModuleStatusItem[] = [
+  { name: '审计看板', status: '已启用', enabled: true, target: { path: '/audit' } },
+  { name: '项目管理', status: '已启用', enabled: true, target: { path: '/project-management' } },
+  { name: '招投标看板', status: '建设中', enabled: false, target: { path: '/bidding' } },
+  { name: '财务看板', status: '建设中', enabled: false, target: { path: '/finance' } },
+  { name: '资料管理', status: '已启用', enabled: true, target: { path: '/admin/file-library' } },
 ]
 </script>
 
@@ -541,7 +589,7 @@ const moduleStatus = [
   gap: var(--space-3);
 }
 
-.mission-strip article,
+.mission-strip button,
 .kpi-card,
 .chart-panel,
 .module-panel {
@@ -551,7 +599,7 @@ const moduleStatus = [
   box-shadow: var(--shadow-elevated);
 }
 
-.mission-strip article {
+.mission-strip button {
   min-height: 86px;
   padding: var(--space-4);
   display: grid;
@@ -559,6 +607,8 @@ const moduleStatus = [
   gap: 2px var(--space-3);
   align-items: center;
   box-shadow: none;
+  text-align: left;
+  cursor: pointer;
 }
 
 .mission-strip span,
@@ -593,6 +643,9 @@ const moduleStatus = [
   gap: var(--space-3);
   position: relative;
   overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
 
 .kpi-card::before {
@@ -607,6 +660,19 @@ const moduleStatus = [
 .kpi-card[data-level='warning']::before { background: var(--color-warning); }
 .kpi-card[data-level='danger']::before { background: var(--color-danger); }
 .kpi-card[data-level='active']::before { background: #14C9C9; }
+
+.mission-strip button:hover,
+.mission-strip button:focus-visible,
+.kpi-card:hover,
+.kpi-card:focus-visible,
+.risk-row:hover,
+.risk-row:focus-visible,
+.module-row:hover,
+.module-row:focus-visible {
+  border-color: var(--color-brand-300);
+  box-shadow: var(--shadow-elevated);
+  outline: none;
+}
 
 .kpi-head {
   display: grid;
@@ -724,6 +790,9 @@ const moduleStatus = [
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
 
 .risk-row i {
@@ -768,6 +837,9 @@ const moduleStatus = [
   background: var(--bg-muted);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
 }
 
 .module-row strong {
@@ -810,7 +882,7 @@ const moduleStatus = [
   .hero-signals span,
   .console-health-grid article { padding: var(--space-2); }
   .kpi-grid { grid-template-columns: 1fr; }
-  .mission-strip article { grid-template-columns: 1fr; }
+  .mission-strip button { grid-template-columns: 1fr; }
   .mission-strip strong { grid-row: auto; }
   .chart-panel,
   .module-panel { min-height: 320px; }

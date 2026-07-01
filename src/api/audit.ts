@@ -28,6 +28,8 @@ function buildQuery(filters?: Partial<AuditFilters>): string {
   if (filters.startDate) params.set('startDate', filters.startDate)
   if (filters.endDate) params.set('endDate', filters.endDate)
   if (filters.onlyOverdue) params.set('only_overdue', '1')
+  if (filters.onlyUpcomingDue) params.set('only_upcoming_due', '1')
+  if (filters.onlyMonthlyNew) params.set('only_monthly_new', '1')
   if (filters.page) params.set('page', String(filters.page))
   if (filters.pageSize) params.set('pageSize', String(filters.pageSize))
   if (filters.sort) params.set('sort', filters.sort)

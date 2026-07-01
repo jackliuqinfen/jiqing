@@ -61,7 +61,13 @@
     </header>
 
     <main class="audit-main">
-      <section v-if="workItems.length" class="work-item-strip" aria-label="待办与异常">
+      <section
+        v-if="workItems.length"
+        ref="workItemStripRef"
+        class="work-item-strip"
+        :class="{ 'work-item-strip--focus': workItemStripFocused }"
+        aria-label="待办与异常"
+      >
         <div class="work-item-strip__head">
           <strong>待办与异常</strong>
           <span>{{ workItems.length }} 项需关注</span>
@@ -81,15 +87,22 @@
       </section>
 
       <section class="summary-grid">
-        <article v-for="card in summaryCards" :key="card.label" class="summary-card">
+        <button
+          v-for="card in summaryCards"
+          :key="card.label"
+          type="button"
+          class="summary-card"
+          :class="{ 'summary-card--active': activeSummaryCard === card.key }"
+          @click="applySummaryCard(card)"
+        >
           <span>{{ card.label }}</span>
           <strong>{{ card.value }}</strong>
           <em>{{ card.hint }}</em>
-        </article>
+        </button>
       </section>
 
       <section class="toolbar">
-        <input v-model="store.filters.keyword" class="native-input keyword" placeholder="搜索项目、楼栋、结算编号" @keyup.enter="store.refreshProjects" />
+        <input ref="auditKeywordInputRef" v-model="store.filters.keyword" class="native-input keyword" placeholder="搜索项目、楼栋、结算编号" @keyup.enter="store.refreshProjects" />
         <select v-model="store.filters.stage" class="native-select" @change="store.refreshProjects">
           <option value="">全部阶段</option>
           <option v-for="stage in store.meta.stages" :key="stage.code" :value="stage.code">{{ stage.title }}</option>
@@ -124,8 +137,25 @@
         <t-button size="small" variant="text" @click="resetFilters">重置</t-button>
       </section>
 
+      <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
+        <span>已应用筛选</span>
+        <button v-for="chip in activeFilterChips" :key="chip.key" type="button" @click="clearActiveFilterChip(chip.key)">
+          {{ chip.label }}：{{ chip.value }}
+          <b aria-hidden="true">×</b>
+        </button>
+        <button type="button" class="active-filter-strip__clear" @click="resetFilters">清除全部</button>
+      </section>
+
       <t-alert v-if="store.error" theme="error" :close="false" class="error-alert">
-        <template #message>{{ store.error }}</template>
+        <template #message>
+          <div class="recoverable-alert">
+            <div>
+              <strong>审计数据加载失败</strong>
+              <span>{{ auditErrorMessage }}</span>
+            </div>
+            <t-button size="small" variant="outline" :loading="store.loading" @click="retryAuditLoad">重新加载</t-button>
+          </div>
+        </template>
       </t-alert>
 
       <div v-if="store.loading && store.projects.length === 0" class="center-state">
@@ -137,7 +167,7 @@
           <div class="column-head" :style="{ borderTopColor: stage.color }">
             <div>
               <h2>{{ stage.title }}</h2>
-              <span>{{ stage.code }}</span>
+              <span>按阶段推进</span>
             </div>
             <strong>{{ stageCount(stage.code) }}</strong>
           </div>
@@ -187,7 +217,7 @@
         </div>
       </section>
 
-      <section v-else class="stage-table-view">
+      <section v-else-if="layoutMode !== 'vertical'" class="stage-table-view" aria-label="审计阶段横向表格">
         <article v-for="stage in store.meta.stages" :key="stage.code" class="stage-table-card">
           <div class="stage-table-rail" :style="{ '--stage-color': stage.color }">
             <span class="stage-table-rail__line" />
@@ -254,6 +284,55 @@
         </article>
       </section>
 
+      <section v-else class="stage-card-view" aria-label="审计阶段纵向卡片">
+        <article v-for="stage in store.meta.stages" :key="stage.code" class="stage-card-section" :style="{ '--stage-color': stage.color }">
+          <div class="stage-card-section__head">
+            <div>
+              <span class="stage-dot" />
+              <h2>{{ stage.title }}</h2>
+              <p>按项目阅读字段重点，适合走查、汇报和移动浏览。</p>
+            </div>
+            <strong>{{ stageCount(stage.code) }} 项</strong>
+          </div>
+          <div class="audit-project-card-grid">
+            <button
+              v-for="project in store.projectsByStage[stage.code]"
+              :key="project.id"
+              type="button"
+              class="audit-project-card"
+              @click="openDetail(project)"
+            >
+              <div class="audit-project-card__title">
+                <div>
+                  <strong>{{ project.projectName }}</strong>
+                  <span>{{ project.projectCode }} · {{ project.contractor.name || project.auditedUnit }}</span>
+                </div>
+                <em :class="{ overdue: isOverdue(project) }">{{ isOverdue(project) ? '已逾期' : statusTitle(project.status) }}</em>
+              </div>
+              <div class="audit-card-keyline">
+                <span>负责人</span>
+                <strong>{{ project.managerName || '-' }}</strong>
+                <span>计划完成</span>
+                <strong>{{ project.deadline.auditDeadline || '未设期限' }}</strong>
+                <span>送审金额</span>
+                <strong>{{ money(project.amount.submittedAmount) }}</strong>
+              </div>
+              <dl class="audit-card-fields">
+                <template v-for="field in stageTableFields(stage.code).slice(0, 6)" :key="field.id">
+                  <dt>{{ field.fieldLabel }}</dt>
+                  <dd>{{ displayField(project, field) }}</dd>
+                </template>
+              </dl>
+              <div class="audit-project-card__footer">
+                <span>{{ project.docStatus || '资料状态待确认' }}</span>
+                <em>查看详情</em>
+              </div>
+            </button>
+            <div v-if="stageCount(stage.code) === 0" class="stage-card-empty">该阶段暂无项目</div>
+          </div>
+        </article>
+      </section>
+
       <section v-if="!store.loading" class="pager">
         <span>共 {{ store.total }} 条，第 {{ store.filters.page }} 页</span>
         <select v-model.number="store.filters.pageSize" class="native-select" @change="changePage(1)">
@@ -264,16 +343,15 @@
         <t-button size="small" variant="outline" :disabled="store.filters.page <= 1" @click="changePage(store.filters.page - 1)">上一页</t-button>
         <t-button size="small" variant="outline" :disabled="store.filters.page >= totalPages" @click="changePage(store.filters.page + 1)">下一页</t-button>
       </section>
-    </main>
 
-    <aside v-if="detailVisible" class="drawer">
-      <div class="drawer-panel">
-        <div class="drawer-head">
+      <section v-if="detailVisible" ref="detailSectionRef" class="audit-detail-workspace" aria-label="审计项目详情">
+      <div class="audit-detail-panel">
+        <div class="audit-detail-head">
           <div>
-            <h2>{{ editing ? '编辑项目' : store.selectedProject?.projectName }}</h2>
+            <h2>{{ editing ? '编辑项目' : '审计详情' }}</h2>
             <p>{{ editing ? '按字段配置生成表单' : '项目详情与进度流转' }}</p>
           </div>
-          <button class="icon-button" @click="closeDrawer"><t-icon name="close" /></button>
+          <button class="icon-button" title="收起详情" @click="closeDrawer"><t-icon name="close" /></button>
         </div>
 
         <form v-if="editing" class="project-form" @submit.prevent="saveProject">
@@ -298,13 +376,50 @@
         </form>
 
         <div v-else-if="store.selectedProject" class="detail-view">
-          <div class="detail-status">
-            <span class="stage-pill">{{ stageTitle(store.selectedProject.stage) }}</span>
-            <span :class="{ overdue: isOverdue(store.selectedProject) }">期限 {{ store.selectedProject.deadline.auditDeadline || '-' }}</span>
-            <t-button v-if="store.selectedProject.projectId" size="small" variant="text" theme="default" @click="goProject(store.selectedProject.projectId)">
-              <template #icon><t-icon name="task" /></template>
-              项目台账
-            </t-button>
+          <div class="audit-detail-hero">
+            <div>
+              <span class="stage-pill">{{ stageTitle(store.selectedProject.stage) }}</span>
+              <h3>{{ store.selectedProject.projectName }}</h3>
+              <p>{{ store.selectedProject.projectCode }} · {{ store.selectedProject.auditedUnit || store.selectedProject.contractor.name || '未填写被审计单位' }}</p>
+            </div>
+            <div class="audit-detail-actions">
+              <t-button v-if="store.selectedProject.projectId" size="small" variant="outline" theme="default" @click="goProject(store.selectedProject.projectId)">
+                <template #icon><t-icon name="task" /></template>
+                项目台账
+              </t-button>
+              <t-button size="small" theme="primary" variant="outline" @click="startEdit(store.selectedProject)">编辑审计信息</t-button>
+            </div>
+          </div>
+          <div class="audit-detail-kpis">
+            <article>
+              <span>当前负责人</span>
+              <strong>{{ store.selectedProject.managerName || store.selectedProject.contractor.name || '-' }}</strong>
+            </article>
+            <article>
+              <span>计划完成</span>
+              <strong :class="{ overdue: isOverdue(store.selectedProject) }">{{ store.selectedProject.deadline.auditDeadline || '未设期限' }}</strong>
+            </article>
+            <article>
+              <span>送审金额</span>
+              <strong>{{ money(store.selectedProject.amount.submittedAmount) }}</strong>
+            </article>
+            <article>
+              <span>资料状态</span>
+              <strong>{{ store.selectedProject.docStatus || '待确认' }}</strong>
+            </article>
+          </div>
+          <div class="next-action-panel">
+            <div class="section-title-row">
+              <h3>下一步建议</h3>
+              <span>根据阶段、期限和资料状态生成</span>
+            </div>
+            <div class="next-action-list">
+              <button v-for="item in auditActionHints" :key="item.label" type="button" :data-level="item.level" @click="item.action">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.title }}</strong>
+                <em>{{ item.description }}</em>
+              </button>
+            </div>
           </div>
           <dl class="detail-grid">
             <template v-for="field in store.detailFields" :key="field.id">
@@ -314,6 +429,7 @@
           </dl>
           <div class="progress-box">
             <h3>进度流转</h3>
+            <p>点击阶段可更新当前审计进度，系统会保留阶段记录。</p>
             <div class="stage-actions">
               <button
                 v-for="stage in store.meta.stages"
@@ -328,10 +444,19 @@
           </div>
           <div class="stage-history">
             <h3>阶段记录</h3>
-            <p v-for="stage in store.selectedProject.stages || []" :key="stage.id">
-              {{ stage.stage_name }} · {{ statusTitle(stage.status) }} · {{ stage.handler_name || stage.owner || '-' }} · {{ stage.entered_at }}
-            </p>
-            <p v-if="(store.selectedProject.stages || []).length === 0">暂无阶段记录</p>
+            <div class="audit-timeline">
+              <article v-for="stage in store.selectedProject.stages || []" :key="stage.id">
+                <span />
+                <div>
+                  <strong>{{ stageTitle(stage.stage_code || stage.stage_name) }}</strong>
+                  <p>{{ statusTitle(stage.status) }} · {{ stage.handler_name || stage.owner || '-' }} · {{ formatDateTime(stage.entered_at) }}</p>
+                </div>
+              </article>
+              <div v-if="(store.selectedProject.stages || []).length === 0" class="detail-empty-action">
+                <strong>还没有阶段流转记录</strong>
+                <span>更新当前阶段后，系统会在这里保留处理人、时间和阶段状态。</span>
+              </div>
+            </div>
           </div>
           <div class="attachment-box">
             <div class="section-title-row">
@@ -355,18 +480,24 @@
                 </div>
               </div>
             </div>
-            <p v-else>暂无附件</p>
+            <div v-else class="detail-empty-action">
+              <strong>当前审计项目还没有附件</strong>
+              <span>上传报审资料、结论附件或补充说明，方便审计过程留痕。</span>
+              <t-button v-if="authStore.isEditor" size="small" theme="primary" @click="triggerAttachmentSelect">上传附件</t-button>
+            </div>
           </div>
           <div class="log-box">
             <h3>操作日志</h3>
-            <p v-for="log in store.selectedProject.logs || []" :key="log.id">{{ log.created_at }} · {{ log.operator }} · {{ log.note || log.action }}</p>
-          </div>
-          <div class="drawer-actions">
-            <t-button variant="outline" @click="startEdit(store.selectedProject)">编辑</t-button>
+            <p v-for="log in store.selectedProject.logs || []" :key="log.id">{{ formatDateTime(log.created_at) }} · {{ log.operator || '系统' }} · {{ auditLogText(log.note || log.action) }}</p>
+            <div v-if="(store.selectedProject.logs || []).length === 0" class="detail-empty-action">
+              <strong>暂无操作记录</strong>
+              <span>编辑项目信息、上传附件或更新阶段后，会自动形成操作记录。</span>
+            </div>
           </div>
         </div>
       </div>
-    </aside>
+      </section>
+    </main>
 
     <aside v-if="tableSettingsVisible" class="drawer">
       <div class="drawer-panel table-settings-panel">
@@ -470,15 +601,29 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob, saveFieldConfig } from '@/api/audit'
 import { fetchWorkItems } from '@/api/projects'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
+import { friendlyErrorMessage } from '@/utils/errors'
 import type { WorkItem } from '@/types'
-import type { AuditFieldConfig, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
+import type { AuditFieldConfig, AuditFilters, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
+
+type AuditSummaryCard = {
+  key: string
+  label: string
+  value: string | number
+  hint: string
+  filters: Partial<AuditFilters>
+}
+type AuditFilterChip = {
+  key: string
+  label: string
+  value: string
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -487,14 +632,19 @@ const authStore = useAuthStore()
 defineProps<{ embedded?: boolean }>()
 const viewMode = ref<AuditViewMode>('kanban')
 const layoutMode = ref<AuditLayoutMode>('horizontal')
+const activeSummaryCard = ref('')
 const detailVisible = ref(false)
 const editing = ref(false)
 const editingId = ref('')
 const formValues = reactive<Record<string, string>>({})
 const customOptionValues = reactive<Record<string, string>>({})
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
+const auditKeywordInputRef = ref<HTMLInputElement | null>(null)
+const detailSectionRef = ref<HTMLElement | null>(null)
+const workItemStripRef = ref<HTMLElement | null>(null)
 const attachmentUploading = ref(false)
 const workItems = ref<WorkItem[]>([])
+const workItemStripFocused = ref(false)
 const attachmentPreview = reactive({
   visible: false,
   loading: false,
@@ -533,45 +683,195 @@ const viewModes: { value: AuditViewMode; label: string; icon: string }[] = [
 ]
 
 const options = computed(() => store.meta.options)
+const activeFilterChips = computed<AuditFilterChip[]>(() => {
+  const chips: AuditFilterChip[] = []
+  const filters = store.filters
+  if (filters.keyword) chips.push({ key: 'keyword', label: '关键词', value: filters.keyword })
+  if (filters.stage) chips.push({ key: 'stage', label: '审计阶段', value: stageTitle(filters.stage) })
+  if (filters.priority) chips.push({ key: 'priority', label: '优先级', value: optionLabel('priority', filters.priority) })
+  if (filters.category) chips.push({ key: 'category', label: '项目分类', value: optionLabel('category', filters.category) })
+  if (filters.status) chips.push({ key: 'status', label: '项目状态', value: statusTitle(filters.status) })
+  if (filters.owner) chips.push({ key: 'owner', label: '负责人', value: filters.owner })
+  if (filters.startDate) chips.push({ key: 'startDate', label: '开始日期', value: filters.startDate })
+  if (filters.endDate) chips.push({ key: 'endDate', label: '结束日期', value: filters.endDate })
+  if (filters.onlyOverdue) chips.push({ key: 'onlyOverdue', label: '期限状态', value: '仅看超期' })
+  if (filters.onlyUpcomingDue) chips.push({ key: 'onlyUpcomingDue', label: '计划时间', value: '7 天内到期' })
+  if (filters.onlyMonthlyNew) chips.push({ key: 'onlyMonthlyNew', label: '创建时间', value: '本月新增' })
+  if (filters.sort && filters.sort !== 'stage') chips.push({ key: 'sort', label: '排序', value: sortTitle(filters.sort) })
+  return chips
+})
+const auditErrorMessage = computed(() => friendlyErrorMessage(store.error, '审计数据加载失败，请稍后重试或联系管理员'))
 const visibleCardFields = computed(() => store.cardFields.filter((field) => !['project_name', 'current_stage'].includes(field.fieldKey)).slice(0, 5))
 const totalPages = computed(() => Math.max(1, Math.ceil(store.total / store.filters.pageSize)))
-const summaryCards = computed(() => [
-  { label: '总项目', value: store.summary.totalProjects, hint: '数据库实时统计' },
-  { label: '在审项目', value: store.summary.inAuditProjects, hint: '一审 + 二审' },
-  { label: '已完成', value: store.summary.completedProjects, hint: '已完成/归档' },
-  { label: '超期督办', value: store.summary.overdueProjects, hint: '未归档且过期' },
-  { label: '本月新增', value: store.summary.monthlyNewProjects, hint: '按创建时间统计' },
-  { label: '即将到期', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成' },
-  { label: '送审金额', value: money(store.summary.totalSubmittedAmount), hint: '全部项目合计' },
+const auditActionHints = computed(() => {
+  const project = store.selectedProject
+  if (!project) return []
+  const items: Array<{ label: string; title: string; description: string; level: string; action: () => void }> = []
+  if (isOverdue(project)) {
+    items.push({
+      label: '期限风险',
+      title: '当前审计已逾期',
+      description: '建议优先核对责任人、截止时间和当前阶段处理情况。',
+      level: 'danger',
+      action: () => {
+        store.filters.onlyOverdue = true
+        store.filters.page = 1
+        store.refreshProjects()
+      },
+    })
+  }
+  if (!project.docStatus || project.docStatus.includes('缺') || project.docStatus.includes('补') || project.docStatus.includes('更正')) {
+    items.push({
+      label: '资料状态',
+      title: project.docStatus || '资料状态待确认',
+      description: '优先确认资料完整性，避免阶段流转被退回。',
+      level: 'warning',
+      action: () => triggerAttachmentSelect(),
+    })
+  }
+  if (project.projectId) {
+    items.push({
+      label: '项目主档案',
+      title: '回到项目台账',
+      description: '查看合同资料、结算资料、变更签证和项目操作记录。',
+      level: 'primary',
+      action: () => goProject(project.projectId),
+    })
+  }
+  if (!items.length) {
+    items.push({
+      label: '审计推进',
+      title: '当前阶段可正常推进',
+      description: '可根据业务进展更新阶段，系统会保留阶段记录。',
+      level: 'success',
+      action: () => {},
+    })
+  }
+  return items.slice(0, 3)
+})
+const summaryCards = computed<AuditSummaryCard[]>(() => [
+  { key: 'all', label: '总项目', value: store.summary.totalProjects, hint: '当前项目合计', filters: {} },
+  { key: 'active', label: '在审项目', value: store.summary.inAuditProjects, hint: '一审 + 二审', filters: { status: 'active' } },
+  { key: 'completed', label: '已完成', value: store.summary.completedProjects, hint: '已完成/归档', filters: { stage: 'archived' } },
+  { key: 'overdue', label: '超期督办', value: store.summary.overdueProjects, hint: '未归档且过期', filters: { onlyOverdue: true, sort: 'plannedEndDate' } },
+  { key: 'monthly', label: '本月新增', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', filters: { onlyMonthlyNew: true, sort: 'updatedAt' } },
+  { key: 'upcoming', label: '即将到期', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', filters: { onlyUpcomingDue: true, sort: 'plannedEndDate' } },
+  { key: 'amount', label: '送审金额', value: money(store.summary.totalSubmittedAmount), hint: '全部项目合计', filters: { sort: 'amount' } },
 ])
 
 onMounted(async () => {
+  applyRouteFilters()
   await store.refreshAll()
   try {
     workItems.value = await fetchWorkItems(20)
   } catch {
     workItems.value = []
   }
+  await focusWorkItemsFromRoute()
   window.addEventListener('beforeunload', handleBeforeUnload)
-  const projectId = String(route.query.projectId || '').trim()
-  if (projectId) {
-    const target = store.projects.find((item) => item.id === projectId) || null
-    if (target) {
-      await openDetail(target)
-    } else {
-      try {
-        await store.selectProject({ id: projectId } as AuditProject)
-        detailVisible.value = true
-        editing.value = false
-      } catch {
-        MessagePlugin.warning('已进入审计看板，但未找到对应项目，请先确认项目是否已同步到审计模块')
-      }
-    }
-  }
+  window.addEventListener('keydown', handleAuditKeyboard)
+  await openAuditProjectFromRoute()
 })
+
+async function openAuditProjectFromRoute() {
+  const projectId = String(route.query.projectId || '').trim()
+  if (!projectId) return false
+  const target = store.projects.find((item) => item.id === projectId) || null
+  if (target) {
+    await openDetail(target)
+    return true
+  }
+  try {
+    await store.selectProject({ id: projectId } as AuditProject)
+    detailVisible.value = true
+    editing.value = false
+    await nextTick()
+    detailSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return true
+  } catch {
+    store.selectedProject = null
+    detailVisible.value = false
+    editing.value = false
+    MessagePlugin.warning('已进入审计看板，但未找到对应项目，请先确认项目是否已同步到审计模块')
+    return false
+  }
+}
+
+async function focusWorkItemsFromRoute() {
+  if (String(route.query.focus || '') !== 'work-items') return
+  await nextTick()
+  if (!workItemStripRef.value) {
+    if (!workItems.value.length) MessagePlugin.success('当前没有需要优先处理的待办事项')
+    return
+  }
+  workItemStripFocused.value = true
+  workItemStripRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  window.setTimeout(() => {
+    workItemStripFocused.value = false
+  }, 1800)
+}
+
+async function retryAuditLoad() {
+  try {
+    await store.refreshAll()
+    try {
+      workItems.value = await fetchWorkItems(20)
+    } catch {
+      workItems.value = []
+    }
+    await focusWorkItemsFromRoute()
+    await openAuditProjectFromRoute()
+    MessagePlugin.success('审计数据已更新')
+  } catch (err) {
+    MessagePlugin.error(friendlyErrorMessage(err, '审计数据加载失败，请稍后重试或联系管理员'))
+  }
+}
+
+function applyRouteFilters() {
+  const query = route.query
+  const stage = String(query.stage || '').trim()
+  const status = String(query.status || '').trim()
+  const sort = String(query.sort || '').trim()
+  const owner = String(query.owner || '').trim()
+  const onlyOverdue = String(query.onlyOverdue || '').trim()
+  const onlyUpcomingDue = String(query.onlyUpcomingDue || '').trim()
+  const onlyMonthlyNew = String(query.onlyMonthlyNew || '').trim()
+
+  if (stage) store.filters.stage = stage
+  if (status) store.filters.status = status
+  if (sort) store.filters.sort = sort
+  if (owner) store.filters.owner = owner
+  if (onlyOverdue === '1' || onlyOverdue === 'true') store.filters.onlyOverdue = true
+  if (onlyUpcomingDue === '1' || onlyUpcomingDue === 'true') store.filters.onlyUpcomingDue = true
+  if (onlyMonthlyNew === '1' || onlyMonthlyNew === 'true') store.filters.onlyMonthlyNew = true
+  if (store.filters.onlyOverdue) activeSummaryCard.value = 'overdue'
+  else if (store.filters.onlyUpcomingDue) activeSummaryCard.value = 'upcoming'
+  else if (store.filters.onlyMonthlyNew) activeSummaryCard.value = 'monthly'
+  else if (store.filters.stage === 'archived') activeSummaryCard.value = 'completed'
+  else if (store.filters.status === 'active') activeSummaryCard.value = 'active'
+  else if (store.filters.sort === 'amount') activeSummaryCard.value = 'amount'
+  store.filters.page = 1
+}
+
+watch(
+  () => route.query.projectId,
+  async (projectId, previousProjectId) => {
+    if (!projectId || projectId === previousProjectId) return
+    await openAuditProjectFromRoute()
+  },
+)
+
+watch(
+  () => route.query.focus,
+  async (focus, previousFocus) => {
+    if (focus !== 'work-items' || focus === previousFocus) return
+    await focusWorkItemsFromRoute()
+  },
+)
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('keydown', handleAuditKeyboard)
   removeColumnResizeListeners()
 })
 
@@ -596,6 +896,22 @@ function money(value: number) {
   return value.toLocaleString('zh-CN')
 }
 
+function formatDateTime(value: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function auditLogText(value: string) {
+  if (!value) return '记录已更新'
+  if (value.includes('数据库') || value.includes('初始化') || value.includes('seed')) return '系统已导入初始项目记录'
+  if (value === 'create') return '新建审计项目'
+  if (value === 'update') return '更新项目信息'
+  if (value === 'move') return '更新审计阶段'
+  return value
+}
+
 function displayField(project: AuditProject, field: AuditFieldConfig) {
   const value = store.readField(project, field)
   if (field.fieldType === 'number') return money(Number(value))
@@ -606,6 +922,10 @@ function displayField(project: AuditProject, field: AuditFieldConfig) {
 
 function stageTitle(code: string) {
   return store.meta.stages.find((stage) => stage.code === code)?.title || code
+}
+
+function optionLabel(group: string, value: string) {
+  return options.value[group]?.find((item) => item.optionValue === value)?.optionLabel || value || '未设置'
 }
 
 function statusTitle(value: string) {
@@ -621,7 +941,52 @@ function statusTitle(value: string) {
     conclusion: '定案结论',
     archived: '办结归档',
   }
-  return labels[value] || value || '-'
+  return labels[value] || '待确认'
+}
+
+function sortTitle(value: string) {
+  const labels: Record<string, string> = {
+    stage: '按阶段',
+    plannedEndDate: '按计划日期',
+    progress: '按进度',
+    amount: '按金额',
+    updatedAt: '按更新',
+  }
+  return labels[value] || value || '默认排序'
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  const tag = element.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || element.isContentEditable
+}
+
+function focusAuditKeywordInput() {
+  auditKeywordInputRef.value?.focus()
+  auditKeywordInputRef.value?.select()
+}
+
+function handleAuditKeyboard(event: KeyboardEvent) {
+  const shouldFocusSearch = event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')
+  if (shouldFocusSearch && !isEditableTarget(event.target)) {
+    event.preventDefault()
+    focusAuditKeywordInput()
+    return
+  }
+  if (event.key !== 'Escape') return
+  if (attachmentPreview.visible) {
+    closeAttachmentPreview()
+    return
+  }
+  if (tableSettingsVisible.value) {
+    tableSettingsVisible.value = false
+    return
+  }
+  if (detailVisible.value && !editing.value) {
+    detailVisible.value = false
+    store.selectedProject = null
+  }
 }
 
 function optionValueTitle(field: AuditFieldConfig, value: unknown) {
@@ -636,7 +1001,7 @@ function optionValueTitle(field: AuditFieldConfig, value: unknown) {
   if (field.optionGroup === 'status' || field.fieldKey === 'status' || field.bindField === 'status') {
     return statusTitle(raw)
   }
-  return raw || '-'
+  return raw ? '待确认' : '-'
 }
 
 function stageCount(code: string) {
@@ -813,7 +1178,7 @@ async function saveTableSettings() {
     initTableSettingsDraft()
     MessagePlugin.success('表格设置已保存')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '表格设置保存失败，请稍后重试或联系管理员')
+    MessagePlugin.error(friendlyErrorMessage(err, '表格设置保存失败，请稍后重试或联系管理员'))
     throw err
   } finally {
     tableSettingsSaving.value = false
@@ -932,12 +1297,42 @@ function isOverdue(project: AuditProject) {
 }
 
 function applyFilters() {
+  activeSummaryCard.value = ''
+  store.filters.page = 1
+  store.refreshProjects()
+}
+
+function clearActiveFilterChip(key: string) {
+  activeSummaryCard.value = ''
+  if (key === 'keyword') store.filters.keyword = ''
+  if (key === 'stage') store.filters.stage = ''
+  if (key === 'priority') store.filters.priority = ''
+  if (key === 'category') store.filters.category = ''
+  if (key === 'status') store.filters.status = ''
+  if (key === 'owner') store.filters.owner = ''
+  if (key === 'startDate') store.filters.startDate = ''
+  if (key === 'endDate') store.filters.endDate = ''
+  if (key === 'onlyOverdue') store.filters.onlyOverdue = false
+  if (key === 'onlyUpcomingDue') store.filters.onlyUpcomingDue = false
+  if (key === 'onlyMonthlyNew') store.filters.onlyMonthlyNew = false
+  if (key === 'sort') store.filters.sort = 'stage'
   store.filters.page = 1
   store.refreshProjects()
 }
 
 function resetFilters() {
+  activeSummaryCard.value = ''
   store.resetFilters()
+  store.refreshProjects()
+}
+
+function applySummaryCard(card: AuditSummaryCard) {
+  store.resetFilters()
+  Object.assign(store.filters, card.filters)
+  store.filters.page = 1
+  activeSummaryCard.value = card.key
+  detailVisible.value = false
+  editing.value = false
   store.refreshProjects()
 }
 
@@ -950,6 +1345,8 @@ async function openDetail(project: AuditProject) {
   await store.selectProject(project)
   detailVisible.value = true
   editing.value = false
+  await nextTick()
+  detailSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function closeDrawer() {
@@ -1114,7 +1511,7 @@ async function handleAttachmentUpload(event: Event) {
     await store.uploadAttachment(file)
     MessagePlugin.success('附件已上传')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '附件上传失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '附件上传失败，请检查文件后重试'))
   } finally {
     attachmentUploading.value = false
     input.value = ''
@@ -1152,7 +1549,7 @@ async function openAttachmentPreview(file: AuditProjectAttachment) {
     }
   } catch (err) {
     attachmentPreview.kind = 'unsupported'
-    attachmentPreview.error = err instanceof Error ? err.message : '预览失败'
+    attachmentPreview.error = friendlyErrorMessage(err, '预览失败，请下载后查看')
   } finally {
     attachmentPreview.loading = false
   }
@@ -1180,17 +1577,29 @@ async function downloadAttachment(file: AuditProjectAttachment) {
     link.click()
     URL.revokeObjectURL(url)
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '下载失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '下载失败，请稍后重试'))
   }
 }
 
 async function removeAttachment(file: AuditProjectAttachment) {
-  if (!window.confirm(`确认删除附件「${attachmentName(file)}」？`)) return
+  openConfirm({
+    title: '删除附件？',
+    message: `删除「${attachmentName(file)}」后，将不再出现在当前审计项目的资料列表中。`,
+    confirmText: '删除附件',
+    cancelText: '取消',
+    thirdText: '',
+    onConfirm: async () => {
+      await runRemoveAttachment(file)
+    },
+  })
+}
+
+async function runRemoveAttachment(file: AuditProjectAttachment) {
   try {
     await store.removeAttachment(file.id)
     MessagePlugin.success('附件已删除')
   } catch (err) {
-    MessagePlugin.error(err instanceof Error ? err.message : '删除失败')
+    MessagePlugin.error(friendlyErrorMessage(err, '附件删除失败，请稍后重试'))
   }
 }
 
@@ -1291,6 +1700,14 @@ async function logout() {
   grid-template-columns: 160px repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  scroll-margin-top: var(--space-4);
+  transition: box-shadow .2s ease, background .2s ease;
+}
+.work-item-strip--focus {
+  padding: 4px;
+  margin: -4px -4px calc(var(--space-4) - 4px);
+  background: var(--color-brand-50);
+  box-shadow: 0 0 0 2px var(--color-brand-300);
 }
 .work-item-strip__head,
 .work-item-card {
@@ -1346,6 +1763,19 @@ async function logout() {
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   box-shadow: var(--shadow-elevated);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.summary-card:hover,
+.summary-card:focus-visible,
+.summary-card--active {
+  border-color: var(--color-brand-300);
+  box-shadow: var(--shadow-overlay);
+  outline: none;
+}
+.summary-card--active {
+  background: var(--color-brand-50);
 }
 .summary-card span, .summary-card em { display: block; color: var(--text-secondary); font-size: var(--text-xs); font-style: normal; }
 .summary-card strong { display: block; margin: 4px 0; font-size: var(--text-2xl); }
@@ -1393,7 +1823,57 @@ async function logout() {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+.active-filter-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: calc(var(--space-2) * -1) 0 var(--space-4);
+  padding: 0 var(--space-1);
+}
+.active-filter-strip > span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+.active-filter-strip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+.active-filter-strip button:hover,
+.active-filter-strip button:focus-visible {
+  color: var(--color-brand-600);
+  border-color: var(--color-brand-300);
+  outline: none;
+}
+.active-filter-strip b {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+.active-filter-strip__clear {
+  color: var(--color-brand-600) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
 .error-alert { margin-bottom: var(--space-4); }
+.recoverable-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.recoverable-alert > div { display: grid; gap: 2px; }
+.recoverable-alert strong { color: var(--text-primary); font-size: var(--text-sm); }
+.recoverable-alert span { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.7; }
 .center-state { min-height: 360px; display: grid; place-items: center; }
 
 .kanban-board {
@@ -1639,6 +2119,162 @@ async function logout() {
   padding: var(--space-5) !important;
 }
 .link-button { border: 0; background: transparent; color: var(--color-brand-500); cursor: pointer; }
+
+.stage-card-view {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.stage-card-section {
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  border-left: 3px solid var(--stage-color, var(--color-brand-500));
+}
+
+.stage-card-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.stage-card-section__head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.stage-card-section__head p {
+  margin: 4px 0 0 20px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.stage-card-section__head strong {
+  color: var(--stage-color, var(--color-brand-500));
+  font-size: var(--text-lg);
+}
+
+.stage-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--stage-color, var(--color-brand-500));
+}
+
+.audit-project-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-3);
+}
+
+.audit-project-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--stage-color, var(--color-brand-500));
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
+}
+
+.audit-project-card:hover {
+  border-color: var(--stage-color, var(--color-brand-500));
+  box-shadow: var(--shadow-elevated);
+  transform: translateY(-1px);
+}
+
+.audit-project-card__title,
+.audit-project-card__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.audit-project-card__title strong {
+  display: block;
+  font-size: var(--text-md);
+  line-height: 1.45;
+}
+
+.audit-project-card__title span,
+.audit-project-card__footer,
+.audit-card-keyline span,
+.audit-card-fields dt {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.audit-project-card__title em,
+.audit-project-card__footer em {
+  flex: 0 0 auto;
+  font-style: normal;
+  color: var(--color-brand-600);
+  font-size: var(--text-xs);
+}
+
+.audit-project-card__title em {
+  padding: 2px 8px;
+  color: var(--color-brand-600);
+  background: var(--bg-active);
+  border: 1px solid color-mix(in srgb, var(--color-brand-500) 24%, white);
+  border-radius: var(--radius-sm);
+}
+
+.audit-card-keyline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.audit-card-keyline span,
+.audit-card-keyline strong {
+  min-width: 0;
+}
+
+.audit-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px var(--space-3);
+  margin: 0;
+}
+
+.audit-card-fields dt,
+.audit-card-fields dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.audit-card-fields dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-card-empty {
+  grid-column: 1 / -1;
+  padding: var(--space-5);
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-color);
+}
 .pager {
   display: flex;
   justify-content: flex-end;
@@ -1683,6 +2319,206 @@ async function logout() {
 }
 .drawer-head h2 { font-size: var(--text-xl); margin: 0; }
 .drawer-head p { font-size: var(--text-sm); color: var(--text-secondary); margin: 3px 0 0; }
+
+.audit-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.audit-detail-head h2 { font-size: var(--text-xl); margin: 0; }
+.audit-detail-head p { font-size: var(--text-sm); color: var(--text-secondary); margin: 3px 0 0; }
+
+.audit-detail-workspace {
+  scroll-margin-top: var(--space-4);
+}
+
+.audit-detail-panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+}
+
+.audit-detail-workspace .detail-view {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.audit-detail-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-brand-50), var(--bg-surface) 64%);
+  border: 1px solid var(--color-brand-200);
+}
+
+.audit-detail-hero h3 {
+  margin: 8px 0 4px;
+  font-size: var(--text-2xl);
+}
+
+.audit-detail-hero p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.audit-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.audit-detail-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.audit-detail-kpis article {
+  display: grid;
+  gap: 6px;
+  padding: var(--space-3);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+}
+
+.audit-detail-kpis span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.audit-detail-kpis strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+}
+
+.next-action-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.next-action-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.next-action-list button {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: var(--space-3);
+  text-align: left;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--color-brand-500);
+  cursor: pointer;
+}
+
+.next-action-list button[data-level='danger'] { border-left-color: var(--color-danger); }
+.next-action-list button[data-level='warning'] { border-left-color: var(--color-warning); }
+.next-action-list button[data-level='success'] { border-left-color: var(--color-success); }
+
+.next-action-list button:hover,
+.next-action-list button:focus-visible {
+  border-color: var(--color-brand-300);
+  box-shadow: var(--shadow-elevated);
+  outline: none;
+}
+
+.next-action-list span,
+.next-action-list em,
+.next-action-panel .section-title-row span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.next-action-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.audit-detail-workspace .detail-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--border-color);
+}
+
+.audit-detail-workspace .detail-grid dt,
+.audit-detail-workspace .detail-grid dd {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.audit-detail-workspace .detail-grid dt {
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  font-size: var(--text-xs);
+}
+
+.audit-detail-workspace .detail-grid dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+.progress-box p {
+  margin: -4px 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.audit-timeline {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.audit-timeline article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+
+.audit-timeline article > span {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--color-brand-500);
+}
+
+.audit-timeline strong {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.audit-timeline p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
 .icon-button {
   width: 32px;
   height: 32px;
@@ -1829,6 +2665,23 @@ async function logout() {
 }
 .stage-actions button.active { background: var(--color-brand-500); border-color: var(--color-brand-500); color: var(--text-on-brand); }
 .stage-history p, .attachment-box p, .log-box p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 6px; }
+.detail-empty-action {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-color);
+}
+.detail-empty-action strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.detail-empty-action span {
+  max-width: 680px;
+  font-size: var(--text-xs);
+}
 .attachment-input { display: none; }
 .attachment-list { display: grid; gap: var(--space-2); }
 .attachment-item {
@@ -1963,6 +2816,12 @@ async function logout() {
   .toolbar { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
   .keyword { min-width: 100%; grid-column: 1 / -1; }
   .kanban-board { grid-template-columns: repeat(5, 260px); }
+  .audit-detail-hero { flex-direction: column; }
+  .audit-detail-head { flex-direction: column; }
+  .audit-detail-actions { justify-content: flex-start; }
+  .audit-detail-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .next-action-list { grid-template-columns: 1fr; }
+  .audit-detail-workspace .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-form { grid-template-columns: 1fr; }
   .attachment-item { grid-template-columns: 1fr; }
   .attachment-actions { flex-wrap: wrap; }
@@ -1971,6 +2830,7 @@ async function logout() {
 @media (max-width: 640px) {
   .summary-grid { grid-template-columns: 1fr; }
   .toolbar { grid-template-columns: 1fr; }
+  .audit-detail-kpis { grid-template-columns: 1fr; }
   .keyword { min-width: 100%; }
   .small-filter, .date-filter { width: 100%; }
   .segmented span { display: none; }
