@@ -344,7 +344,7 @@
         <t-button size="small" variant="outline" :disabled="store.filters.page >= totalPages" @click="changePage(store.filters.page + 1)">下一页</t-button>
       </section>
 
-      <section v-if="detailVisible" ref="detailSectionRef" class="audit-detail-workspace" aria-label="审计项目详情">
+      <section v-if="detailVisible" class="audit-detail-workspace" aria-label="审计项目详情">
       <div class="audit-detail-panel">
         <div class="audit-detail-head">
           <div>
@@ -640,7 +640,6 @@ const formValues = reactive<Record<string, string>>({})
 const customOptionValues = reactive<Record<string, string>>({})
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const auditKeywordInputRef = ref<HTMLInputElement | null>(null)
-const detailSectionRef = ref<HTMLElement | null>(null)
 const workItemStripRef = ref<HTMLElement | null>(null)
 const attachmentUploading = ref(false)
 const workItems = ref<WorkItem[]>([])
@@ -785,8 +784,6 @@ async function openAuditProjectFromRoute() {
     await store.selectProject({ id: projectId } as AuditProject)
     detailVisible.value = true
     editing.value = false
-    await nextTick()
-    detailSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return true
   } catch {
     store.selectedProject = null
@@ -1345,8 +1342,6 @@ async function openDetail(project: AuditProject) {
   await store.selectProject(project)
   detailVisible.value = true
   editing.value = false
-  await nextTick()
-  detailSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function closeDrawer() {
@@ -2332,10 +2327,20 @@ async function logout() {
 .audit-detail-head p { font-size: var(--text-sm); color: var(--text-secondary); margin: 3px 0 0; }
 
 .audit-detail-workspace {
-  scroll-margin-top: var(--space-4);
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: var(--space-6);
+  background: rgba(15, 23, 42, .36);
 }
 
 .audit-detail-panel {
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
   display: grid;
   gap: var(--space-4);
   padding: var(--space-5);

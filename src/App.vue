@@ -76,7 +76,7 @@ onMounted(async () => {
   --color-stage-archived: #86909C;
 
   /* ── 背景与表面（纯色分层） ── */
-  --bg-page: #F5F7FA;
+  --bg-page: #F7F8FA;
   --bg-surface: #FFFFFF;
   --bg-muted: #F7F8FA;
   --bg-hover: #F2F7FF;

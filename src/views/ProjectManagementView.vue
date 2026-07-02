@@ -328,7 +328,14 @@
         </div>
       </div>
 
-      <section class="detail-panel" aria-label="项目详情">
+      <t-dialog
+        v-model:visible="detailDialogVisible"
+        header="项目详情"
+        :confirm-btn="null"
+        width="1120px"
+        destroy-on-close
+      >
+      <section class="detail-panel detail-panel--dialog" aria-label="项目详情">
         <template v-if="detailLoading">
           <StatePanel state="loading" title="正在加载项目详情" description="请稍候，正在读取该项目的资料和结算信息。" />
         </template>
@@ -628,6 +635,7 @@
           </div>
         </template>
       </section>
+      </t-dialog>
     </section>
 
     <t-dialog
@@ -635,6 +643,7 @@
       :header="projectDialog.mode === 'create' ? '新建项目' : '编辑项目'"
       :confirm-btn="{ content: '保存项目', loading: projectDialog.saving }"
       width="880px"
+      destroy-on-close
       @confirm="saveProject"
     >
       <div class="dialog-grid">
@@ -666,7 +675,7 @@
           <span>已付款金额</span>
           <t-input-number v-model="projectForm.paidAmount" :min="0" :precision="2" />
         </label>
-        <label>
+        <label v-if="projectDialog.mode === 'edit' && projectForm.auditProjectId">
           <span>审计联动</span>
           <t-input v-model="projectForm.auditProjectId" readonly placeholder="保存项目后可从详情中发起审计" />
         </label>
@@ -970,6 +979,7 @@ const records = ref<ProjectRecord[]>([])
 const currentProject = ref<ProjectRecord | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
+const detailDialogVisible = ref(false)
 const auditStarting = ref(false)
 const batchAuditing = ref(false)
 const error = ref('')
@@ -1531,6 +1541,7 @@ function deleteSavedFilterView(view: SavedProjectFilterView) {
 async function openProjectFromRoute() {
   const targetId = String(route.query.projectId || '')
   if (!targetId) return false
+  detailDialogVisible.value = true
   const targetRecord = records.value.find((item) => item.id === targetId)
   await loadCurrentProject(targetRecord?.id || targetId)
   activeTab.value = 'overview'
@@ -1834,6 +1845,12 @@ function changePage(nextPage: number) {
 
 function openProjectForm(record?: ProjectRecord | null) {
   projectDialog.mode = record ? 'edit' : 'create'
+  projectDialog.saving = false
+  if (!record) {
+    detailDialogVisible.value = false
+    currentProject.value = null
+    activeTab.value = 'overview'
+  }
   fillProjectForm(record || null)
   projectDialog.visible = true
 }
@@ -1917,11 +1934,8 @@ async function loadRecords() {
       if (await openProjectFromRoute()) {
         return
       }
-      if (records.value[0]) {
-        await loadCurrentProject(records.value[0].id)
-      } else {
-        currentProject.value = null
-      }
+      currentProject.value = null
+      detailDialogVisible.value = false
     }
   } catch (err) {
     error.value = friendlyErrorMessage(err, '项目列表加载失败，请稍后重试或联系管理员')
@@ -1959,12 +1973,19 @@ async function loadAll() {
 
 async function selectProject(record: ProjectRecord, fetchDetail = true) {
   if (currentProject.value?.id === record.id && !fetchDetail) return
+  detailDialogVisible.value = true
   if (!fetchDetail) {
     currentProject.value = record
     activeTab.value = 'overview'
     return
   }
   await loadCurrentProject(record.id)
+  activeTab.value = 'overview'
+}
+
+function closeProjectDetail() {
+  detailDialogVisible.value = false
+  currentProject.value = null
   activeTab.value = 'overview'
 }
 
@@ -2215,6 +2236,13 @@ watch(
     await openProjectFromRoute()
   },
 )
+
+watch(detailDialogVisible, (visible) => {
+  if (!visible) {
+    currentProject.value = null
+    activeTab.value = 'overview'
+  }
+})
 </script>
 
 <style scoped>
@@ -2800,6 +2828,14 @@ watch(
 .detail-panel {
   padding: var(--space-4);
   position: static;
+}
+
+.detail-panel--dialog {
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
 
 .detail-metrics {

@@ -135,7 +135,7 @@ const themeTokens: Record<string, ThemeTokens> = {
     brandDark: '#0E42D2',
     success: '#00B42A',
     warning: '#FF7D00',
-    page: '#F5F7FA',
+    page: '#F7F8FA',
     surface: '#FFFFFF',
     muted: '#F7F8FA',
     text: '#1D2129',
@@ -147,7 +147,7 @@ const themeTokens: Record<string, ThemeTokens> = {
     brandDark: '#0E42D2',
     success: '#00B42A',
     warning: '#FF7D00',
-    page: '#F5F7FA',
+    page: '#F7F8FA',
     surface: '#FFFFFF',
     muted: '#F7F8FA',
     text: '#1D2129',
@@ -231,7 +231,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   setVar('--color-brand-ink', brandInk)
   setVar('--color-success', tokens.success)
   setVar('--color-warning', tokens.warning)
-  setVar('--bg-page', tokens.page)
+  setVar('--bg-page', '#F7F8FA')
   setVar('--bg-surface', tokens.surface)
   setVar('--bg-muted', tokens.muted)
   setVar('--bg-hover', mixColor(brand, '#FFFFFF', 0.94))

@@ -60,47 +60,47 @@ const routes: RouteRecordRaw[] = [
           description: '财务看板将聚合付款计划、审减金额、回款进度和经营分析指标。',
         },
       },
-    ],
-  },
-  {
-    path: '/admin',
-    component: () => import('@/views/admin/AdminLayout.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true },
-    children: [
       {
-        path: '',
-        name: 'AdminDashboard',
-        component: () => import('@/views/admin/AdminDashboard.vue'),
-      },
-      {
-        path: 'users',
-        name: 'AdminUsers',
-        component: () => import('@/views/admin/AdminUsers.vue'),
-      },
-      {
-        path: 'field-configs',
-        name: 'AdminFieldConfigs',
-        component: () => import('@/views/admin/AdminFieldConfigs.vue'),
-      },
-      {
-        path: 'field-options',
-        name: 'AdminFieldOptions',
-        component: () => import('@/views/admin/AdminFieldOptions.vue'),
-      },
-      {
-        path: 'file-library',
-        name: 'AdminFileLibrary',
-        component: () => import('@/views/admin/AdminFileLibrary.vue'),
-      },
-      {
-        path: 'settings',
-        name: 'AdminSettings',
-        component: () => import('@/views/admin/AdminSystemSettings.vue'),
-      },
-      {
-        path: 'operation-logs',
-        name: 'AdminOperationLogs',
-        component: () => import('@/views/admin/AdminOperationLogs.vue'),
+        path: 'admin',
+        component: () => import('@/views/admin/AdminLayout.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true },
+        children: [
+          {
+            path: '',
+            name: 'AdminDashboard',
+            component: () => import('@/views/admin/AdminDashboard.vue'),
+          },
+          {
+            path: 'users',
+            name: 'AdminUsers',
+            component: () => import('@/views/admin/AdminUsers.vue'),
+          },
+          {
+            path: 'field-configs',
+            name: 'AdminFieldConfigs',
+            component: () => import('@/views/admin/AdminFieldConfigs.vue'),
+          },
+          {
+            path: 'field-options',
+            name: 'AdminFieldOptions',
+            component: () => import('@/views/admin/AdminFieldOptions.vue'),
+          },
+          {
+            path: 'file-library',
+            name: 'AdminFileLibrary',
+            component: () => import('@/views/admin/AdminFileLibrary.vue'),
+          },
+          {
+            path: 'settings',
+            name: 'AdminSettings',
+            component: () => import('@/views/admin/AdminSystemSettings.vue'),
+          },
+          {
+            path: 'operation-logs',
+            name: 'AdminOperationLogs',
+            component: () => import('@/views/admin/AdminOperationLogs.vue'),
+          },
+        ],
       },
     ],
   },

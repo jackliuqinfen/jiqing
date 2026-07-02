@@ -1,6 +1,11 @@
 <template>
-  <div class="system-shell">
-    <aside class="system-sidebar">
+  <div class="system-shell" :class="`system-shell--${sidebarMode}`">
+    <button v-if="sidebarMode === 'hidden'" type="button" class="sidebar-restore" @click="setSidebarMode('full')">
+      <t-icon name="list" />
+      <span>展开导航</span>
+    </button>
+
+    <aside v-if="sidebarMode !== 'hidden'" class="system-sidebar">
       <router-link to="/" class="system-brand" aria-label="江苏集庆·工程管理系统">
         <span class="brand-icon"><img :src="brandLogo" alt="" /></span>
         <span class="brand-copy">
@@ -24,31 +29,63 @@
         </router-link>
       </nav>
 
-      <div class="nav-group">
+      <div v-if="authStore.isAdmin" class="nav-group">
         <p>后台管理</p>
-        <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="module-link">
+        <router-link to="/admin/field-configs" class="module-link">
           <t-icon name="edit-1" />
           <span>字段配置</span>
         </router-link>
-        <router-link v-if="authStore.isAdmin" to="/admin/field-options" class="module-link">
+        <router-link to="/admin/field-options" class="module-link">
           <t-icon name="list" />
           <span>内容库管理</span>
         </router-link>
-        <router-link v-if="authStore.isAdmin" to="/admin/settings" class="module-link">
+        <router-link to="/admin/file-library" class="module-link">
+          <t-icon name="folder" />
+          <span>文件库</span>
+        </router-link>
+        <router-link to="/admin/settings" class="module-link">
           <t-icon name="system-setting" />
           <span>主题设置</span>
         </router-link>
-        <router-link v-if="authStore.isAdmin" to="/admin/users" class="module-link">
+        <router-link to="/admin/users" class="module-link">
           <t-icon name="usergroup" />
           <span>用户管理</span>
         </router-link>
-        <router-link v-if="authStore.isAdmin" to="/admin/operation-logs" class="module-link">
+        <router-link to="/admin/operation-logs" class="module-link">
           <t-icon name="file-paste" />
           <span>操作日志</span>
         </router-link>
       </div>
 
       <div class="sidebar-foot">
+        <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
+          <button type="button" :class="{ active: sidebarMode === 'full' }" title="展开侧边栏" @click="setSidebarMode('full')">
+            <t-icon name="list" />
+            <span>展开</span>
+          </button>
+          <button type="button" :class="{ active: sidebarMode === 'icon' }" title="折叠为图标栏" @click="setSidebarMode('icon')">
+            <t-icon name="view-module" />
+            <span>窄栏</span>
+          </button>
+          <button type="button" title="完全收起侧边栏" @click="setSidebarMode('hidden')">
+            <t-icon name="eye-invisible" />
+            <span>隐藏</span>
+          </button>
+        </div>
+        <div class="sidebar-actions">
+          <router-link v-if="authStore.isAdmin" to="/admin" class="sidebar-action">
+            <t-icon name="setting" />
+            <span>后台</span>
+          </router-link>
+          <button v-if="authStore.isAuthenticated" type="button" class="sidebar-action" @click="logout">
+            <t-icon name="rollback" />
+            <span>退出登录</span>
+          </button>
+          <button v-else type="button" class="sidebar-action" @click="router.push('/login')">
+            <t-icon name="user" />
+            <span>登录系统</span>
+          </button>
+        </div>
         <div class="system-status">
           <span />
           <strong>系统可用</strong>
@@ -58,20 +95,6 @@
     </aside>
 
     <section class="system-main">
-      <header class="system-topbar">
-        <div>
-          <h1>{{ routeTitle }}</h1>
-          <p>{{ routeSubtitle }}</p>
-        </div>
-        <div class="topbar-actions">
-          <t-button v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
-            <template #icon><t-icon name="setting" /></template>
-            后台
-          </t-button>
-          <t-button v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</t-button>
-          <t-button v-else theme="primary" size="small" @click="router.push('/login')">登录</t-button>
-        </div>
-      </header>
       <main class="system-content">
         <router-view />
       </main>
@@ -80,15 +103,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
 import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
 const router = useRouter()
-const route = useRoute()
 const authStore = useAuthStore()
+type SidebarMode = 'full' | 'icon' | 'hidden'
+const SIDEBAR_MODE_KEY = 'jiqing-sidebar-mode'
+const sidebarMode = ref<SidebarMode>('full')
 
 const mainNav = [
   { path: '/', label: '首页数据看板', icon: 'dashboard', badge: 'LIVE' },
@@ -98,8 +123,20 @@ const mainNav = [
   { path: '/finance', label: '财务看板', icon: 'list', badge: '建设中' },
 ]
 
-const routeTitle = computed(() => String(route.meta.title || '江苏集庆·工程管理系统'))
-const routeSubtitle = computed(() => String(route.meta.subtitle || '查看项目进度、审计流转和经营数据'))
+function setSidebarMode(mode: SidebarMode) {
+  sidebarMode.value = mode
+}
+
+onMounted(() => {
+  const saved = window.localStorage.getItem(SIDEBAR_MODE_KEY)
+  if (saved === 'full' || saved === 'icon' || saved === 'hidden') {
+    sidebarMode.value = saved
+  }
+})
+
+watch(sidebarMode, (mode) => {
+  window.localStorage.setItem(SIDEBAR_MODE_KEY, mode)
+})
 
 async function logout() {
   await authStore.logout()
@@ -117,6 +154,14 @@ async function logout() {
   color: var(--text-primary);
 }
 
+.system-shell--icon {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.system-shell--hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .system-sidebar {
   min-height: 100vh;
   display: grid;
@@ -126,6 +171,25 @@ async function logout() {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-color);
   color: var(--text-primary);
+}
+
+.sidebar-restore {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 100;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--color-brand-500);
+  background: var(--bg-surface);
+  border: 1px solid var(--color-brand-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  font: inherit;
 }
 
 .system-brand {
@@ -185,6 +249,51 @@ async function logout() {
 .brand-copy { display: grid; gap: 3px; padding-left: 1px; }
 .system-brand strong { font-size: var(--text-md); font-weight: 700; }
 .system-brand em { color: var(--text-tertiary); font-size: 11px; }
+
+.system-shell--icon .system-sidebar {
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+}
+
+.system-shell--icon .system-brand {
+  min-height: 64px;
+  justify-items: center;
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.system-shell--icon .brand-icon {
+  width: 52px;
+  height: 40px;
+  justify-items: center;
+}
+
+.system-shell--icon .brand-copy,
+.system-shell--icon .module-link span,
+.system-shell--icon .module-link small,
+.system-shell--icon .nav-group p,
+.system-shell--icon .sidebar-action span,
+.system-shell--icon .sidebar-collapse-actions span,
+.system-shell--icon .system-status strong,
+.system-shell--icon .system-status em {
+  display: none;
+}
+
+.system-shell--icon .module-link,
+.system-shell--icon .sidebar-action,
+.system-shell--icon .sidebar-collapse-actions button {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.system-shell--icon .system-status {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: var(--space-2);
+}
+
+.system-shell--icon .system-status span {
+  grid-row: auto;
+}
 
 .module-nav,
 .nav-group {
@@ -250,8 +359,66 @@ async function logout() {
 }
 
 .sidebar-foot {
+  display: grid;
+  gap: var(--space-3);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-color);
+}
+
+.sidebar-actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.sidebar-collapse-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.sidebar-collapse-actions button {
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.sidebar-collapse-actions button:hover,
+.sidebar-collapse-actions button.active {
+  color: var(--color-brand-500);
+  border-color: var(--color-brand-200);
+  background: var(--bg-hover);
+}
+
+.sidebar-action {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+}
+
+.sidebar-action:hover {
+  color: var(--color-brand-500);
+  border-color: var(--color-brand-200);
+  background: var(--bg-hover);
 }
 
 .system-status {
@@ -280,35 +447,7 @@ async function logout() {
   min-width: 0;
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 60px minmax(0, 1fr);
-}
-
-.system-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: 0 var(--space-6);
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.system-topbar h1 {
-  margin: 0;
-  font-size: var(--text-xl);
-  line-height: 1.25;
-}
-
-.system-topbar p {
-  margin: 3px 0 0;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .system-content {
@@ -321,11 +460,13 @@ async function logout() {
 
 @media (max-width: 900px) {
   .system-shell { grid-template-columns: 72px minmax(0, 1fr); }
+  .system-shell--hidden { grid-template-columns: minmax(0, 1fr); }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
   .system-brand .brand-copy,
   .module-link span,
   .module-link small,
   .nav-group p,
+  .sidebar-action span,
   .system-status strong,
   .system-status em { display: none; }
   .brand-icon {
@@ -339,6 +480,7 @@ async function logout() {
 
 @media (max-width: 640px) {
   .system-shell { grid-template-columns: 1fr; }
+  .system-shell--hidden { grid-template-columns: minmax(0, 1fr); }
   .system-sidebar {
     position: sticky;
     top: 0;
@@ -385,14 +527,6 @@ async function logout() {
   }
   .nav-group,
   .sidebar-foot { display: none; }
-  .system-main { min-height: auto; grid-template-rows: auto minmax(0, 1fr); }
-  .system-topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: var(--space-3);
-  }
-  .system-topbar h1 { font-size: var(--text-lg); }
-  .system-topbar p { max-width: 100%; }
-  .topbar-actions { width: 100%; justify-content: flex-end; }
+  .system-main { min-height: auto; }
 }
 </style>

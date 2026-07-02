@@ -861,11 +861,43 @@ def bootstrap():
         seed_field_configs(conn)
         seed_options(conn)
         ensure_stage_field_defaults(conn)
-        count = conn.execute("SELECT COUNT(*) AS c FROM audit_projects").fetchone()["c"]
-        if count == 0:
-            seed_projects(conn)
+        purge_seed_projects(conn)
         backfill_project_records(conn)
         conn.commit()
+
+
+def purge_seed_projects(conn):
+    rows = conn.execute(
+        """
+        SELECT DISTINCT p.id
+        FROM audit_projects p
+        JOIN audit_project_logs l ON l.project_id = p.id
+        WHERE l.action = 'seed'
+           OR l.log_type = 'seed'
+           OR l.note LIKE '%数据库初始化种子数据%'
+           OR l.content LIKE '%数据库初始化种子数据%'
+        """
+    ).fetchall()
+    audit_ids = [row["id"] for row in rows]
+    if not audit_ids:
+        return
+
+    placeholders = ",".join("?" for _ in audit_ids)
+    project_rows = conn.execute(
+        f"""
+        SELECT id
+        FROM project_records
+        WHERE audit_project_id IN ({placeholders})
+           OR created_by = '系统初始化'
+           OR updated_by = '系统初始化'
+        """,
+        audit_ids,
+    ).fetchall()
+    project_ids = [row["id"] for row in project_rows]
+    if project_ids:
+        project_placeholders = ",".join("?" for _ in project_ids)
+        conn.execute(f"DELETE FROM project_records WHERE id IN ({project_placeholders})", project_ids)
+    conn.execute(f"DELETE FROM audit_projects WHERE id IN ({placeholders})", audit_ids)
 
 
 def seed_system_settings(conn):
