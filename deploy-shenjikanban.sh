@@ -36,7 +36,6 @@ if [[ ! -f "$WORK_DIR/server/audit_api.py" ]]; then
   exit 1
 fi
 
-find "$FRONTEND_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
 
 cp "$WORK_DIR/server/audit_api.py" "$API_ROOT/audit_api.py"
