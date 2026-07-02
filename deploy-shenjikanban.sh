@@ -1,222 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT=/www/wwwroot/shenjikanban
-API_ROOT=/opt/shenjikanban/server
-SCRIPT_ROOT=/opt/shenjikanban/scripts
-DOC_ROOT=/opt/shenjikanban/docs
-DB_DIR=/var/lib/shenjikanban
-UPLOAD_ROOT=${UPLOAD_ROOT:-/data/jiqing-engineering/uploads}
-MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-26214400}
-ENV_DIR=/etc/jiqing-engineering
-ENV_FILE=${ENV_DIR}/audit-kanban.env
-BACKUP_DIR=/var/backups/shenjikanban
-STAMP=$(date +%Y%m%d%H%M%S)
-RELEASE_DIR=/tmp/shenjikanban-release-current
+ZIP_PATH="/tmp/shenjikanban-release.zip"
+WORK_DIR="/tmp/shenjikanban-release-current"
+FRONTEND_ROOT="/www/wwwroot/shenjikanban"
+API_ROOT="/opt/shenjikanban/server"
+SERVICE_NAME="audit-kanban.service"
 
-rm -rf "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"
-python3 - <<'PY'
+if [[ ! -f "$ZIP_PATH" ]]; then
+  echo "Release package not found: $ZIP_PATH" >&2
+  exit 1
+fi
+
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR" "$FRONTEND_ROOT" "$API_ROOT"
+
+python3 - "$ZIP_PATH" "$WORK_DIR" <<'PY'
+import sys
 import zipfile
-zipfile.ZipFile('/tmp/shenjikanban-release.zip').extractall('/tmp/shenjikanban-release-current')
-PY
-
-if [ -d "$APP_ROOT" ]; then
-  cp -a "$APP_ROOT" "${APP_ROOT}.bak.${STAMP}"
-fi
-
-mkdir -p "$APP_ROOT" "$API_ROOT" "$SCRIPT_ROOT" "$DOC_ROOT" "$DB_DIR" "$ENV_DIR" "$BACKUP_DIR" "$UPLOAD_ROOT/audit-projects"
-chmod 700 "$ENV_DIR"
-chmod 750 "$UPLOAD_ROOT" "$UPLOAD_ROOT/audit-projects"
-
-if [ -f "$DB_DIR/audit-kanban.sqlite3" ]; then
-  cp -a "$DB_DIR/audit-kanban.sqlite3" "$BACKUP_DIR/audit-kanban.${STAMP}.sqlite3"
-fi
-
-write_env_line() {
-  local key="$1"
-  local value="$2"
-  python3 - "$key" "$value" <<'PY'
-import shlex
-import sys
-print(f"{sys.argv[1]}={shlex.quote(sys.argv[2])}")
-PY
-}
-
-normalize_env_file() {
-  if [ ! -f "$ENV_FILE" ]; then
-    return
-  fi
-  python3 - "$ENV_FILE" <<'PY'
 from pathlib import Path
-import sys
 
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8-sig")
-text = text.replace("\r\n", "\n").replace("\r", "\n")
-lines = [line for line in text.split("\n") if line.strip()]
-last_for_key = {}
-plain_lines = []
-for line in lines:
-    stripped = line.strip()
-    if stripped.startswith("#") or "=" not in stripped:
-        plain_lines.append(line)
-        continue
-    key = stripped.split("=", 1)[0]
-    last_for_key[key] = line
-
-ordered_keys = [
-    "SESSION_SECRET",
-    "TOKEN_SECRET",
-    "ADMIN_INIT_USERNAME",
-    "ADMIN_INIT_PASSWORD",
-    "ADMIN_INIT_DISPLAY_NAME",
-    "APP_ENV",
-    "ENABLE_DEV_ADMIN_FALLBACK",
-    "UPLOAD_ROOT",
-    "MAX_UPLOAD_SIZE",
-    "DEFAULT_THEME_KEY",
-    "CHART_LIBRARY",
-]
-output = plain_lines[:]
-for key in ordered_keys:
-    if key in last_for_key:
-        output.append(last_for_key.pop(key))
-for key in sorted(last_for_key):
-    output.append(last_for_key[key])
-path.write_text("\n".join(output) + ("\n" if output else ""), encoding="utf-8")
+zip_path = Path(sys.argv[1])
+work_dir = Path(sys.argv[2])
+with zipfile.ZipFile(zip_path) as archive:
+    archive.extractall(work_dir)
 PY
-}
 
-normalize_env_file
-
-if [ ! -f "$ENV_FILE" ]; then
-  SESSION_SECRET=$(python3 - <<'PY'
-import secrets
-print(secrets.token_hex(32))
-PY
-)
-  {
-    write_env_line SESSION_SECRET "$SESSION_SECRET"
-    write_env_line ADMIN_INIT_USERNAME "${ADMIN_INIT_USERNAME:-admin}"
-    if [ -n "${ADMIN_INIT_PASSWORD:-}" ]; then
-      write_env_line ADMIN_INIT_PASSWORD "$ADMIN_INIT_PASSWORD"
-    fi
-    write_env_line ADMIN_INIT_DISPLAY_NAME "${ADMIN_INIT_DISPLAY_NAME:-系统管理员}"
-    write_env_line APP_ENV production
-    write_env_line ENABLE_DEV_ADMIN_FALLBACK 0
-    write_env_line UPLOAD_ROOT "$UPLOAD_ROOT"
-    write_env_line MAX_UPLOAD_SIZE "$MAX_UPLOAD_SIZE"
-    write_env_line DEFAULT_THEME_KEY arco-theme-0000
-    write_env_line CHART_LIBRARY vchart
-  } >"$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-elif [ -n "${ADMIN_INIT_PASSWORD:-}" ] && ! grep -q '^ADMIN_INIT_PASSWORD=' "$ENV_FILE"; then
-  write_env_line ADMIN_INIT_PASSWORD "$ADMIN_INIT_PASSWORD" >>"$ENV_FILE"
-  chmod 600 "$ENV_FILE"
+if [[ ! -d "$WORK_DIR/dist" ]]; then
+  echo "Release package missing dist directory" >&2
+  exit 1
 fi
 
-ensure_env_line() {
-  local key="$1"
-  local value="$2"
-  if ! grep -q "^${key}=" "$ENV_FILE"; then
-    write_env_line "$key" "$value" >>"$ENV_FILE"
-  fi
-}
-
-if ! grep -Eq '^(SESSION_SECRET|TOKEN_SECRET)=' "$ENV_FILE"; then
-  SESSION_SECRET=$(python3 - <<'PY'
-import secrets
-print(secrets.token_hex(32))
-PY
-)
-  write_env_line SESSION_SECRET "$SESSION_SECRET" >>"$ENV_FILE"
+if [[ ! -f "$WORK_DIR/server/audit_api.py" ]]; then
+  echo "Release package missing server/audit_api.py" >&2
+  exit 1
 fi
 
-ensure_env_line APP_ENV production
-ensure_env_line ENABLE_DEV_ADMIN_FALLBACK 0
-ensure_env_line UPLOAD_ROOT "$UPLOAD_ROOT"
-ensure_env_line MAX_UPLOAD_SIZE "$MAX_UPLOAD_SIZE"
-ensure_env_line DEFAULT_THEME_KEY arco-theme-0000
-ensure_env_line CHART_LIBRARY vchart
-normalize_env_file
-chmod 600 "$ENV_FILE"
+find "$FRONTEND_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
 
-find "$APP_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-cp -a "$RELEASE_DIR/dist/." "$APP_ROOT/"
-cp -a "$RELEASE_DIR/server/." "$API_ROOT/"
-if [ -d "$RELEASE_DIR/scripts" ]; then
-  find "$SCRIPT_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  cp -a "$RELEASE_DIR/scripts/." "$SCRIPT_ROOT/"
-  chmod +x "$SCRIPT_ROOT"/*.sh 2>/dev/null || true
+cp "$WORK_DIR/server/audit_api.py" "$API_ROOT/audit_api.py"
+cp "$WORK_DIR/server/schema.sql" "$API_ROOT/schema.sql"
+if [[ -f "$WORK_DIR/server/postgres_schema.sql" ]]; then
+  cp "$WORK_DIR/server/postgres_schema.sql" "$API_ROOT/postgres_schema.sql"
 fi
-if [ -d "$RELEASE_DIR/docs" ]; then
-  find "$DOC_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  cp -a "$RELEASE_DIR/docs/." "$DOC_ROOT/"
-fi
+mkdir -p "$API_ROOT/uploads"
 
-cat >/etc/systemd/system/audit-kanban.service <<'EOF'
-[Unit]
-Description=Audit Kanban SQLite API
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/shenjikanban/server
-Environment=AUDIT_DB_PATH=/var/lib/shenjikanban/audit-kanban.sqlite3
-Environment=AUDIT_API_HOST=127.0.0.1
-Environment=AUDIT_API_PORT=3008
-EnvironmentFile=-/etc/jiqing-engineering/audit-kanban.env
-ExecStart=/usr/bin/python3 /opt/shenjikanban/server/audit_api.py --host 127.0.0.1 --port 3008
-Restart=always
-RestartSec=3
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now audit-kanban
-systemctl restart audit-kanban
-sleep 1
-
-cat >/etc/nginx/conf.d/shenjikanban.conf <<'EOF'
-server {
-    listen 8088;
-    server_name _;
-    root /www/wwwroot/shenjikanban;
-    index index.html;
-    client_max_body_size 25m;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:3008/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /assets/ {
-        try_files $uri =404;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-
-    location / {
-        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate";
-        try_files $uri $uri/ /index.html;
-    }
-}
-EOF
-
+systemctl restart "$SERVICE_NAME"
+systemctl is-active --quiet "$SERVICE_NAME"
 nginx -t
 systemctl reload nginx
 
-systemctl status audit-kanban --no-pager -l | sed -n '1,14p'
-ss -lntp | grep -E ':8088|:3008' || true
-curl -fsS http://127.0.0.1:3008/api/health
-printf '\n'
-curl -fsS http://127.0.0.1:8088/api/audit/dashboard/summary
-printf '\nDEPLOY_OK\n'
+python3 - <<'PY'
+import json
+import urllib.request
+
+checks = [
+    "http://127.0.0.1:3008/api/health",
+    "http://127.0.0.1:8088/api/audit/dashboard/summary",
+]
+
+for url in checks:
+    with urllib.request.urlopen(url, timeout=10) as response:
+        body = response.read().decode("utf-8")
+        if response.status != 200:
+            raise SystemExit(f"Health check failed: {url} -> {response.status}")
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = {"raw": body[:120]}
+        print(f"HEALTH_OK {url} {data}")
+PY
+
+echo "DEPLOY_OK"
