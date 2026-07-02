@@ -52,6 +52,7 @@ systemctl reload nginx
 
 python3 - <<'PY'
 import json
+import time
 import urllib.request
 
 checks = [
@@ -60,15 +61,24 @@ checks = [
 ]
 
 for url in checks:
-    with urllib.request.urlopen(url, timeout=10) as response:
-        body = response.read().decode("utf-8")
-        if response.status != 200:
-            raise SystemExit(f"Health check failed: {url} -> {response.status}")
+    last_error = None
+    for _ in range(20):
         try:
-            data = json.loads(body)
-        except Exception:
-            data = {"raw": body[:120]}
-        print(f"HEALTH_OK {url} {data}")
+            with urllib.request.urlopen(url, timeout=10) as response:
+                body = response.read().decode("utf-8")
+                if response.status != 200:
+                    raise RuntimeError(f"{response.status}")
+                try:
+                    data = json.loads(body)
+                except Exception:
+                    data = {"raw": body[:120]}
+                print(f"HEALTH_OK {url} {data}")
+                break
+        except Exception as exc:
+            last_error = exc
+            time.sleep(1)
+    else:
+        raise SystemExit(f"Health check failed: {url} -> {last_error}")
 PY
 
 echo "DEPLOY_OK"
