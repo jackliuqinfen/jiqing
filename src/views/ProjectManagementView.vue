@@ -2221,6 +2221,8 @@ watch(
 .project-management {
   display: grid;
   gap: var(--space-4);
+  min-height: 100%;
+  background: #F7F8FA;
 }
 
 .summary-grid {

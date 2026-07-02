@@ -1625,7 +1625,7 @@ async function logout() {
 <style scoped>
 .audit-shell {
   min-height: 100vh;
-  background: var(--bg-page);
+  background: #F7F8FA;
   color: var(--text-primary);
 }
 .audit-shell--embedded {
