@@ -127,9 +127,9 @@ def relative_luminance(hex_value):
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 
 
-def sanitize_brand_color(value, fallback="#4787F0"):
+def sanitize_brand_color(value, fallback="#165DFF"):
     normalized = normalize_hex_color(value)
-    safe_fallback = normalize_hex_color(fallback) or "#4787F0"
+    safe_fallback = normalize_hex_color(fallback) or "#165DFF"
     if not normalized:
         return safe_fallback
     if relative_luminance(normalized) <= 0.82:
@@ -874,7 +874,7 @@ def seed_system_settings(conn):
         ("registration_open", {"enabled": False, "requireApproval": True}, "auth", "是否开放注册"),
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
-        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
         conn.execute(
@@ -890,8 +890,8 @@ def seed_system_settings(conn):
 def seed_theme_configs(conn):
     ts = now_iso()
     themes = [
-        ("arco-theme-0000", "Arco 官方默认主题", "@arco-themes/vue-0000", ["#4787F0", "#14C9C9", "#00B42A", "#FF7D00"], 1, 1, 10),
-        ("arco-default", "Arco fallback", "@arco-design/web-vue", ["#4787F0", "#0FC6C2", "#00B42A", "#86909C"], 1, 0, 20),
+        ("arco-theme-0000", "Arco 官方默认主题", "@arco-themes/vue-0000", ["#165DFF", "#14C9C9", "#00B42A", "#FF7D00"], 1, 1, 10),
+        ("arco-default", "Arco fallback", "@arco-design/web-vue", ["#165DFF", "#14C9C9", "#00B42A", "#86909C"], 1, 0, 20),
         ("jiqing-blue", "专业蓝主题", "builtin:jiqing-blue", ["#0E42D2", "#168CFF", "#14C9C9", "#E8F3FF"], 1, 0, 30),
         ("engineering-green", "青绿工程主题", "builtin:engineering-green", ["#008F7A", "#00B42A", "#14C9C9", "#E8FFFB"], 1, 0, 40),
         ("gov-gray-blue", "灰蓝政企主题", "builtin:gov-gray-blue", ["#1D3557", "#457B9D", "#A8DADC", "#F1FAEE"], 1, 0, 50),
@@ -2767,7 +2767,13 @@ class Handler(BaseHTTPRequestHandler):
     def theme_current(self, conn):
         setting = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'current_theme'").fetchone()
         value = json.loads(setting["setting_value"]) if setting else {"themeKey": "arco-theme-0000"}
-        value["brandColor"] = normalize_hex_color(value.get("brandColor")) or "#4787F0"
+        value["brandColor"] = normalize_hex_color(value.get("brandColor")) or "#165DFF"
+        if (
+            value.get("themeKey") == "arco-theme-0000"
+            and value.get("brandColor") == "#4787F0"
+            and not value.get("themePackage")
+        ):
+            value["brandColor"] = "#165DFF"
         if not value.get("themePackage"):
             value["themePackage"] = ""
         if value.get("sidebarLogoVariant") not in {"color", "white", "black"}:
@@ -2788,7 +2794,7 @@ class Handler(BaseHTTPRequestHandler):
         if brand_color and not re.match(r"^#?[0-9a-fA-F]{6}$", brand_color):
             self.respond(400, {"success": False, "error": "品牌色号格式不正确，请输入 6 位 HEX 色号"})
             return
-        brand_color = normalize_hex_color(brand_color) or "#4787F0"
+        brand_color = normalize_hex_color(brand_color) or "#165DFF"
         theme_package = str(data.get("themePackage") or "").strip()
         if theme_package and not re.match(r"^@(arco-design/theme|arco-themes/vue)-[a-z0-9-]+$", theme_package, re.IGNORECASE):
             self.respond(400, {"success": False, "error": "样式名称格式不正确，请从主题商店复制完整名称后再试。"})
@@ -2825,17 +2831,20 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
-        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#4787F0", "themePackage": "", "sidebarLogoVariant": "color"})
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"})
 
     def theme_payload(self, row):
         if not row:
             return None
+        preview_colors = json.loads(row["preview_colors"] or "[]")
+        if row["theme_key"] in {"arco-theme-0000", "arco-default"} and preview_colors[:1] == ["#4787F0"]:
+            preview_colors = ["#165DFF", *preview_colors[1:]]
         return {
             "id": row["id"],
             "themeKey": row["theme_key"],
             "themeName": row["theme_name"],
             "packageName": row["package_name"],
-            "previewColors": json.loads(row["preview_colors"] or "[]"),
+            "previewColors": preview_colors,
             "applyScope": row["apply_scope"],
             "isEnabled": bool(row["is_enabled"]),
             "isDefault": bool(row["is_default"]),

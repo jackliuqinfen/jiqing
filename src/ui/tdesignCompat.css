@@ -2,21 +2,29 @@
   width: 100%;
   border-collapse: collapse;
   background: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 .compat-table th,
 .compat-table td {
-  padding: 11px 12px;
+  height: 48px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   text-align: left;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   vertical-align: middle;
 }
 
 .compat-table th {
+  height: 44px;
   color: var(--text-secondary);
   background: var(--bg-muted);
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.compat-table tbody tr:nth-child(even) {
+  background: #FAFBFC;
 }
 
 .compat-table--bordered {
@@ -24,13 +32,108 @@
 }
 
 .compat-table--hover tbody tr:hover {
-  background: var(--bg-muted);
+  background: var(--bg-hover);
 }
 
 .compat-table-empty,
 .compat-table-loading {
   padding: 28px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   text-align: center;
 }
 
+.arco-btn {
+  border-radius: var(--radius-md);
+  font-weight: 500;
+}
+
+.arco-btn-primary,
+.arco-btn-primary[type='button'] {
+  background: var(--color-brand-500);
+  border-color: var(--color-brand-500);
+}
+
+.arco-btn-primary:hover,
+.arco-btn-primary[type='button']:hover {
+  background: var(--color-brand-400);
+  border-color: var(--color-brand-400);
+}
+
+.arco-btn-primary:active,
+.arco-btn-primary[type='button']:active {
+  background: var(--color-brand-600);
+  border-color: var(--color-brand-600);
+}
+
+.arco-btn-secondary,
+.arco-btn-outline {
+  background: var(--bg-surface);
+  border-color: var(--border-color-strong);
+  color: var(--text-primary);
+}
+
+.arco-btn-secondary:hover,
+.arco-btn-outline:hover {
+  background: var(--bg-hover);
+  border-color: var(--color-brand-500);
+  color: var(--color-brand-500);
+}
+
+.arco-input-wrapper,
+.arco-select-view-single,
+.arco-select-view-multiple,
+.arco-textarea-wrapper,
+.arco-input-number,
+.arco-picker {
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
+.arco-input-wrapper:hover,
+.arco-select-view:hover,
+.arco-textarea-wrapper:hover,
+.arco-input-number:hover,
+.arco-picker:hover {
+  border-color: var(--color-brand-500);
+}
+
+.arco-input-wrapper.arco-input-focus,
+.arco-select-view-focus,
+.arco-textarea-wrapper.arco-textarea-focus,
+.arco-input-number-focus,
+.arco-picker-focused {
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 2px var(--color-brand-50);
+}
+
+.arco-tag {
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  line-height: 20px;
+}
+
+.arco-card,
+.arco-modal,
+.arco-drawer,
+.arco-popover-popup-content,
+.arco-dropdown-popup {
+  border-color: var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.arco-table-th {
+  height: 44px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+}
+
+.arco-table-td {
+  color: var(--text-primary);
+  border-bottom-color: var(--border-color);
+}
+
+.arco-table-tr:hover .arco-table-td {
+  background: var(--bg-hover);
+}

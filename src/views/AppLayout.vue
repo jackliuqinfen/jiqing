@@ -112,7 +112,7 @@ async function logout() {
 .system-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   background: var(--bg-page);
   color: var(--text-primary);
 }
@@ -121,27 +121,27 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  gap: var(--space-5);
+  gap: var(--space-4);
   padding: var(--space-4) var(--space-3);
-  background: var(--color-brand-500);
-  border-right: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 82%);
-  color: var(--text-on-brand);
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .system-brand {
   display: grid;
   align-content: start;
   gap: var(--space-2);
-  min-height: 246px;
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  color: var(--text-on-brand);
+  min-height: 178px;
+  padding: var(--space-2) var(--space-2) var(--space-4);
+  color: var(--text-primary);
   text-decoration: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 76%);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .brand-icon {
-  width: 218px;
-  height: 164px;
+  width: 204px;
+  height: 124px;
   display: grid;
   align-items: center;
   justify-items: start;
@@ -165,6 +165,12 @@ async function logout() {
   filter: brightness(0) invert(1);
 }
 
+:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon) {
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-500));
+}
+
 :global(html[data-sidebar-logo='black'] .system-sidebar .brand-icon img) {
   filter: brightness(0) saturate(100%);
 }
@@ -178,7 +184,7 @@ async function logout() {
 
 .brand-copy { display: grid; gap: 3px; padding-left: 1px; }
 .system-brand strong { font-size: var(--text-md); font-weight: 700; }
-.system-brand em { color: color-mix(in srgb, var(--text-on-brand), transparent 24%); font-size: 11px; }
+.system-brand em { color: var(--text-tertiary); font-size: 11px; }
 
 .module-nav,
 .nav-group {
@@ -189,13 +195,13 @@ async function logout() {
 .nav-group {
   align-self: start;
   padding-top: var(--space-3);
-  border-top: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 74%);
+  border-top: 1px solid var(--border-color);
 }
 
 .nav-group p {
   margin: 0 0 var(--space-1);
   padding: 0 var(--space-3);
-  color: color-mix(in srgb, var(--text-on-brand), transparent 32%);
+  color: var(--text-tertiary);
   font-size: var(--text-xs);
 }
 
@@ -209,7 +215,7 @@ async function logout() {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  color: color-mix(in srgb, var(--text-on-brand), transparent 12%);
+  color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -218,16 +224,25 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: color-mix(in srgb, var(--text-on-brand), transparent 80%);
-  border-color: color-mix(in srgb, var(--text-on-brand), transparent 62%);
-  color: var(--text-on-brand);
+  background: var(--bg-hover);
+  border-color: var(--color-brand-100);
+  color: var(--color-brand-500);
+}
+
+.module-link--active {
+  background: var(--bg-active);
+  font-weight: 600;
 }
 
 .module-link :deep(.t-icon) { flex: 0 0 auto; }
 .module-link span { flex: 1; min-width: 0; }
 .module-link small {
-  color: color-mix(in srgb, var(--text-on-brand), transparent 26%);
+  color: var(--text-tertiary);
   font-size: 10px;
+}
+
+.module-link--active small {
+  color: var(--color-brand-500);
 }
 
 .module-link--disabled {
@@ -236,7 +251,7 @@ async function logout() {
 
 .sidebar-foot {
   padding-top: var(--space-4);
-  border-top: 1px solid color-mix(in srgb, var(--text-on-brand), transparent 74%);
+  border-top: 1px solid var(--border-color);
 }
 
 .system-status {
@@ -244,7 +259,11 @@ async function logout() {
   grid-template-columns: auto 1fr;
   gap: 2px 8px;
   align-items: center;
-  color: color-mix(in srgb, var(--text-on-brand), transparent 12%);
+  padding: var(--space-3);
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
 }
 
 .system-status span {
@@ -255,7 +274,7 @@ async function logout() {
 }
 
 .system-status strong { font-size: var(--text-xs); font-weight: 600; }
-.system-status em { font-size: 10px; font-style: normal; color: color-mix(in srgb, var(--text-on-brand), transparent 32%); }
+.system-status em { font-size: 10px; font-style: normal; color: var(--text-tertiary); }
 
 .system-main {
   min-width: 0;
@@ -270,9 +289,8 @@ async function logout() {
   justify-content: space-between;
   gap: var(--space-4);
   padding: 0 var(--space-6);
-  background: rgba(255, 255, 255, .96);
+  background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
-  backdrop-filter: saturate(140%) blur(8px);
 }
 
 .system-topbar h1 {

@@ -24,72 +24,76 @@ onMounted(async () => {
 
 :root {
   /* ── 品牌主色（纯色蓝，无渐变） ── */
-  --color-brand-50: #EBF0FF;
-  --color-brand-100: #D6E0FF;
-  --color-brand-200: #ADC2FF;
-  --color-brand-300: #85A3FF;
-  --color-brand-400: #5C85FF;
-  --color-brand-500: #4787F0;
-  --color-brand-600: #2566D9;
-  --color-brand-700: #164FB6;
-  --color-brand-800: #0028A3;
-  --color-brand-900: #001C85;
-  --color-brand-ink: #4787F0;
+  --color-brand-50: #E8F3FF;
+  --color-brand-100: #BEDAFF;
+  --color-brand-200: #94BFFF;
+  --color-brand-300: #6AA1FF;
+  --color-brand-400: #4080FF;
+  --color-brand-500: #165DFF;
+  --color-brand-600: #0E42D2;
+  --color-brand-700: #092AA6;
+  --color-brand-800: #061D79;
+  --color-brand-900: #03114D;
+  --color-brand-ink: #165DFF;
 
   /* ── 中性灰阶（纯色冷静灰） ── */
   --color-gray-0: #FFFFFF;
   --color-gray-20: #FAFBFC;
-  --color-gray-50: #F2F3F7;
-  --color-gray-100: #E5E7EB;
-  --color-gray-200: #D1D5DB;
-  --color-gray-300: #B0B7C3;
-  --color-gray-400: #8E95A3;
-  --color-gray-500: #6B7280;
-  --color-gray-600: #4B5563;
-  --color-gray-700: #374151;
-  --color-gray-800: #1F2937;
-  --color-gray-900: #111827;
+  --color-gray-50: #F7F8FA;
+  --color-gray-100: #F2F3F5;
+  --color-gray-200: #E5E6EB;
+  --color-gray-300: #C9CDD4;
+  --color-gray-400: #A9AEB8;
+  --color-gray-500: #86909C;
+  --color-gray-600: #4E5969;
+  --color-gray-700: #272E3B;
+  --color-gray-800: #1D2129;
+  --color-gray-900: #0B1020;
 
   /* ── 语义色（纯色扁平） ── */
   --color-success: #00B42A;
-  --color-success-bg: #E6F9F2;
-  --color-success-border: #B3EAD5;
-  --color-warning: #FF8D1A;
-  --color-warning-bg: #FFF4E6;
-  --color-warning-border: #FFD9B3;
-  --color-danger: #FF3B3B;
-  --color-danger-bg: #FFEBEB;
-  --color-danger-border: #FFCCCC;
+  --color-success-bg: #E8FFEA;
+  --color-success-border: #AFF0B5;
+  --color-warning: #FF7D00;
+  --color-warning-bg: #FFF7E8;
+  --color-warning-border: #FFD591;
+  --color-risk: #FADC19;
+  --color-risk-text: #A87100;
+  --color-risk-bg: #FEFFE8;
+  --color-risk-border: #FFE58F;
+  --color-danger: #F53F3F;
+  --color-danger-bg: #FFECE8;
+  --color-danger-border: #FDCDC5;
   --color-info: #14C9C9;
-  --color-info-bg: #E6F9F7;
-  --color-info-border: #B3EDE7;
+  --color-info-bg: #E8FFFB;
+  --color-info-border: #B7F4EC;
 
   /* ── 阶段专属色（看板列标识） ── */
-  --color-stage-submitted: #3366FF;
-  --color-stage-first-audit: #FF8D1A;
-  --color-stage-second-audit: #FF3B3B;
+  --color-stage-submitted: #165DFF;
+  --color-stage-first-audit: #FF7D00;
+  --color-stage-second-audit: #F53F3F;
   --color-stage-conclusion: #14B8A6;
-  --color-stage-archived: #8E95A3;
+  --color-stage-archived: #86909C;
 
   /* ── 背景与表面（纯色分层） ── */
-  --bg-page: #F5F7FB;
+  --bg-page: #F5F7FA;
   --bg-surface: #FFFFFF;
-  --bg-muted: #F8FAFD;
-  --bg-hover: #EFF5FF;
-  --bg-active: #EAF2FF;
+  --bg-muted: #F7F8FA;
+  --bg-hover: #F2F7FF;
+  --bg-active: #E8F3FF;
 
   /* ── 边框与分割线（1px 实线） ── */
-  --border-color: #E6EAF2;
-  --border-color-strong: #D6DEEA;
-  --divider-color: #E6EAF2;
+  --border-color: #E5E6EB;
+  --border-color-strong: #C9CDD4;
+  --divider-color: #E5E6EB;
 
   /* ── 文本色 ── */
-  --text-primary: #17233D;
-  --text-secondary: #5F6F89;
-  --text-tertiary: #9AA8BC;
-  --text-disabled: #B0B7C3;
+  --text-primary: #1D2129;
+  --text-secondary: #4E5969;
+  --text-tertiary: #86909C;
+  --text-disabled: #C9CDD4;
   --text-inverse: #FFFFFF;
-  --text-link: #4787F0;
+  --text-link: #165DFF;
   --text-on-brand: #FFFFFF;
 
   /* ── 间距（4px 基准） ── */
@@ -120,10 +124,12 @@ onMounted(async () => {
   --text-3xl: 24px;
   --text-4xl: 30px;
 
-  /* ── 阴影（仅保留极简的 2 级，纯扁平风格） ── */
+  /* ── 阴影（克制层级，贴近企业级后台） ── */
   --shadow-flat: none;
-  --shadow-elevated: 0 6px 18px rgba(17, 36, 75, 0.06);
-  --shadow-overlay: 0 18px 48px rgba(17, 36, 75, 0.16);
+  --shadow-card: 0 4px 10px rgba(29, 33, 41, 0.04);
+  --shadow-elevated: 0 6px 16px rgba(29, 33, 41, 0.08);
+  --shadow-dropdown: 0 4px 12px rgba(29, 33, 41, 0.12);
+  --shadow-overlay: 0 8px 24px rgba(29, 33, 41, 0.16);
 
   /* ── 圆角（小圆角，克制使用） ── */
   --radius-sm: 4px;
@@ -166,6 +172,21 @@ body {
   background: var(--bg-page);
 }
 
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+a {
+  color: var(--text-link);
+}
+
+a:hover {
+  color: var(--color-brand-400);
+}
+
 /* ============================================================
    Arco Design 全局变量覆盖（全部对齐扁平纯色体系）
    ============================================================ */
@@ -180,6 +201,17 @@ body {
   --color-primary-8: var(--color-brand-700);
   --color-primary-9: var(--color-brand-800);
   --color-primary-10: var(--color-brand-900);
+  --color-bg-1: var(--bg-surface);
+  --color-bg-2: var(--bg-muted);
+  --color-bg-3: var(--bg-page);
+  --color-fill-1: var(--bg-hover);
+  --color-fill-2: var(--bg-active);
+  --color-border-1: var(--border-color);
+  --color-border-2: var(--border-color-strong);
+  --color-text-1: var(--text-primary);
+  --color-text-2: var(--text-secondary);
+  --color-text-3: var(--text-tertiary);
+  --color-text-4: var(--text-disabled);
   --border-radius-small: var(--radius-sm);
   --border-radius-medium: var(--radius-md);
   --border-radius-large: var(--radius-lg);

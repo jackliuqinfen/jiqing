@@ -288,7 +288,7 @@ function cssVar(name: string, fallback: string) {
 
 function chartColors() {
   return [
-    cssVar('--color-brand-500', '#4787F0'),
+    cssVar('--color-brand-500', '#165DFF'),
     '#14C9C9',
     '#00B42A',
     '#FF7D00',

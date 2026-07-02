@@ -46,7 +46,7 @@
           <input
             v-model.trim="themeSettings.brandColor"
             class="brand-color-input"
-            placeholder="#4787F0"
+            placeholder="#165DFF"
             :disabled="savingTheme"
             @keyup.enter="saveTheme"
           />
@@ -270,7 +270,7 @@ const themeOptions = ref<ThemeOption[]>([])
 const themePackageInput = ref('')
 const brandFollowDialogVisible = ref(false)
 const pendingThemePackage = ref('')
-const pendingThemeBrandColor = ref('#4787F0')
+const pendingThemeBrandColor = ref('#165DFF')
 const brandFollowDecisionHandled = ref(false)
 
 const regSettings = reactive<RegistrationSetting>({ enabled: false, requireApproval: true })
@@ -282,7 +282,7 @@ const themeSettings = reactive<ThemeSetting>({
   darkMode: false,
   compactMode: false,
   applyScope: 'global',
-  brandColor: '#4787F0',
+  brandColor: '#165DFF',
   themePackage: '',
   sidebarLogoVariant: 'color',
 })
@@ -335,10 +335,10 @@ function updateBrandColor(event: Event) {
   themeSettings.brandColor = (event.target as HTMLInputElement).value
 }
 
-const normalizedBrandColor = computed(() => normalizeHexColor(themeSettings.brandColor) || '#4787F0')
+const normalizedBrandColor = computed(() => normalizeHexColor(themeSettings.brandColor) || '#165DFF')
 
 const brandColorError = computed(() => {
-  return normalizeHexColor(themeSettings.brandColor) ? '' : '请输入例如 #4787F0 的 6 位色号'
+  return normalizeHexColor(themeSettings.brandColor) ? '' : '请输入例如 #165DFF 的 6 位色号'
 })
 
 const themePackageError = computed(() => {
@@ -438,7 +438,7 @@ onMounted(async () => {
       darkMode: currentTheme.darkMode,
       compactMode: currentTheme.compactMode,
       applyScope: currentTheme.applyScope,
-      brandColor: currentTheme.brandColor || '#4787F0',
+      brandColor: currentTheme.brandColor || '#165DFF',
       themePackage: currentTheme.themePackage || '',
       sidebarLogoVariant: currentTheme.sidebarLogoVariant || 'color',
     })
@@ -501,7 +501,7 @@ async function resetTheme() {
       darkMode: next.darkMode,
       compactMode: next.compactMode,
       applyScope: next.applyScope,
-      brandColor: next.brandColor || '#4787F0',
+      brandColor: next.brandColor || '#165DFF',
       themePackage: next.themePackage || '',
       sidebarLogoVariant: next.sidebarLogoVariant || 'color',
     })

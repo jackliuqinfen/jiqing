@@ -118,9 +118,9 @@ function mixColor(color: string, target: string, weight: number) {
   })
 }
 
-export function sanitizeBrandColor(value?: string, fallback = '#4787F0') {
+export function sanitizeBrandColor(value?: string, fallback = '#165DFF') {
   const normalized = normalizeHexColor(value)
-  const safeFallback = normalizeHexColor(fallback) || '#4787F0'
+  const safeFallback = normalizeHexColor(fallback) || '#165DFF'
   if (!normalized) return safeFallback
   if (relativeLuminance(normalized) <= 0.82) return normalized
   const darker = mixColor(normalized, '#000000', 0.45)
@@ -131,28 +131,28 @@ export function sanitizeBrandColor(value?: string, fallback = '#4787F0') {
 
 const themeTokens: Record<string, ThemeTokens> = {
   'arco-theme-0000': {
-    brand: '#4787F0',
-    brandDark: '#2566D9',
+    brand: '#165DFF',
+    brandDark: '#0E42D2',
     success: '#00B42A',
     warning: '#FF7D00',
-    page: '#F2F3F7',
+    page: '#F5F7FA',
     surface: '#FFFFFF',
-    muted: '#FAFBFC',
-    text: '#111827',
-    secondary: '#6B7280',
-    border: '#E5E7EB',
+    muted: '#F7F8FA',
+    text: '#1D2129',
+    secondary: '#4E5969',
+    border: '#E5E6EB',
   },
   'arco-default': {
-    brand: '#4787F0',
-    brandDark: '#2566D9',
+    brand: '#165DFF',
+    brandDark: '#0E42D2',
     success: '#00B42A',
     warning: '#FF7D00',
-    page: '#F2F3F7',
+    page: '#F5F7FA',
     surface: '#FFFFFF',
-    muted: '#FAFBFC',
-    text: '#111827',
-    secondary: '#6B7280',
-    border: '#E5E7EB',
+    muted: '#F7F8FA',
+    text: '#1D2129',
+    secondary: '#4E5969',
+    border: '#E5E6EB',
   },
   'jiqing-blue': {
     brand: '#0E42D2',
@@ -220,11 +220,11 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   document.documentElement.dataset.compact = setting.compactMode ? 'true' : 'false'
   document.documentElement.dataset.dark = setting.darkMode || setting.themeKey === 'dark-command' ? 'true' : 'false'
 
-  setVar('--color-brand-50', `${brand}14`)
-  setVar('--color-brand-100', `${brand}24`)
-  setVar('--color-brand-200', mixColor(brand, '#FFFFFF', 0.64))
-  setVar('--color-brand-300', mixColor(brand, '#FFFFFF', 0.42))
-  setVar('--color-brand-400', mixColor(brand, '#FFFFFF', 0.22))
+  setVar('--color-brand-50', mixColor(brand, '#FFFFFF', 0.92))
+  setVar('--color-brand-100', mixColor(brand, '#FFFFFF', 0.76))
+  setVar('--color-brand-200', mixColor(brand, '#FFFFFF', 0.58))
+  setVar('--color-brand-300', mixColor(brand, '#FFFFFF', 0.38))
+  setVar('--color-brand-400', mixColor(brand, '#FFFFFF', 0.18))
   setVar('--color-brand-500', brand)
   setVar('--color-brand-600', brandDark)
   setVar('--color-brand-700', mixColor(brand, '#000000', 0.34))
@@ -234,14 +234,15 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   setVar('--bg-page', tokens.page)
   setVar('--bg-surface', tokens.surface)
   setVar('--bg-muted', tokens.muted)
-  setVar('--bg-hover', tokens.muted)
-  setVar('--bg-active', `${brand}16`)
+  setVar('--bg-hover', mixColor(brand, '#FFFFFF', 0.94))
+  setVar('--bg-active', mixColor(brand, '#FFFFFF', 0.90))
   setVar('--text-primary', tokens.text)
   setVar('--text-secondary', tokens.secondary)
   setVar('--border-color', tokens.border)
   setVar('--divider-color', tokens.border)
   setVar('--color-primary-6', brand)
   setVar('--color-primary-7', brandDark)
+  setVar('--text-link', brand)
   setVar('--text-on-brand', textOnBrand)
 }
 
