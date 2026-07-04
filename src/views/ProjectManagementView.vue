@@ -571,15 +571,14 @@
     <AModal
       :visible="projectDialog.visible"
       :title="projectDialog.mode === 'create' ? '新建项目' : '编辑项目'"
-      :ok-text="projectDialog.mode === 'create' ? '保存项目' : '保存修改'"
+      :confirm-btn="{ content: projectDialog.mode === 'create' ? '保存项目' : '保存修改', loading: projectDialog.saving }"
       cancel-text="取消"
-      :ok-loading="projectDialog.saving"
       :mask-closable="false"
       :esc-to-close="false"
       :width="920"
       unmount-on-close
       modal-class="project-form-modal"
-      @ok="saveProject"
+      @confirm="saveProject"
       @cancel="requestCloseProjectDialog"
     >
       <AForm ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
