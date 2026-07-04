@@ -39,6 +39,17 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'materials',
+        name: 'ProjectMaterials',
+        component: () => import('@/views/admin/AdminFileLibrary.vue'),
+        meta: {
+          title: '项目资料中心',
+          subtitle: '按项目归集资料与审计证据',
+          icon: 'folder',
+          description: '资料中心用于归集项目资料、审计证据和补充材料，支撑项目管理与审计看板联动。',
+        },
+      },
+      {
         path: 'bidding',
         name: 'BiddingDashboard',
         component: () => import('@/views/ModulePlaceholder.vue'),
@@ -81,14 +92,26 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/admin/AdminFieldConfigs.vue'),
           },
           {
+            path: 'fields',
+            redirect: '/admin/field-configs',
+          },
+          {
             path: 'field-options',
             name: 'AdminFieldOptions',
             component: () => import('@/views/admin/AdminFieldOptions.vue'),
           },
           {
+            path: 'content',
+            redirect: '/admin/field-options',
+          },
+          {
             path: 'file-library',
             name: 'AdminFileLibrary',
             component: () => import('@/views/admin/AdminFileLibrary.vue'),
+          },
+          {
+            path: 'files',
+            redirect: '/admin/file-library',
           },
           {
             path: 'settings',
@@ -99,6 +122,10 @@ const routes: RouteRecordRaw[] = [
             path: 'operation-logs',
             name: 'AdminOperationLogs',
             component: () => import('@/views/admin/AdminOperationLogs.vue'),
+          },
+          {
+            path: 'logs',
+            redirect: '/admin/operation-logs',
           },
         ],
       },

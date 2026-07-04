@@ -1,4 +1,4 @@
-import type { App, Component, PropType } from 'vue'
+﻿import type { App, Component, PropType } from 'vue'
 import { defineComponent, h, ref } from 'vue'
 import {
   Alert,
@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Form,
   FormItem,
@@ -17,6 +18,7 @@ import {
   Space,
   Spin,
   Switch,
+  Table,
   Tag,
   Textarea,
   Tooltip,
@@ -39,6 +41,8 @@ import {
   IconInfoCircle,
   IconList,
   IconLock,
+  IconMenuFold,
+  IconMenuUnfold,
   IconPhone,
   IconPlayCircle,
   IconPlus,
@@ -53,8 +57,8 @@ import {
   IconUserGroup,
 } from '@arco-design/web-vue/es/icon'
 
-export type FormRule = Record<string, unknown>
-export interface FormInstanceFunctions {
+export type AppValidationRule = Record<string, unknown>
+export interface AppFormInstance {
   validate: () => Promise<boolean>
   clearValidate?: () => void
   resetFields?: () => void
@@ -82,6 +86,8 @@ const iconMap: Record<string, Component> = {
   layers: IconApps,
   list: IconList,
   'lock-on': IconLock,
+  'menu-fold': IconMenuFold,
+  'menu-unfold': IconMenuUnfold,
   'play-circle': IconPlayCircle,
   refresh: IconRefresh,
   rollback: IconUndo,
@@ -135,33 +141,43 @@ function tagProps(props: Record<string, unknown>) {
   return mapped
 }
 
-const TIcon = defineComponent({
-  name: 'TIcon',
+const AIcon = defineComponent({
+  name: 'AIcon',
   props: { name: { type: String, required: true }, size: [String, Number] },
   setup(props, { attrs }) {
     return () => {
       const icon = iconMap[props.name] || IconApps
       const style = props.size ? { fontSize: typeof props.size === 'number' ? `${props.size}px` : props.size } : undefined
-      return h(icon as any, { ...attrs, style: { ...(attrs.style as object || {}), ...style } })
+      return h(icon as any, { ...attrs, style: { ...((attrs.style as object) || {}), ...style } })
     }
   },
 })
 
-const TButton = defineComponent({
-  name: 'TButton',
+const AAppButton = defineComponent({
+  name: 'AButton',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => h(Button as any, buttonProps(attrs), slots)
   },
 })
 
-const TInput = defineComponent({
-  name: 'TInput',
+const AAppInput = defineComponent({
+  name: 'AInput',
   inheritAttrs: false,
   props: { clearable: Boolean },
-  setup(props, { attrs, slots }) {
+  setup(props, { attrs, slots, expose }) {
     const attrsAny = attrs as Record<string, any>
-    return () => h(Input as any, { ...attrsAny, allowClear: props.clearable || Boolean(attrsAny.allowClear) }, {
+    const inputRef = ref()
+    expose({
+      focus() {
+        inputRef.value?.focus?.()
+      },
+      select() {
+        const el = inputRef.value?.$el?.querySelector?.('input') as HTMLInputElement | null
+        el?.select?.()
+      },
+    })
+    return () => h(Input as any, { ...attrsAny, ref: inputRef, allowClear: props.clearable || Boolean(attrsAny.allowClear) }, {
       ...slots,
       prefix: slots['prefix-icon'] || slots.prefix,
       suffix: slots['suffix-icon'] || slots.suffix,
@@ -169,16 +185,16 @@ const TInput = defineComponent({
   },
 })
 
-const TTextarea = defineComponent({
-  name: 'TTextarea',
+const AAppTextarea = defineComponent({
+  name: 'ATextarea',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => h(Textarea as any, attrs, slots)
   },
 })
 
-const TSelect = defineComponent({
-  name: 'TSelect',
+const AAppSelect = defineComponent({
+  name: 'ASelect',
   inheritAttrs: false,
   props: { clearable: Boolean },
   setup(props, { attrs, slots }) {
@@ -187,8 +203,8 @@ const TSelect = defineComponent({
   },
 })
 
-const TInputNumber = defineComponent({
-  name: 'TInputNumber',
+const AAppInputNumber = defineComponent({
+  name: 'AInputNumber',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
@@ -198,8 +214,8 @@ const TInputNumber = defineComponent({
   },
 })
 
-const TDatePicker = defineComponent({
-  name: 'TDatePicker',
+const AAppDatePicker = defineComponent({
+  name: 'ADatePicker',
   inheritAttrs: false,
   props: { clearable: Boolean },
   setup(props, { attrs, slots }) {
@@ -208,8 +224,8 @@ const TDatePicker = defineComponent({
   },
 })
 
-const TForm = defineComponent({
-  name: 'TForm',
+const AAppForm = defineComponent({
+  name: 'AForm',
   inheritAttrs: false,
   props: {
     data: Object,
@@ -235,9 +251,9 @@ const TForm = defineComponent({
       const formProps: Record<string, any> = {
         ...attrs,
         ref: formRef,
-        model: props.data ?? {},
-        rules: props.rules,
-        layout: props.labelAlign === 'top' ? 'vertical' : 'horizontal',
+        model: (attrs as Record<string, any>).model ?? props.data ?? {},
+        rules: props.rules ?? (attrs as Record<string, any>).rules,
+        layout: props.labelAlign === 'top' ? 'vertical' : ((attrs as Record<string, any>).layout || 'horizontal'),
       }
       if (props.labelWidth) {
         formProps.labelColProps = { style: { width: typeof props.labelWidth === 'number' ? `${props.labelWidth}px` : props.labelWidth } }
@@ -247,21 +263,21 @@ const TForm = defineComponent({
   },
 })
 
-const TFormItem = defineComponent({
-  name: 'TFormItem',
+const AAppFormItem = defineComponent({
+  name: 'AFormItem',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
-    mapped.field = mapped.name
-    mapped.extra = mapped.help
+    mapped.field = mapped.field ?? mapped.name
+    mapped.extra = mapped.extra ?? mapped.help
     delete mapped.name
     delete mapped.help
     return () => h(FormItem as any, mapped, slots)
   },
 })
 
-const TDialog = defineComponent({
-  name: 'TDialog',
+const AAppModal = defineComponent({
+  name: 'AModal',
   inheritAttrs: false,
   props: {
     visible: Boolean,
@@ -273,14 +289,18 @@ const TDialog = defineComponent({
   setup(props, { attrs, emit, slots }) {
     return () => h(Modal as any, {
       ...attrs,
-      visible: props.visible,
-      title: props.header,
-      okText: props.confirmBtn?.content as string | undefined,
-      okLoading: Boolean(props.confirmBtn?.loading),
-      cancelText: props.cancelBtn?.content as string | undefined,
+      visible: (attrs as Record<string, any>).visible ?? props.visible,
+      title: (attrs as Record<string, any>).title ?? props.header,
+      okText: (attrs as Record<string, any>).okText ?? props.confirmBtn?.content,
+      okLoading: Boolean((attrs as Record<string, any>).okLoading ?? props.confirmBtn?.loading),
+      cancelText: (attrs as Record<string, any>).cancelText ?? props.cancelBtn?.content,
       hideOk: props.confirmBtn === null,
-      unmountOnClose: Boolean(attrs['destroy-on-close']),
-      onBeforeOk: () => {
+      unmountOnClose: Boolean((attrs as Record<string, any>)['destroy-on-close'] ?? (attrs as Record<string, any>).unmountOnClose),
+      onBeforeOk: async () => {
+        const beforeOk = (attrs as Record<string, any>).onBeforeOk
+        if (typeof beforeOk === 'function') {
+          return beforeOk()
+        }
         emit('confirm')
         return false
       },
@@ -289,36 +309,34 @@ const TDialog = defineComponent({
   },
 })
 
-const TCard = defineComponent({
-  name: 'TCard',
+const AAppCard = defineComponent({
+  name: 'ACard',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
-    return () => {
-      const mappedSlots = { ...slots }
-      delete mappedSlots.actions
-      return h(Card as any, attrs, { ...mappedSlots, extra: slots.actions || slots.extra })
-    }
+    const mappedSlots = { ...slots }
+    delete mappedSlots.actions
+    return () => h(Card as any, attrs, { ...mappedSlots, extra: slots.actions || slots.extra })
   },
 })
 
-const TTag = defineComponent({
-  name: 'TTag',
+const AAppTag = defineComponent({
+  name: 'ATag',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => h(Tag as any, tagProps(attrs), slots)
   },
 })
 
-const TTooltip = defineComponent({
-  name: 'TTooltip',
+const AAppTooltip = defineComponent({
+  name: 'ATooltip',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => h(Tooltip as any, attrs, slots)
   },
 })
 
-const TAvatar = defineComponent({
-  name: 'TAvatar',
+const AAppAvatar = defineComponent({
+  name: 'AAvatar',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => {
@@ -329,16 +347,8 @@ const TAvatar = defineComponent({
   },
 })
 
-const TSpace = defineComponent({
-  name: 'TSpace',
-  inheritAttrs: false,
-  setup(_, { attrs, slots }) {
-    return () => h(Space as any, attrs, slots)
-  },
-})
-
-const TPopconfirm = defineComponent({
-  name: 'TPopconfirm',
+const AAppPopconfirm = defineComponent({
+  name: 'APopconfirm',
   inheritAttrs: false,
   emits: ['confirm'],
   setup(_, { attrs, emit, slots }) {
@@ -346,24 +356,8 @@ const TPopconfirm = defineComponent({
   },
 })
 
-const TSwitch = defineComponent({
-  name: 'TSwitch',
-  inheritAttrs: false,
-  setup(_, { attrs, slots }) {
-    return () => h(Switch as any, attrs, slots)
-  },
-})
-
-const TBadge = defineComponent({
-  name: 'TBadge',
-  inheritAttrs: false,
-  setup(_, { attrs, slots }) {
-    return () => h(Badge as any, attrs, slots)
-  },
-})
-
-const TAlert = defineComponent({
-  name: 'TAlert',
+const AAppAlert = defineComponent({
+  name: 'AAlert',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
@@ -374,76 +368,81 @@ const TAlert = defineComponent({
   },
 })
 
-const TLoading = defineComponent({
-  name: 'TLoading',
+const AAppSpin = defineComponent({
+  name: 'ASpin',
   inheritAttrs: false,
   props: { text: String },
   setup(props, { attrs }) {
-    return () => {
-      const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
-      mapped.size = numericSize(mapped.size, { small: 16, medium: 24, large: 32 })
-      return h(Spin as any, { ...mapped, tip: props.text })
-    }
+    const mapped: Record<string, any> = { ...(attrs as Record<string, any>) }
+    mapped.size = numericSize(mapped.size, { small: 16, medium: 24, large: 32 })
+    return () => h(Spin as any, { ...mapped, tip: props.text })
   },
 })
 
-const TTable = defineComponent({
-  name: 'TTable',
+const AAppTable = defineComponent({
+  name: 'ATable',
   inheritAttrs: false,
   props: {
     data: { type: Array as PropType<Record<string, unknown>[]>, default: () => [] },
-    columns: { type: Array as PropType<Array<Record<string, unknown>>>, default: () => [] },
+    columns: { type: Array as PropType<Array<Record<string, any>>>, default: () => [] },
     loading: Boolean,
     bordered: Boolean,
     hover: Boolean,
   },
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () => {
-      if (props.loading) return h('div', { class: 'compat-table-loading' }, '加载中...')
-      return h('table', {
-        class: ['compat-table', props.bordered && 'compat-table--bordered', props.hover && 'compat-table--hover'],
-      }, [
-        h('thead', [
-          h('tr', props.columns.map((col) => h('th', { style: col.width ? { width: `${col.width}px` } : undefined }, String(col.title || '')))),
-        ]),
-        h('tbody', props.data.length
-          ? props.data.map((row) => h('tr', { key: String(row.id || row.key || JSON.stringify(row)) }, props.columns.map((col) => {
-            const key = String(col.colKey || col.dataIndex || '')
-            const slot = slots[key]
-            return h('td', slot ? slot({ row }) : String(row[key] ?? ''))
-          })))
-          : [h('tr', [h('td', { colspan: props.columns.length || 1 }, h('div', { class: 'compat-table-empty' }, '暂无数据'))])]),
-      ])
+      const columns = props.columns.map((column) => {
+        const key = String(column.colKey || column.dataIndex || '')
+        return {
+          ...column,
+          dataIndex: column.dataIndex || key,
+          slotName: undefined,
+          render: slots[key]
+            ? ({ record }: { record: Record<string, unknown> }) => slots[key]?.({ row: record, record })
+            : column.render,
+        }
+      })
+      return h(Table as any, {
+        ...attrs,
+        data: props.data,
+        columns,
+        loading: props.loading,
+        bordered: props.bordered,
+        hoverable: props.hover,
+      }, slots)
     }
   },
 })
 
 const components: Record<string, Component> = {
-  TAlert,
-  TAvatar,
-  TBadge,
-  TButton,
-  TCard,
-  TDatePicker,
-  TDialog,
-  TForm,
-  TFormItem,
-  TIcon,
-  TInput,
-  TInputNumber,
-  TLoading,
-  TPopconfirm,
-  TSelect,
-  TSpace,
-  TSwitch,
-  TTable,
-  TTag,
-  TTextarea,
-  TTooltip,
+  AAlert: AAppAlert,
+  AAvatar: AAppAvatar,
+  ABadge: Badge,
+  AButton: AAppButton,
+  ACard: AAppCard,
+  ACheckbox: Checkbox,
+  ADatePicker: AAppDatePicker,
+  AForm: AAppForm,
+  AFormItem: AAppFormItem,
+  AIcon,
+  AInput: AAppInput,
+  AInputNumber: AAppInputNumber,
+  AModal: AAppModal,
+  APopconfirm: AAppPopconfirm,
+  ASelect: AAppSelect,
+  ASpace: Space,
+  ASpin: AAppSpin,
+  ASwitch: Switch,
+  ATable: AAppTable,
+  ATag: AAppTag,
+  ATextarea: AAppTextarea,
+  ATooltip: AAppTooltip,
 }
 
-export function installTDesignCompat(app: App) {
+export function installArcoAppComponents(app: App) {
   Object.entries(components).forEach(([name, component]) => {
     app.component(name, component)
   })
 }
+
+

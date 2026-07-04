@@ -41,6 +41,7 @@ PROJECT_STATUSES = {
     "settlement": "结算中",
     "completed": "已完成",
     "paused": "暂停",
+    "archived": "已归档",
 }
 SETTLEMENT_STATUSES = {
     "not_started": "未开始",
@@ -49,6 +50,27 @@ SETTLEMENT_STATUSES = {
     "approved": "已确认",
     "paid": "已付款",
     "rejected": "已退回",
+}
+AUDIT_STATUSES = {
+    "not_started": "未开始",
+    "active": "进行中",
+    "delayed": "已逾期",
+    "completed": "已完成",
+    "paused": "已暂停",
+    "archived": "已归档",
+    "deleted": "已删除",
+}
+EVIDENCE_STATUSES = {
+    "pending": "待补资料",
+    "submitted": "已提交",
+    "confirmed": "资料齐全",
+    "rework": "需更正",
+}
+RISK_LEVELS = {
+    "danger": "高风险",
+    "warning": "需关注",
+    "primary": "待处理",
+    "normal": "正常",
 }
 FORBIDDEN_ATTACHMENT_SUFFIXES = (
     ".zip",
@@ -370,6 +392,22 @@ def row_dict(row):
     return dict(row) if row else None
 
 
+def stage_label(value):
+    return dict((code, title) for code, title, _ in STAGES).get(value or "", value or "未设置")
+
+
+def project_status_label(value):
+    return PROJECT_STATUSES.get(value or "", value or "未设置")
+
+
+def settlement_status_label(value):
+    return SETTLEMENT_STATUSES.get(value or "", value or "未设置")
+
+
+def audit_status_label(value):
+    return AUDIT_STATUSES.get(value or "", value or "未设置")
+
+
 def amount_payload(row):
     return {
         "contractAmount": row["contract_amount"],
@@ -412,7 +450,9 @@ def project_payload(conn, row):
         "actualEndDate": row["actual_end_date"],
         "docStatus": row["doc_status"],
         "stage": row["current_stage"],
+        "stageLabel": stage_label(row["current_stage"]),
         "status": row["status"],
+        "statusText": audit_status_label(row["status"]),
         "progressPercent": row["progress_percent"],
         "managerName": row["manager_name"] or row["contractor_name"],
         "isDelayed": bool(row["is_delayed"]),
@@ -546,8 +586,11 @@ def project_record_payload(conn, row, include_detail=False):
         "companyRole": row["company_role"],
         "managerName": row["manager_name"],
         "projectStatus": row["project_status"],
+        "projectStatusText": project_status_label(row["project_status"]),
         "settlementStatus": row["settlement_status"],
+        "settlementStatusText": settlement_status_label(row["settlement_status"]),
         "auditStage": row["audit_stage"],
+        "auditStageText": stage_label(row["audit_stage"]) if row["audit_stage"] and row["audit_stage"] != "not_linked" else "未进入审计",
         "contractAmount": row["contract_amount"],
         "submittedAmount": row["submitted_amount"],
         "paidAmount": row["paid_amount"],
@@ -656,6 +699,11 @@ def evidence_status_from_project_file(row):
 
 
 def work_item_payload(item_id, item_type, project_id, audit_project_id, project_name, owner, due_date, level, source, action, description):
+    action_path = "/audit"
+    if source in {"项目管理", "项目资料", "付款结算", "金额管理"}:
+        action_path = f"/project-management?projectId={quote(project_id or '')}" if project_id else "/project-management"
+    elif audit_project_id:
+        action_path = f"/audit?projectId={quote(audit_project_id)}"
     return {
         "id": item_id,
         "type": item_type,
@@ -665,10 +713,13 @@ def work_item_payload(item_id, item_type, project_id, audit_project_id, project_
         "owner": owner or "未分配",
         "dueDate": due_date or "",
         "level": level,
+        "levelText": RISK_LEVELS.get(level, "待处理"),
         "source": source,
         "action": action,
+        "actionPath": action_path,
         "description": description,
         "status": "待处理",
+        "statusText": "待处理",
     }
 
 
@@ -1587,6 +1638,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def respond(self, status, data):
+        if isinstance(data, dict) and data.get("success") is False:
+            message = data.get("message") or data.get("error") or "操作失败，请稍后重试或联系管理员。"
+            data.setdefault("error", message)
+            data.setdefault("message", message)
+            if status == 401:
+                data.setdefault("action", "请重新登录后再继续操作。")
+            elif status == 403:
+                data.setdefault("action", "请联系管理员确认账号权限。")
+            elif status == 404:
+                data.setdefault("action", "请返回列表刷新数据后再试。")
+            else:
+                data.setdefault("action", "请检查填写内容后重试；如仍失败，请联系管理员。")
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -1885,6 +1948,9 @@ class Handler(BaseHTTPRequestHandler):
                 "projectStatuses": [{"label": label, "value": value} for value, label in PROJECT_STATUSES.items()],
                 "settlementStatuses": [{"label": label, "value": value} for value, label in SETTLEMENT_STATUSES.items()],
                 "auditStages": [{"label": title, "value": code} for code, title, _ in STAGES],
+                "auditStatuses": [{"label": label, "value": value} for value, label in AUDIT_STATUSES.items() if value != "deleted"],
+                "evidenceStatuses": [{"label": label, "value": value} for value, label in EVIDENCE_STATUSES.items()],
+                "riskLevels": [{"label": label, "value": value} for value, label in RISK_LEVELS.items()],
             },
         })
 
@@ -2146,6 +2212,18 @@ class Handler(BaseHTTPRequestHandler):
         if current_audit_id and conn.execute("SELECT id FROM audit_projects WHERE id = ? AND status != 'deleted'", (current_audit_id,)).fetchone():
             self.respond(400, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
             return
+        existing_audit = conn.execute(
+            "SELECT id FROM audit_projects WHERE project_id = ? AND status != 'deleted' LIMIT 1",
+            (project_id,),
+        ).fetchone()
+        if existing_audit:
+            conn.execute(
+                "UPDATE project_records SET audit_project_id = ?, audit_stage = COALESCE(NULLIF(audit_stage, ''), 'submitted'), updated_at = ? WHERE id = ?",
+                (existing_audit["id"], now_iso(), project_id),
+            )
+            conn.commit()
+            self.respond(400, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
+            return
         ts = now_iso()
         audit_id = new_id()
         stage = "submitted"
@@ -2222,6 +2300,15 @@ class Handler(BaseHTTPRequestHandler):
         if new_audit_project_id and not conn.execute("SELECT id FROM audit_projects WHERE id = ?", (new_audit_project_id,)).fetchone():
             self.respond(400, {"success": False, "error": "未找到关联审计项目，请返回后重新选择"})
             return
+        if new_audit_project_id:
+            linked_row = conn.execute(
+                "SELECT project_id FROM audit_projects WHERE id = ?",
+                (new_audit_project_id,),
+            ).fetchone()
+            linked_project_id = (linked_row["project_id"] or "").strip() if linked_row else ""
+            if linked_project_id and linked_project_id != project_id:
+                self.respond(400, {"success": False, "error": "该审计流程已关联其他项目，请勿重复绑定"})
+                return
         assignments = ", ".join([f"{key} = ?" for key in columns.keys()])
         try:
             conn.execute(f"UPDATE project_records SET {assignments} WHERE id = ?", (*columns.values(), project_id))
@@ -2254,6 +2341,9 @@ class Handler(BaseHTTPRequestHandler):
             self.not_found()
             return
         audit_project_id = (row["audit_project_id"] or "").strip()
+        if audit_project_id and conn.execute("SELECT id FROM audit_projects WHERE id = ? AND status != 'deleted'", (audit_project_id,)).fetchone():
+            self.respond(400, {"success": False, "error": "该项目已进入审计流程，不能直接删除。请先完成归档或联系管理员处理。"})
+            return
         conn.execute("UPDATE project_records SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?", (now_iso(), now_iso(), project_id))
         if audit_project_id:
             conn.execute(
@@ -3061,9 +3151,10 @@ class Handler(BaseHTTPRequestHandler):
                     data["projectId"] = re.match(r"^/api/projects/([^/]+)/variations$", path).group(1)
                     self.upsert_project_variation(conn, data)
                 elif path == "/api/audit/projects":
-                    if not self.require_role(conn, {"admin", "editor"}):
-                        return
-                    self.create_project(conn, data)
+                    self.respond(400, {
+                        "success": False,
+                        "error": "请先在项目管理中建立项目主档案，再从项目详情发起审计，避免重复建档。",
+                    })
                 elif re.match(r"^/api/audit/projects/([^/]+)/progress$", path):
                     if not self.require_role(conn, {"admin", "editor"}):
                         return

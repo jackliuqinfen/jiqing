@@ -1,6 +1,6 @@
-<template>
+﻿<template>
   <div v-if="authStore.status === 'idle'" class="auth-init-loading">
-    <t-loading size="large" text="正在初始化..." />
+    <ASpin :size="32" text="正在初始化..." />
   </div>
   <router-view v-else />
 </template>
@@ -273,3 +273,4 @@ a:hover {
   background: transparent;
 }
 </style>
+

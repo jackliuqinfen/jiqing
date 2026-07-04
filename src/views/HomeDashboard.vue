@@ -233,8 +233,8 @@ function sparkline(seed: number, points = 8) {
   })
 }
 
-function overviewSparkline(key: string, fallbackSeed: number) {
-  return store.overview.cardSparklines[key] || sparkline(fallbackSeed)
+function overviewSparkline(key: string, defaultSeed: number) {
+  return store.overview.cardSparklines[key] || sparkline(defaultSeed)
 }
 
 const completionRate = computed(() => {
@@ -281,9 +281,9 @@ const trendRows = computed(() => store.overview.trendData)
 
 const amountRows = computed(() => store.overview.amountTop)
 
-function cssVar(name: string, fallback: string) {
-  if (typeof window === 'undefined') return fallback
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+function cssVar(name: string, defaultValue: string) {
+  if (typeof window === 'undefined') return defaultValue
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || defaultValue
 }
 
 function chartColors() {
@@ -380,6 +380,10 @@ function openMission(item: MissionItem) {
 }
 
 function openWorkItem(item: WorkItem) {
+  if (item.actionPath) {
+    router.push(item.actionPath)
+    return
+  }
   if (item.auditProjectId) {
     router.push({ path: '/audit', query: { projectId: item.auditProjectId } })
     return
@@ -398,7 +402,7 @@ const moduleStatus: ModuleStatusItem[] = [
   { name: '项目管理', status: '已启用', enabled: true, target: { path: '/project-management' } },
   { name: '招投标看板', status: '建设中', enabled: false, target: { path: '/bidding' } },
   { name: '财务看板', status: '建设中', enabled: false, target: { path: '/finance' } },
-  { name: '资料管理', status: '已启用', enabled: true, target: { path: '/admin/file-library' } },
+  { name: '资料管理', status: '已启用', enabled: true, target: { path: '/materials' } },
 ]
 </script>
 

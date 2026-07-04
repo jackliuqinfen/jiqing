@@ -28,13 +28,13 @@ defineProps<{
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-4);
 }
 
 .page-header__copy {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .page-header__eyebrow {
@@ -47,7 +47,7 @@ defineProps<{
 .page-header__title {
   margin: 0;
   color: var(--text-primary);
-  font-size: var(--text-2xl);
+  font-size: var(--text-xl);
   line-height: 1.2;
   font-weight: 700;
 }
@@ -56,14 +56,14 @@ defineProps<{
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-sm);
-  line-height: 1.6;
+  line-height: 1.45;
 }
 
 .page-header__meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-1);
+  margin-top: 2px;
 }
 
 .page-header__actions {

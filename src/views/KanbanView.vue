@@ -1,8 +1,8 @@
-<template>
+﻿<template>
   <div class="audit-shell" :class="[`layout-${layoutMode}`, { 'audit-shell--embedded': embedded }]">
     <header class="audit-header" :class="{ 'audit-header--embedded': embedded }">
       <div v-if="!embedded" class="brand">
-        <div class="brand-mark"><t-icon name="layers" /></div>
+        <div class="brand-mark"><AIcon name="layers" /></div>
         <div>
           <h1>江苏集庆·工程管理系统</h1>
           <p>审计看板 · 工程管理工作台</p>
@@ -17,15 +17,15 @@
             :class="{ active: viewMode === item.value }"
             @click="requestViewMode(item.value)"
           >
-            <t-icon :name="item.icon" />
+            <AIcon :name="item.icon" />
             <span>{{ item.label }}</span>
           </button>
         </div>
-        <t-button v-if="authStore.isAdmin && viewMode === 'table'" variant="outline" size="small" @click="openTableSettings">
-          <template #icon><t-icon name="setting" /></template>
+        <AButton v-if="authStore.isAdmin && viewMode === 'table'" variant="outline" size="small" @click="openTableSettings">
+          <template #icon><AIcon name="setting" /></template>
           表格设置
-        </t-button>
-        <t-button
+        </AButton>
+        <AButton
           v-if="authStore.isAdmin && viewMode === 'table' && tableSettingsDirty"
           theme="primary"
           size="small"
@@ -33,29 +33,23 @@
           @click="requestSaveTableSettings()"
         >
           保存表格设置
-        </t-button>
-        <select v-model="layoutMode" class="native-select layout-select" aria-label="布局模式">
-          <option value="horizontal">横向</option>
-          <option value="vertical">纵向</option>
-          <option value="compact">紧凑</option>
-          <option value="standard">标准</option>
-          <option value="bigscreen">大屏</option>
-        </select>
-        <t-button theme="primary" size="small" @click="openCreate">
-          <template #icon><t-icon name="add" /></template>
-          新增项目
-        </t-button>
-        <t-button variant="outline" size="small" :loading="store.loading" @click="store.refreshAll">
-          <template #icon><t-icon name="refresh" /></template>
+        </AButton>
+        <ASelect v-model="layoutMode" class="layout-select" aria-label="布局模式" :options="layoutOptions" />
+        <AButton theme="primary" size="small" @click="goProjectAuditSource">
+          <template #icon><AIcon name="add" /></template>
+          从项目发起审计
+        </AButton>
+        <AButton variant="outline" size="small" :loading="store.loading" @click="store.refreshAll">
+          <template #icon><AIcon name="refresh" /></template>
           刷新
-        </t-button>
+        </AButton>
         <template v-if="!embedded">
-          <t-button v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
-            <template #icon><t-icon name="setting" /></template>
+          <AButton v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
+            <template #icon><AIcon name="setting" /></template>
             后台
-          </t-button>
-          <t-button v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</t-button>
-          <t-button v-else theme="primary" size="small" @click="router.push('/login')">登录</t-button>
+          </AButton>
+          <AButton v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</AButton>
+          <AButton v-else theme="primary" size="small" @click="router.push('/login')">登录</AButton>
         </template>
       </div>
     </header>
@@ -102,39 +96,22 @@
       </section>
 
       <section class="toolbar">
-        <input ref="auditKeywordInputRef" v-model="store.filters.keyword" class="native-input keyword" placeholder="搜索项目、楼栋、结算编号" @keyup.enter="store.refreshProjects" />
-        <select v-model="store.filters.stage" class="native-select" @change="store.refreshProjects">
-          <option value="">全部阶段</option>
-          <option v-for="stage in store.meta.stages" :key="stage.code" :value="stage.code">{{ stage.title }}</option>
-        </select>
-        <select v-model="store.filters.priority" class="native-select" @change="store.refreshProjects">
-          <option value="">全部优先级</option>
-          <option v-for="option in options.priority" :key="option.id" :value="option.optionValue">{{ option.optionLabel }}</option>
-        </select>
-        <select v-model="store.filters.category" class="native-select" @change="store.refreshProjects">
-          <option value="">全部分类</option>
-          <option v-for="option in options.category" :key="option.id" :value="option.optionValue">{{ option.optionLabel }}</option>
-        </select>
-        <select v-model="store.filters.status" class="native-select" @change="store.refreshProjects">
-          <option value="">全部状态</option>
-          <option v-for="option in options.status" :key="option.id" :value="option.optionValue">{{ option.optionLabel }}</option>
-        </select>
-        <input v-model="store.filters.owner" class="native-input small-filter" placeholder="负责人" @keyup.enter="store.refreshProjects" />
-        <input v-model="store.filters.startDate" class="native-input date-filter" type="date" @change="store.refreshProjects" />
-        <input v-model="store.filters.endDate" class="native-input date-filter" type="date" @change="store.refreshProjects" />
-        <select v-model="store.filters.sort" class="native-select" @change="store.refreshProjects">
-          <option value="stage">按阶段</option>
-          <option value="plannedEndDate">按计划日期</option>
-          <option value="progress">按进度</option>
-          <option value="amount">按金额</option>
-          <option value="updatedAt">按更新</option>
-        </select>
-        <label class="check-filter">
-          <input v-model="store.filters.onlyOverdue" type="checkbox" @change="store.refreshProjects" />
+        <AInput ref="auditKeywordInputRef" v-model="store.filters.keyword" class="keyword" allow-clear placeholder="搜索项目、楼栋、结算编号" @keyup.enter="store.refreshProjects">
+          <template #prefix><AIcon name="search" /></template>
+        </AInput>
+        <ASelect v-model="store.filters.stage" allow-clear placeholder="全部阶段" :options="stageFilterOptions" @change="store.refreshProjects" />
+        <ASelect v-model="store.filters.priority" allow-clear placeholder="全部优先级" :options="priorityFilterOptions" @change="store.refreshProjects" />
+        <ASelect v-model="store.filters.category" allow-clear placeholder="全部分类" :options="categoryFilterOptions" @change="store.refreshProjects" />
+        <ASelect v-model="store.filters.status" allow-clear placeholder="全部状态" :options="statusFilterOptions" @change="store.refreshProjects" />
+        <AInput v-model="store.filters.owner" class="small-filter" allow-clear placeholder="负责人" @keyup.enter="store.refreshProjects" />
+        <ADatePicker v-model="store.filters.startDate" class="date-filter" placeholder="开始日期" @change="store.refreshProjects" />
+        <ADatePicker v-model="store.filters.endDate" class="date-filter" placeholder="结束日期" @change="store.refreshProjects" />
+        <ASelect v-model="store.filters.sort" :options="sortOptions" @change="store.refreshProjects" />
+        <ACheckbox v-model="store.filters.onlyOverdue" class="check-filter" @change="store.refreshProjects">
           仅超期
-        </label>
-        <t-button size="small" variant="outline" @click="applyFilters">查询</t-button>
-        <t-button size="small" variant="text" @click="resetFilters">重置</t-button>
+        </ACheckbox>
+        <AButton size="small" variant="outline" @click="applyFilters">查询</AButton>
+        <AButton size="small" variant="text" @click="resetFilters">重置</AButton>
       </section>
 
       <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
@@ -146,20 +123,20 @@
         <button type="button" class="active-filter-strip__clear" @click="resetFilters">清除全部</button>
       </section>
 
-      <t-alert v-if="store.error" theme="error" :close="false" class="error-alert">
+      <AAlert v-if="store.error" theme="error" :close="false" class="error-alert">
         <template #message>
           <div class="recoverable-alert">
             <div>
               <strong>审计数据加载失败</strong>
               <span>{{ auditErrorMessage }}</span>
             </div>
-            <t-button size="small" variant="outline" :loading="store.loading" @click="retryAuditLoad">重新加载</t-button>
+            <AButton size="small" variant="outline" :loading="store.loading" @click="retryAuditLoad">重新加载</AButton>
           </div>
         </template>
-      </t-alert>
+      </AAlert>
 
       <div v-if="store.loading && store.projects.length === 0" class="center-state">
-        <t-loading size="large" text="正在加载审计项目..." />
+        <ASpin :size="32" text="正在加载审计项目..." />
       </div>
 
       <section v-else-if="viewMode === 'kanban'" class="kanban-board">
@@ -204,7 +181,14 @@
           <span>项目</span>
           <span>周期</span>
         </div>
-        <div v-for="project in store.projects" :key="project.id" class="gantt-row" @click="openDetail(project)">
+        <button
+          v-for="project in store.projects"
+          :key="project.id"
+          type="button"
+          class="gantt-row"
+          :aria-label="`查看${project.projectName}的审计详情`"
+          @click="openDetail(project)"
+        >
           <div class="gantt-name">
             <strong>{{ project.projectName }}</strong>
             <span>{{ stageTitle(project.stage) }} · {{ project.contractor.name }}</span>
@@ -214,7 +198,7 @@
               <span>{{ project.deadline.submitDate }} 至 {{ project.deadline.auditDeadline }}</span>
             </div>
           </div>
-        </div>
+        </button>
       </section>
 
       <section v-else-if="layoutMode !== 'vertical'" class="stage-table-view" aria-label="审计阶段横向表格">
@@ -335,43 +319,37 @@
 
       <section v-if="!store.loading" class="pager">
         <span>共 {{ store.total }} 条，第 {{ store.filters.page }} 页</span>
-        <select v-model.number="store.filters.pageSize" class="native-select" @change="changePage(1)">
-          <option :value="10">10 条/页</option>
-          <option :value="20">20 条/页</option>
-          <option :value="50">50 条/页</option>
-        </select>
-        <t-button size="small" variant="outline" :disabled="store.filters.page <= 1" @click="changePage(store.filters.page - 1)">上一页</t-button>
-        <t-button size="small" variant="outline" :disabled="store.filters.page >= totalPages" @click="changePage(store.filters.page + 1)">下一页</t-button>
+        <ASelect v-model="store.filters.pageSize" :style="{ width: '112px' }" :options="pageSizeOptions" @change="changePage(1)" />
+        <AButton size="small" variant="outline" :disabled="store.filters.page <= 1" @click="changePage(store.filters.page - 1)">上一页</AButton>
+        <AButton size="small" variant="outline" :disabled="store.filters.page >= totalPages" @click="changePage(store.filters.page + 1)">下一页</AButton>
       </section>
 
-      <section v-if="detailVisible" class="audit-detail-workspace" aria-label="审计项目详情">
+      <section v-if="detailVisible" class="audit-detail-workspace" role="region" aria-labelledby="audit-detail-title">
       <div class="audit-detail-panel">
         <div class="audit-detail-head">
           <div>
-            <h2>{{ editing ? '编辑项目' : '审计详情' }}</h2>
-            <p>{{ editing ? '按字段配置生成表单' : '项目详情与进度流转' }}</p>
+            <h2 id="audit-detail-title">{{ editing ? '从项目主档案发起审计' : '审计详情' }}</h2>
+            <p>{{ editing ? '选择已有项目并补充审计信息，保存后进入审计阶段。' : '项目详情与进度流转' }}</p>
           </div>
-          <button class="icon-button" title="收起详情" @click="closeDrawer"><t-icon name="close" /></button>
+          <button class="icon-button" type="button" aria-label="收起审计详情" title="收起详情" @click="closeDrawer"><AIcon name="close" /></button>
         </div>
 
         <form v-if="editing" class="project-form" @submit.prevent="saveProject">
           <label v-for="field in store.formFields" :key="field.id" class="form-field">
             <span>{{ field.fieldLabel }}<b v-if="field.required">*</b></span>
-            <select v-if="field.fieldType === 'select'" v-model="formValues[field.fieldKey]" class="native-select">
-              <option value="">请选择</option>
-              <option v-for="option in optionList(field.optionGroup)" :key="option.id" :value="option.optionValue">{{ option.optionLabel }}</option>
-              <option value="__custom">手动录入</option>
-            </select>
-            <textarea v-else-if="field.fieldType === 'textarea'" v-model="formValues[field.fieldKey]" class="native-textarea" rows="3" />
-            <input v-else :type="inputType(field.fieldType)" v-model="formValues[field.fieldKey]" class="native-input" />
+            <ASelect v-if="field.fieldType === 'select'" v-model="formValues[field.fieldKey]" allow-clear placeholder="请选择" :options="formFieldOptions(field)" />
+            <ATextarea v-else-if="field.fieldType === 'textarea'" v-model="formValues[field.fieldKey]" :auto-size="{ minRows: 3, maxRows: 5 }" />
+            <AInput v-else-if="field.fieldType === 'number'" v-model="formValues[field.fieldKey]" />
+            <ADatePicker v-else-if="field.fieldType === 'date'" v-model="formValues[field.fieldKey]" />
+            <AInput v-else v-model="formValues[field.fieldKey]" />
             <div v-if="formValues[field.fieldKey] === '__custom'" class="custom-option">
-              <input v-model="customOptionValues[field.fieldKey]" class="native-input" placeholder="录入新选项" />
-              <t-button size="small" variant="outline" @click.prevent="saveCustomOption(field)">保存到选项库</t-button>
+              <AInput v-model="customOptionValues[field.fieldKey]" placeholder="录入新选项" />
+              <AButton size="small" variant="outline" @click.prevent="saveCustomOption(field)">保存到选项库</AButton>
             </div>
           </label>
           <div class="drawer-actions">
-            <t-button variant="outline" @click="editing = false">取消</t-button>
-            <t-button theme="primary" type="submit" :loading="store.saving">保存</t-button>
+            <AButton variant="outline" @click="editing = false">取消</AButton>
+            <AButton theme="primary" html-type="submit" :loading="store.saving">保存</AButton>
           </div>
         </form>
 
@@ -383,11 +361,11 @@
               <p>{{ store.selectedProject.projectCode }} · {{ store.selectedProject.auditedUnit || store.selectedProject.contractor.name || '未填写被审计单位' }}</p>
             </div>
             <div class="audit-detail-actions">
-              <t-button v-if="store.selectedProject.projectId" size="small" variant="outline" theme="default" @click="goProject(store.selectedProject.projectId)">
-                <template #icon><t-icon name="task" /></template>
+              <AButton v-if="store.selectedProject.projectId" size="small" variant="outline" theme="default" @click="goProject(store.selectedProject.projectId)">
+                <template #icon><AIcon name="task" /></template>
                 项目台账
-              </t-button>
-              <t-button size="small" theme="primary" variant="outline" @click="startEdit(store.selectedProject)">编辑审计信息</t-button>
+              </AButton>
+              <AButton size="small" theme="primary" variant="outline" @click="startEdit(store.selectedProject)">编辑审计信息</AButton>
             </div>
           </div>
           <div class="audit-detail-kpis">
@@ -461,10 +439,10 @@
           <div class="attachment-box">
             <div class="section-title-row">
               <h3>附件信息</h3>
-              <t-button v-if="authStore.isEditor" size="small" variant="outline" :loading="attachmentUploading" @click="triggerAttachmentSelect">
-                <template #icon><t-icon name="upload" /></template>
+              <AButton v-if="authStore.isEditor" size="small" variant="outline" :loading="attachmentUploading" @click="triggerAttachmentSelect">
+                <template #icon><AIcon name="upload" /></template>
                 上传
-              </t-button>
+              </AButton>
               <input ref="attachmentInputRef" class="attachment-input" type="file" @change="handleAttachmentUpload" />
             </div>
             <div v-if="(store.selectedProject.attachments || []).length" class="attachment-list">
@@ -483,11 +461,11 @@
             <div v-else class="detail-empty-action">
               <strong>当前审计项目还没有附件</strong>
               <span>上传报审资料、结论附件或补充说明，方便审计过程留痕。</span>
-              <t-button v-if="authStore.isEditor" size="small" theme="primary" @click="triggerAttachmentSelect">上传附件</t-button>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="triggerAttachmentSelect">上传附件</AButton>
             </div>
           </div>
           <div class="log-box">
-            <h3>操作日志</h3>
+            <h3>操作记录</h3>
             <p v-for="log in store.selectedProject.logs || []" :key="log.id">{{ formatDateTime(log.created_at) }} · {{ log.operator || '系统' }} · {{ auditLogText(log.note || log.action) }}</p>
             <div v-if="(store.selectedProject.logs || []).length === 0" class="detail-empty-action">
               <strong>暂无操作记录</strong>
@@ -499,14 +477,22 @@
       </section>
     </main>
 
-    <aside v-if="tableSettingsVisible" class="drawer">
-      <div class="drawer-panel table-settings-panel">
+    <aside v-if="tableSettingsVisible" class="drawer" role="presentation">
+      <div
+        ref="tableSettingsPanelRef"
+        class="drawer-panel table-settings-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="table-settings-title"
+        tabindex="-1"
+        @keydown.esc.stop.prevent="closeTableSettings"
+      >
         <div class="drawer-head">
           <div>
-            <h2>表格设置</h2>
+            <h2 id="table-settings-title">表格设置</h2>
             <p>调整审计看板表格字段、顺序与列宽，保存后会影响当前看板展示。</p>
           </div>
-          <button class="icon-button" @click="closeTableSettings"><t-icon name="close" /></button>
+          <button class="icon-button" type="button" aria-label="关闭表格设置" title="关闭表格设置" @click="closeTableSettings"><AIcon name="close" /></button>
         </div>
 
         <div class="table-settings-body">
@@ -528,27 +514,24 @@
               <tbody>
                 <tr v-for="field in tableSettingsDraft" :key="field.id">
                   <td>
-                    <input v-model="field.visibleInTable" type="checkbox" @change="markTableSettingsDirty" />
+                    <ACheckbox v-model="field.visibleInTable" @change="markTableSettingsDirty" />
                   </td>
                   <td>
-                    <input v-model.trim="field.fieldLabel" class="native-input" placeholder="请输入业务字段名称" @input="markTableSettingsDirty" />
+                    <AInput v-model.trim="field.fieldLabel" placeholder="请输入业务字段名称" @input="markTableSettingsDirty" />
                     <span class="field-key-hint">{{ field.fieldKey }}</span>
                   </td>
                   <td>
-                    <select v-model="field.stageKey" class="native-select" @change="markTableSettingsDirty">
-                      <option value="">全部阶段</option>
-                      <option v-for="stage in store.meta.stages" :key="stage.code" :value="stage.code">{{ stage.title }}</option>
-                    </select>
+                    <ASelect v-model="field.stageKey" allow-clear placeholder="全部阶段" :options="stageFilterOptions" @change="markTableSettingsDirty" />
                   </td>
                   <td>
-                    <input v-model.number="field.sortOrder" class="native-input compact-number" type="number" min="0" @input="markTableSettingsDirty" />
+                    <AInputNumber v-model="field.sortOrder" class="compact-number" :min="0" :precision="0" @input="markTableSettingsDirty" />
                   </td>
                   <td>
-                    <input
+                    <AInputNumber
                       v-model.number="field.tableWidth"
-                      class="native-input compact-number"
-                      type="number"
+                      class="compact-number"
                       :min="field.fieldKey === 'project_name' ? 220 : 96"
+                      :precision="0"
                       @input="updateDraftWidth(field)"
                     />
                   </td>
@@ -559,15 +542,23 @@
         </div>
         <div class="drawer-actions table-settings-actions">
           <span v-if="tableSettingsDirty" class="dirty-hint">有未保存的表格设置</span>
-          <t-button variant="outline" @click="discardTableSettings">放弃更改</t-button>
-          <t-button theme="primary" :loading="tableSettingsSaving" @click="requestSaveTableSettings()">保存设置</t-button>
+          <AButton variant="outline" @click="discardTableSettings">放弃更改</AButton>
+          <AButton theme="primary" :loading="tableSettingsSaving" @click="requestSaveTableSettings()">保存设置</AButton>
         </div>
       </div>
     </aside>
 
-    <div v-if="confirmState.visible" class="confirm-mask">
-      <div class="confirm-panel">
-        <h3>{{ confirmState.title }}</h3>
+    <div v-if="confirmState.visible" class="confirm-mask" role="presentation">
+      <div
+        ref="confirmPanelRef"
+        class="confirm-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="audit-confirm-title"
+        tabindex="-1"
+        @keydown.esc.stop.prevent="confirmCancelAction"
+      >
+        <h3 id="audit-confirm-title">{{ confirmState.title }}</h3>
         <p>{{ confirmState.message }}</p>
         <div class="confirm-actions">
           <button v-if="confirmState.thirdText" type="button" class="ghost-button" @click="confirmThirdAction">{{ confirmState.thirdText }}</button>
@@ -577,14 +568,22 @@
       </div>
     </div>
 
-    <div v-if="attachmentPreview.visible" class="preview-mask">
-      <div class="preview-panel">
+    <div v-if="attachmentPreview.visible" class="preview-mask" role="presentation">
+      <div
+        ref="attachmentPreviewPanelRef"
+        class="preview-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="attachment-preview-title"
+        tabindex="-1"
+        @keydown.esc.stop.prevent="closeAttachmentPreview"
+      >
         <div class="preview-head">
           <div>
-            <h3>{{ attachmentPreview.title }}</h3>
+            <h3 id="attachment-preview-title">{{ attachmentPreview.title }}</h3>
             <p>{{ attachmentPreview.hint }}</p>
           </div>
-          <button class="icon-button" @click="closeAttachmentPreview"><t-icon name="close" /></button>
+          <button class="icon-button" type="button" aria-label="关闭附件预览" title="关闭附件预览" @click="closeAttachmentPreview"><AIcon name="close" /></button>
         </div>
         <div class="preview-body">
           <p v-if="attachmentPreview.loading" class="preview-message">正在加载预览...</p>
@@ -609,6 +608,13 @@ import { fetchWorkItems } from '@/api/projects'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
 import { friendlyErrorMessage } from '@/utils/errors'
+import {
+  auditStageOptions,
+  businessLabel,
+  materialStatusOptions,
+  projectStatusOptions,
+  settlementStatusOptions,
+} from '@/utils/businessDictionaries'
 import type { WorkItem } from '@/types'
 import type { AuditFieldConfig, AuditFilters, AuditLayoutMode, AuditProject, AuditProjectAttachment, AuditStageCode, AuditViewMode } from '@/types/audit'
 
@@ -641,6 +647,9 @@ const customOptionValues = reactive<Record<string, string>>({})
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const auditKeywordInputRef = ref<HTMLInputElement | null>(null)
 const workItemStripRef = ref<HTMLElement | null>(null)
+const tableSettingsPanelRef = ref<HTMLElement | null>(null)
+const confirmPanelRef = ref<HTMLElement | null>(null)
+const attachmentPreviewPanelRef = ref<HTMLElement | null>(null)
 const attachmentUploading = ref(false)
 const workItems = ref<WorkItem[]>([])
 const workItemStripFocused = ref(false)
@@ -682,6 +691,29 @@ const viewModes: { value: AuditViewMode; label: string; icon: string }[] = [
 ]
 
 const options = computed(() => store.meta.options)
+const layoutOptions = [
+  { label: '横向', value: 'horizontal' },
+  { label: '纵向', value: 'vertical' },
+  { label: '紧凑', value: 'compact' },
+  { label: '标准', value: 'standard' },
+  { label: '大屏', value: 'bigscreen' },
+]
+const sortOptions = [
+  { label: '按阶段', value: 'stage' },
+  { label: '按计划日期', value: 'plannedEndDate' },
+  { label: '按进度', value: 'progress' },
+  { label: '按金额', value: 'amount' },
+  { label: '按更新', value: 'updatedAt' },
+]
+const pageSizeOptions = [
+  { label: '10 条/页', value: 10 },
+  { label: '20 条/页', value: 20 },
+  { label: '50 条/页', value: 50 },
+]
+const stageFilterOptions = computed(() => store.meta.stages.map((stage) => ({ label: stage.title, value: stage.code })))
+const priorityFilterOptions = computed(() => optionSelectOptions('priority'))
+const categoryFilterOptions = computed(() => optionSelectOptions('category'))
+const statusFilterOptions = computed(() => optionSelectOptions('status'))
 const activeFilterChips = computed<AuditFilterChip[]>(() => {
   const chips: AuditFilterChip[] = []
   const filters = store.filters
@@ -866,6 +898,20 @@ watch(
   },
 )
 
+watch(
+  () => confirmState.visible,
+  (visible) => {
+    if (visible) nextTick(() => confirmPanelRef.value?.focus())
+  },
+)
+
+watch(
+  () => attachmentPreview.visible,
+  (visible) => {
+    if (visible) nextTick(() => attachmentPreviewPanelRef.value?.focus())
+  },
+)
+
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleAuditKeyboard)
@@ -918,27 +964,29 @@ function displayField(project: AuditProject, field: AuditFieldConfig) {
 }
 
 function stageTitle(code: string) {
-  return store.meta.stages.find((stage) => stage.code === code)?.title || code
+  return store.meta.stages.find((stage) => stage.code === code)?.title || businessLabel(auditStageOptions, code, '待确认')
 }
 
 function optionLabel(group: string, value: string) {
-  return options.value[group]?.find((item) => item.optionValue === value)?.optionLabel || value || '未设置'
+  const configured = options.value[group]?.find((item) => item.optionValue === value)?.optionLabel
+  if (configured) return configured
+  if (group === 'stage') return businessLabel(auditStageOptions, value, '未设置')
+  if (group === 'status' || group === 'project_status') return businessLabel(projectStatusOptions, value, '未设置')
+  if (group === 'doc_status' || group === 'material_status') return businessLabel(materialStatusOptions, value, '未设置')
+  if (group === 'settlement_status') return businessLabel(settlementStatusOptions, value, '未设置')
+  return value ? '待确认' : '未设置'
+}
+
+function optionSelectOptions(group: string) {
+  return (options.value[group] || []).map((item) => ({
+    label: item.optionLabel,
+    value: item.optionValue,
+  }))
 }
 
 function statusTitle(value: string) {
-  const labels: Record<string, string> = {
-    not_started: '未开始',
-    active: '进行中',
-    delayed: '已逾期',
-    completed: '已完成',
-    paused: '暂停',
-    submitted: '报审待受理',
-    first_audit: '一级初审',
-    second_audit: '二级复审',
-    conclusion: '定案结论',
-    archived: '办结归档',
-  }
-  return labels[value] || '待确认'
+  if (value === 'delayed') return '已逾期'
+  return businessLabel(projectStatusOptions, value, businessLabel(auditStageOptions, value, '待确认'))
 }
 
 function sortTitle(value: string) {
@@ -998,6 +1046,9 @@ function optionValueTitle(field: AuditFieldConfig, value: unknown) {
   if (field.optionGroup === 'status' || field.fieldKey === 'status' || field.bindField === 'status') {
     return statusTitle(raw)
   }
+  if (field.optionGroup === 'doc_status' || field.optionGroup === 'material_status' || field.fieldKey.includes('material_status')) {
+    return businessLabel(materialStatusOptions, raw, '待确认')
+  }
   return raw ? '待确认' : '-'
 }
 
@@ -1045,6 +1096,7 @@ function markTableSettingsDirty() {
 function openTableSettings() {
   initTableSettingsDraft()
   tableSettingsVisible.value = true
+  nextTick(() => tableSettingsPanelRef.value?.focus())
 }
 
 function closeTableSettings() {
@@ -1280,6 +1332,10 @@ function goProject(projectId: string) {
 }
 
 function openWorkItem(item: WorkItem) {
+  if (item.actionPath) {
+    router.push(item.actionPath)
+    return
+  }
   if (item.auditProjectId) {
     router.push({ path: '/audit', query: { projectId: item.auditProjectId } })
     return
@@ -1351,12 +1407,8 @@ function closeDrawer() {
   closeAttachmentPreview()
 }
 
-function openCreate() {
-  editingId.value = ''
-  store.selectedProject = null
-  resetForm()
-  detailVisible.value = true
-  editing.value = true
+function goProjectAuditSource() {
+  router.push({ path: '/project-management', query: { intent: 'start-audit' } })
 }
 
 function startEdit(project: AuditProject) {
@@ -1386,10 +1438,14 @@ function optionList(group: string) {
   return group ? store.meta.options[group] || [] : []
 }
 
-function inputType(type: string) {
-  if (type === 'number') return 'number'
-  if (type === 'date') return 'date'
-  return 'text'
+function formFieldOptions(field: AuditFieldConfig) {
+  return [
+    ...optionList(field.optionGroup).map((option) => ({
+      label: option.optionLabel,
+      value: option.optionValue,
+    })),
+    { label: '手动录入', value: '__custom' },
+  ]
 }
 
 async function saveCustomOption(field: AuditFieldConfig) {
@@ -1787,23 +1843,6 @@ async function logout() {
   margin-bottom: var(--space-4);
   align-items: center;
 }
-.native-input, .native-select, .native-textarea {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: #fff;
-  color: var(--text-primary);
-  min-height: 34px;
-  padding: 6px 10px;
-  font: inherit;
-  outline: none;
-}
-.native-input:focus,
-.native-select:focus,
-.native-textarea:focus {
-  border-color: var(--color-brand-500);
-  box-shadow: 0 0 0 2px var(--color-brand-50);
-}
-.native-textarea { resize: vertical; min-height: 76px; }
 .keyword { min-width: 260px; flex: 1; }
 .small-filter { width: 120px; }
 .date-filter { width: 144px; }
@@ -1949,8 +1988,21 @@ async function logout() {
 }
 .gantt-head { background: var(--bg-muted); color: var(--text-secondary); font-size: var(--text-xs); border-bottom: 1px solid var(--border-color); }
 .gantt-head span, .gantt-name { padding: var(--space-3); }
-.gantt-row { border-bottom: 1px solid var(--border-color); cursor: pointer; }
-.gantt-row:hover { background: var(--bg-muted); }
+.gantt-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gantt-row:hover, .gantt-row:focus-visible { background: var(--bg-muted); }
+.gantt-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
 .gantt-name strong, .gantt-name span { display: block; }
 .gantt-name span { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 3px; }
 .gantt-track { position: relative; min-height: 54px; margin: 0 var(--space-3); border-left: 1px solid var(--border-color); border-right: 1px solid var(--border-color); }
@@ -2857,3 +2909,4 @@ async function logout() {
   .stage-table-rail__line { width: 40px; height: 2px; min-height: 0; flex: 0 0 auto; }
 }
 </style>
+

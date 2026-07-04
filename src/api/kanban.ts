@@ -37,11 +37,11 @@ export async function fetchAllItems(): Promise<ApiResponse<CostAuditItem[]>> {
 }
 
 /**
- * 新建项目
+ * 发起审计
  */
 export async function createItem(dto: CreateAuditItemDto): Promise<ApiResponse<CostAuditItem>> {
   try {
-    requireAuthForMutation('新增项目')
+    requireAuthForMutation('发起审计')
     const client = getSupabaseClient()
     const id = generateUUID()
     const now = todayISO()

@@ -1,5 +1,5 @@
-<template>
-  <t-dialog
+﻿<template>
+  <AModal
     v-model:visible="visible"
     :header="dialogHeader"
     width="760px"
@@ -9,11 +9,11 @@
     class="audit-edit-dialog"
     @confirm="handleSubmit"
   >
-    <t-form
+    <AForm
       ref="formRef"
-      :data="formData"
-      :rules="readonly ? {} : formRules"
-      label-align="top"
+      :model="formData"
+      :rules="readonly ? {} : validationRules"
+      layout="vertical"
       class="edit-form"
       :class="{ 'is-readonly': readonly }"
     >
@@ -23,28 +23,28 @@
           <span class="legend-dot" style="background:var(--color-brand-500)" />工程基础信息
         </legend>
         <div class="form-row">
-          <t-form-item label="项目全称" name="projectName" class="flex-2">
-            <t-input v-model="formData.projectName" placeholder="请输入项目全称" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="项目全称" name="projectName" class="flex-2">
+            <AInput v-model="formData.projectName" placeholder="请输入项目全称" :disabled="readonly" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="分部/楼栋" name="sectionBuilding">
-            <t-input v-model="formData.sectionBuilding" placeholder="如：1#楼主体结构" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="结算编号" name="settlementNo">
-            <t-input v-model="formData.settlementNo" placeholder="如：JS-2025-001" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="分部/楼栋" name="sectionBuilding">
+            <AInput v-model="formData.sectionBuilding" placeholder="如：1#楼主体结构" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="结算编号" name="settlementNo">
+            <AInput v-model="formData.settlementNo" placeholder="如：JS-2025-001" :disabled="readonly" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="工程分类" name="category">
-            <t-select v-model="formData.category" :options="categoryOpts" placeholder="选择" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="优先级" name="priority">
-            <t-select v-model="formData.priority" :options="priorityOpts" placeholder="选择" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="流程阶段" name="stage">
-            <t-select v-model="formData.stage" :options="stageOpts" placeholder="选择" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="工程分类" name="category">
+            <ASelect v-model="formData.category" :options="categoryOpts" placeholder="选择" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="优先级" name="priority">
+            <ASelect v-model="formData.priority" :options="priorityOpts" placeholder="选择" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="流程阶段" name="stage">
+            <ASelect v-model="formData.stage" :options="stageOpts" placeholder="选择" :disabled="readonly" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -54,12 +54,12 @@
           <span class="legend-dot" style="background:var(--color-brand-500)" />施工方经办人
         </legend>
         <div class="form-row">
-          <t-form-item label="经办人姓名" name="contractorName">
-            <t-input v-model="formData.contractorName" placeholder="经办人姓名" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="联系电话" name="contractorPhone">
-            <t-input v-model="formData.contractorPhone" placeholder="手机号" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="经办人姓名" name="contractorName">
+            <AInput v-model="formData.contractorName" placeholder="经办人姓名" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="联系电话" name="contractorPhone">
+            <AInput v-model="formData.contractorPhone" placeholder="手机号" :disabled="readonly" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -69,28 +69,28 @@
           <span class="legend-dot" style="background:var(--color-warning)" />造价金额（元）
         </legend>
         <div class="form-row">
-          <t-form-item label="合同金额" name="contractAmount">
-            <t-input-number v-model="formData.contractAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="送审结算金额" name="submittedAmount">
-            <t-input-number v-model="formData.submittedAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="合同金额" name="contractAmount">
+            <AInputNumber v-model="formData.contractAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="送审结算金额" name="submittedAmount">
+            <AInputNumber v-model="formData.submittedAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="一审审定金额" name="firstAuditAmount">
-            <t-input-number v-model="formData.firstAuditAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="二审审定金额" name="secondAuditAmount">
-            <t-input-number v-model="formData.secondAuditAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
-          </t-form-item>
+          <AFormItem label="一审审定金额" name="firstAuditAmount">
+            <AInputNumber v-model="formData.firstAuditAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="二审审定金额" name="secondAuditAmount">
+            <AInputNumber v-model="formData.secondAuditAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="定案应付工程款" name="finalPayable">
-            <t-input-number v-model="formData.finalPayable" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
-          </t-form-item>
-          <t-form-item label="已回款金额" name="paidAmount">
-            <t-input-number v-model="formData.paidAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" />
-          </t-form-item>
+          <AFormItem label="定案应付工程款" name="finalPayable">
+            <AInputNumber v-model="formData.finalPayable" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" :disabled="readonly" />
+          </AFormItem>
+          <AFormItem label="已回款金额" name="paidAmount">
+            <AInputNumber v-model="formData.paidAmount" :min="0" :decimal-places="2" placeholder="0.00" class="w-full" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -100,17 +100,17 @@
           <span class="legend-dot" style="background:var(--color-stage-first-audit)" />一审信息（第三方造价事务所）
         </legend>
         <div class="form-row">
-          <t-form-item label="咨询单位名称" name="firstCompany" class="flex-2">
-            <t-input v-model="formData.firstCompany" placeholder="第三方咨询单位名称" />
-          </t-form-item>
+          <AFormItem label="咨询单位名称" name="firstCompany" class="flex-2">
+            <AInput v-model="formData.firstCompany" placeholder="第三方咨询单位名称" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="初审造价师" name="firstAuditorName">
-            <t-input v-model="formData.firstAuditorName" placeholder="造价师姓名" />
-          </t-form-item>
-          <t-form-item label="联系手机号" name="firstAuditorPhone">
-            <t-input v-model="formData.firstAuditorPhone" placeholder="手机号" />
-          </t-form-item>
+          <AFormItem label="初审造价师" name="firstAuditorName">
+            <AInput v-model="formData.firstAuditorName" placeholder="造价师姓名" />
+          </AFormItem>
+          <AFormItem label="联系手机号" name="firstAuditorPhone">
+            <AInput v-model="formData.firstAuditorPhone" placeholder="手机号" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -120,17 +120,17 @@
           <span class="legend-dot" style="background:var(--color-stage-second-audit)" />二审信息（建设单位内审）
         </legend>
         <div class="form-row">
-          <t-form-item label="内审部门" name="secondDept" class="flex-2">
-            <t-input v-model="formData.secondDept" placeholder="建设单位内审部门" />
-          </t-form-item>
+          <AFormItem label="内审部门" name="secondDept" class="flex-2">
+            <AInput v-model="formData.secondDept" placeholder="建设单位内审部门" />
+          </AFormItem>
         </div>
         <div class="form-row">
-          <t-form-item label="复审工程师" name="secondAuditorName">
-            <t-input v-model="formData.secondAuditorName" placeholder="工程师姓名" />
-          </t-form-item>
-          <t-form-item label="联系手机号" name="secondAuditorPhone">
-            <t-input v-model="formData.secondAuditorPhone" placeholder="手机号" />
-          </t-form-item>
+          <AFormItem label="复审工程师" name="secondAuditorName">
+            <AInput v-model="formData.secondAuditorName" placeholder="工程师姓名" />
+          </AFormItem>
+          <AFormItem label="联系手机号" name="secondAuditorPhone">
+            <AInput v-model="formData.secondAuditorPhone" placeholder="手机号" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -140,15 +140,15 @@
           <span class="legend-dot" style="background:var(--color-info)" />时限管控与状态
         </legend>
         <div class="form-row">
-          <t-form-item label="报审提交日期" name="submitDate">
-            <t-date-picker v-model="formData.submitDate" placeholder="选择日期" clearable />
-          </t-form-item>
-          <t-form-item label="审计办结截止日" name="auditDeadline">
-            <t-date-picker v-model="formData.auditDeadline" placeholder="选择日期" clearable />
-          </t-form-item>
-          <t-form-item label="资料状态" name="docStatus">
-            <t-select v-model="formData.docStatus" :options="docStatusOpts" placeholder="选择" />
-          </t-form-item>
+          <AFormItem label="报审提交日期" name="submitDate">
+            <ADatePicker v-model="formData.submitDate" placeholder="选择日期" clearable />
+          </AFormItem>
+          <AFormItem label="审计办结截止日" name="auditDeadline">
+            <ADatePicker v-model="formData.auditDeadline" placeholder="选择日期" clearable />
+          </AFormItem>
+          <AFormItem label="资料状态" name="docStatus">
+            <ASelect v-model="formData.docStatus" :options="docStatusOpts" placeholder="选择" />
+          </AFormItem>
         </div>
       </fieldset>
 
@@ -157,22 +157,22 @@
         <legend class="fieldset-legend">
           <span class="legend-dot" style="background:var(--color-gray-400)" />业务备注
         </legend>
-        <t-form-item label="结算争议" name="dispute">
-          <t-textarea v-model="formData.dispute" placeholder="记录结算争议内容（选填）" :maxlength="500" :rows="2" />
-        </t-form-item>
-        <t-form-item label="协调记录" name="coordination">
-          <t-textarea v-model="formData.coordination" placeholder="记录协调沟通内容（选填）" :maxlength="500" :rows="2" />
-        </t-form-item>
+        <AFormItem label="结算争议" name="dispute">
+          <ATextarea v-model="formData.dispute" placeholder="记录结算争议内容（选填）" :maxlength="500" :rows="2" />
+        </AFormItem>
+        <AFormItem label="协调记录" name="coordination">
+          <ATextarea v-model="formData.coordination" placeholder="记录协调沟通内容（选填）" :maxlength="500" :rows="2" />
+        </AFormItem>
       </fieldset>
-    </t-form>
-  </t-dialog>
+    </AForm>
+  </AModal>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { useKanbanStore } from '@/store/kanban'
 import { MessagePlugin } from '@/ui/message'
-import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
+import type { AppFormInstance, AppValidationRule } from '@/ui/arcoAppComponents'
 import type { CostAuditItem, KanbanStage, ProjectCategory, PriorityLevel, DocStatus } from '@/types'
 import { createRequestLock } from '@/utils/debounce'
 import { todayISO } from '@/utils/date'
@@ -198,7 +198,7 @@ const dialogHeader = computed(() =>
   props.readonly ? '查看造价结算项目' : isEdit.value ? '编辑造价结算项目' : '新增造价结算项目'
 )
 
-const formRef = ref<FormInstanceFunctions>()
+const formRef = ref<AppFormInstance>()
 
 interface FormData {
   projectName: string; sectionBuilding: string; settlementNo: string
@@ -224,7 +224,7 @@ const formData = reactive<FormData>({
   dispute: '', coordination: '',
 })
 
-const formRules: Record<string, FormRule[]> = {
+const validationRules: Record<string, AppValidationRule[]> = {
   projectName: [{ required: true, message: '请输入项目全称', trigger: 'blur' }],
   submittedAmount: [{ required: true, message: '请输入送审金额', trigger: 'blur' }],
   auditDeadline: [{ required: true, message: '请选择截止日期', trigger: 'change' }],
@@ -385,7 +385,7 @@ const docStatusOpts = [
 
 .flex-2 { flex: 2 !important; }
 
-.w-full :deep(.t-input-number) { width: 100%; }
+.w-full :deep(.arco-input-wrapper-number) { width: 100%; }
 
 :deep(.t-form__label) {
   font-size: var(--text-sm);
@@ -394,7 +394,7 @@ const docStatusOpts = [
   padding-bottom: var(--space-1);
 }
 
-:deep(.t-dialog__body) {
+:deep(.arco-modal-body) {
   padding-top: var(--space-4);
   padding-bottom: var(--space-4);
 }
@@ -404,3 +404,6 @@ const docStatusOpts = [
   min-height: 56px;
 }
 </style>
+
+
+

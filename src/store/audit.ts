@@ -1,7 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
-  createAuditProject,
   deleteProjectAttachment,
   fetchAuditDashboardOverview,
   fetchAuditMeta,
@@ -183,7 +182,7 @@ export const useAuditStore = defineStore('audit', () => {
       if (project.id) {
         await updateAuditProject(project.id, project)
       } else {
-        await createAuditProject(project)
+        throw new Error('请先在项目管理中建立项目主档案，再从项目详情发起审计')
       }
       await refreshProjects()
     } finally {

@@ -1,30 +1,30 @@
-<template>
+﻿<template>
   <div class="operation-logs">
-    <PageHeader title="操作日志" description="查看登录、项目、附件、主题和后台配置等关键操作记录">
+    <PageHeader title="操作记录" description="查看账号登录、项目资料、主题设置和管理配置等关键操作。">
       <template #meta>
-        <t-tag variant="light" theme="primary">共 {{ filteredLogs.length }} 条</t-tag>
-        <t-tag v-if="keyword || resultFilter || roleFilter" variant="light">已应用筛选</t-tag>
+        <ATag variant="light" theme="primary">共 {{ filteredLogs.length }} 条</ATag>
+        <ATag v-if="keyword || resultFilter || roleFilter" variant="light">已应用筛选</ATag>
       </template>
       <template #actions>
-        <t-button variant="outline" :loading="loading" @click="fetchLogs">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton variant="outline" :loading="loading" @click="fetchLogs">
+          <template #icon><AIcon name="refresh" /></template>
           刷新
-        </t-button>
+        </AButton>
       </template>
     </PageHeader>
 
     <div class="log-toolbar">
-      <t-input v-model="keyword" placeholder="搜索账号、动作、对象或 IP" clearable :style="{ width: '280px' }">
-        <template #prefix-icon><t-icon name="search" /></template>
-      </t-input>
-      <t-select
+      <AInput v-model="keyword" placeholder="搜索账号、操作内容或对象" clearable :style="{ width: '280px' }">
+        <template #prefix-icon><AIcon name="search" /></template>
+      </AInput>
+      <ASelect
         v-model="resultFilter"
         placeholder="结果"
         clearable
         :style="{ width: '120px' }"
         :options="resultOptions"
       />
-      <t-select
+      <ASelect
         v-model="roleFilter"
         placeholder="角色"
         clearable
@@ -37,40 +37,40 @@
     <StatePanel
       v-if="loading && logs.length === 0"
       state="loading"
-      title="正在读取操作日志"
-      description="系统正在整理登录、项目、附件和配置记录，请稍候。"
+      title="正在读取操作记录"
+      description="正在整理登录、项目、附件和配置记录，请稍候。"
     />
 
     <StatePanel
       v-else-if="fetchError"
       state="error"
-      title="操作日志加载失败"
-      description="日志列表暂时没有读取成功，可能是网络异常或服务响应较慢。你可以重试，必要时联系管理员。"
+      title="操作记录加载失败"
+      description="记录列表暂时没有读取成功，可能是网络异常或服务响应较慢。你可以重试，必要时联系管理员。"
     >
       <template #actions>
-        <t-button theme="primary" :loading="loading" @click="fetchLogs">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton theme="primary" :loading="loading" @click="fetchLogs">
+          <template #icon><AIcon name="refresh" /></template>
           重新加载
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
     <StatePanel
       v-else-if="filteredLogs.length === 0"
       state="empty"
-      title="未找到符合条件的日志"
-      :description="keyword || resultFilter || roleFilter ? '请调整筛选条件后再试，或清除筛选查看全部日志。' : '当前还没有操作日志。'"
+      title="未找到符合条件的记录"
+      :description="keyword || resultFilter || roleFilter ? '请调整筛选条件后再试，或清除筛选查看全部记录。' : '当前还没有操作记录。'"
     >
       <template #actions>
-        <t-button v-if="keyword || resultFilter || roleFilter" variant="outline" @click="resetFilters">清除筛选</t-button>
-        <t-button theme="primary" :loading="loading" @click="fetchLogs">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton v-if="keyword || resultFilter || roleFilter" variant="outline" @click="resetFilters">清除筛选</AButton>
+        <AButton theme="primary" :loading="loading" @click="fetchLogs">
+          <template #icon><AIcon name="refresh" /></template>
           重新加载
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
-    <t-table
+    <ATable
       v-else
       :data="filteredLogs"
       :columns="tableColumns"
@@ -90,9 +90,9 @@
         </div>
       </template>
       <template #action="{ row }">
-        <t-tag :theme="actionTheme(row.action)" variant="light" size="small">
+        <ATag :theme="actionTheme(row.action)" variant="light" size="small">
           {{ actionLabel(row.action) }}
-        </t-tag>
+        </ATag>
       </template>
       <template #target="{ row }">
         <div class="target-cell">
@@ -101,9 +101,9 @@
         </div>
       </template>
       <template #result="{ row }">
-        <t-tag :theme="row.result === 'success' ? 'success' : 'danger'" variant="light" size="small">
+        <ATag :theme="row.result === 'success' ? 'success' : 'danger'" variant="light" size="small">
           {{ row.result === 'success' ? '成功' : '失败' }}
-        </t-tag>
+        </ATag>
       </template>
       <template #ipAddress="{ row }">
         <span class="mono-cell">{{ row.ipAddress || '—' }}</span>
@@ -111,7 +111,7 @@
       <template #detail="{ row }">
         <span class="detail-cell" :title="detailText(row.detail)">{{ detailText(row.detail) }}</span>
       </template>
-    </t-table>
+    </ATable>
   </div>
 </template>
 
@@ -129,7 +129,7 @@ const tableColumns = [
   { colKey: 'action', title: '动作', width: 150 },
   { colKey: 'target', title: '对象', ellipsis: true },
   { colKey: 'result', title: '结果', width: 90 },
-  { colKey: 'ipAddress', title: 'IP', width: 130 },
+  { colKey: 'ipAddress', title: '登录位置', width: 130 },
   { colKey: 'detail', title: '详情', ellipsis: true },
 ]
 
@@ -192,6 +192,19 @@ function actionLabel(action: string) {
     'project.create': '项目创建',
     'project.update': '项目更新',
     'project.progress': '进度调整',
+    'project_record.create': '创建项目主档案',
+    'project_record.update': '更新项目主档案',
+    'project_record.delete': '删除项目主档案',
+    'project.audit.start': '发起审计流程',
+    'project_file.upload': '上传项目资料',
+    'project_file.rename': '重命名项目资料',
+    'project_file.delete': '删除项目资料',
+    'project_settlement.create': '新增结算记录',
+    'project_settlement.update': '更新结算记录',
+    'project_settlement.delete': '删除结算记录',
+    'project_variation.create': '新增变更签证',
+    'project_variation.update': '更新变更签证',
+    'project_variation.delete': '删除变更签证',
     'attachment.upload': '附件上传',
     'attachment.delete': '附件删除',
     'theme.update': '主题更新',
@@ -203,7 +216,7 @@ function actionLabel(action: string) {
     'field_option.upsert': '选项配置',
     'field_option.delete': '选项删除',
   }
-  return labels[action] || action
+  return labels[action] || '业务操作'
 }
 
 function actionTheme(action: string) {
@@ -219,18 +232,41 @@ function targetLabel(targetType: string) {
     system_user: '用户',
     audit_project: '审计项目',
     audit_project_attachment: '项目附件',
+    project_record: '项目主档案',
+    project_file: '项目资料',
+    project_settlement: '结算记录',
+    project_variation: '变更签证',
     system_theme: '主题',
     system_setting: '系统设置',
     audit_field_config: '字段配置',
     audit_field_option: '选项库',
   }
-  return labels[targetType] || targetType || '系统'
+  return labels[targetType] || '业务对象'
 }
 
 function detailText(detail: Record<string, unknown>) {
   const entries = Object.entries(detail || {}).filter(([, value]) => value !== undefined && value !== null && value !== '')
   if (!entries.length) return '—'
-  return entries.map(([key, value]) => `${key}: ${String(value)}`).join('；')
+  return entries.map(([key, value]) => `${detailKeyLabel(key)}: ${String(value)}`).join('；')
+}
+
+function detailKeyLabel(key: string) {
+  const labels: Record<string, string> = {
+    action: '操作内容',
+    targetId: '关联对象',
+    target_id: '关联对象',
+    username: '账号',
+    role: '角色',
+    result: '结果',
+    message: '说明',
+    reason: '原因',
+    theme: '主题',
+    projectId: '项目',
+    project_id: '项目',
+    fileName: '文件名称',
+    file_name: '文件名称',
+  }
+  return labels[key] || '记录项'
 }
 
 function resetFilters() {
@@ -256,7 +292,7 @@ async function fetchLogs() {
   try {
     logs.value = await getOperationLogs()
   } catch (err) {
-    fetchError.value = err instanceof Error ? err.message : '获取操作日志失败'
+    fetchError.value = err instanceof Error ? err.message : '操作记录加载失败'
     MessagePlugin.error(fetchError.value)
   } finally {
     loading.value = false
@@ -337,3 +373,4 @@ onMounted(fetchLogs)
   .log-count { margin-left: 0; }
 }
 </style>
+

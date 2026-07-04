@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     :data-stage="column.id"
     :data-locked="column.locked ? 'true' : 'false'"
@@ -9,10 +9,10 @@
       <div class="column-title-row">
         <span class="column-dot" :style="{ background: headerColor }" />
         <span class="column-title">{{ column.title }}</span>
-        <t-badge :count="cards.length" :offset="[0, 0]" size="small" />
+        <ABadge :count="cards.length" :offset="[0, 0]" size="small" />
       </div>
       <div v-if="column.locked" class="column-locked-hint">
-        <t-icon name="lock-on" size="11px" />
+        <AIcon name="lock-on" size="11px" />
         <span>已锁定</span>
       </div>
     </div>
@@ -20,7 +20,7 @@
     <!-- 列体 -->
     <div :id="`kanban-body-${column.id}`" class="kanban-column-body">
       <div v-if="cards.length === 0" class="column-empty">
-        <t-icon name="inbox" size="28px" />
+        <AIcon name="inbox" size="28px" />
         <span>暂无项目</span>
       </div>
 
@@ -160,7 +160,7 @@ function handleEdit(item: CostAuditItem) { emit('edit', item) }
   margin: 2px;
 }
 
-.column-empty :deep(.t-icon) { color: var(--color-gray-200); }
+.column-empty :deep(.arco-icon) { color: var(--color-gray-200); }
 
 /* ── 列底部 ── */
 .column-footer {
@@ -182,3 +182,4 @@ function handleEdit(item: CostAuditItem) { emit('edit', item) }
   .kanban-column { min-width: 280px; max-width: 300px; }
 }
 </style>
+

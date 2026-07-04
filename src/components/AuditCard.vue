@@ -1,5 +1,5 @@
-<template>
-  <t-card
+﻿<template>
+  <ACard
     :class="cardClasses"
     :bordered="true"
     :shadow="false"
@@ -13,30 +13,30 @@
     <!-- 头部：项目名 + 优先级 + 编号/楼栋 + 分类 -->
     <div class="card-header">
       <div class="project-title-row">
-        <t-tooltip :content="item.projectName" placement="top">
+        <ATooltip :content="item.projectName" placement="top">
           <span class="project-name">{{ item.projectName }}</span>
-        </t-tooltip>
-        <t-tag :theme="priorityTheme" variant="light-outline" size="small">
+        </ATooltip>
+        <ATag :theme="priorityTheme" variant="light-outline" size="small">
           {{ item.priority }}
-        </t-tag>
+        </ATag>
       </div>
       <div class="project-meta">
         <span>{{ item.settlementNo }}</span>
         <span class="meta-sep">|</span>
         <span>{{ item.sectionBuilding }}</span>
       </div>
-      <t-tag :theme="categoryTheme" variant="light" size="small" class="category-tag">
+      <ATag :theme="categoryTheme" variant="light" size="small" class="category-tag">
         {{ item.category }}
-      </t-tag>
+      </ATag>
     </div>
 
     <!-- 施工方经办人 — 纯色蓝 avatar -->
     <div class="card-section contractor-section">
       <span class="section-label">施工方经办人</span>
       <div class="contractor-row">
-        <t-avatar size="small" :style="{ background: 'var(--color-brand-500)' }">
+        <AAvatar :size="24" :style="{ background: 'var(--color-brand-500)' }">
           {{ getInitials(item.contractor.name) }}
-        </t-avatar>
+        </AAvatar>
         <span class="contractor-name">{{ item.contractor.name }}</span>
       </div>
     </div>
@@ -78,23 +78,23 @@
         <span class="party-label">一审 · 事务所</span>
         <span class="party-company truncate">{{ item.firstAudit.companyName }}</span>
         <span class="party-person">{{ item.firstAudit.auditor.name }}</span>
-        <t-tooltip :content="item.firstAudit.auditor.phone">
+        <ATooltip :content="item.firstAudit.auditor.phone">
           <span class="party-phone" @click.stop="copyPhone(item.firstAudit.auditor.phone)">
-            <t-icon name="call" size="12px" />
+            <AIcon name="call" size="12px" />
             {{ item.firstAudit.auditor.phone }}
           </span>
-        </t-tooltip>
+        </ATooltip>
       </div>
       <div class="audit-party party-second">
         <span class="party-label">二审 · 业主</span>
         <span class="party-company truncate">{{ item.secondAudit.department }}</span>
         <span class="party-person">{{ item.secondAudit.auditor.name }}</span>
-        <t-tooltip :content="item.secondAudit.auditor.phone">
+        <ATooltip :content="item.secondAudit.auditor.phone">
           <span class="party-phone" @click.stop="copyPhone(item.secondAudit.auditor.phone)">
-            <t-icon name="call" size="12px" />
+            <AIcon name="call" size="12px" />
             {{ item.secondAudit.auditor.phone }}
           </span>
-        </t-tooltip>
+        </ATooltip>
       </div>
     </div>
 
@@ -104,7 +104,7 @@
       <div class="deadline-row">
         <span class="deadline-item">报审 {{ formatDate(item.deadline.submitDate) }}</span>
         <span :class="['deadline-item', { overdue: isOverdue(item.deadline.auditDeadline) }]">
-          <t-icon v-if="isOverdue(item.deadline.auditDeadline)" name="error-circle" size="12px" />
+          <AIcon v-if="isOverdue(item.deadline.auditDeadline)" name="error-circle" size="12px" />
           截止 {{ formatDate(item.deadline.auditDeadline) }}
         </span>
       </div>
@@ -112,9 +112,9 @@
 
     <!-- 资料状态 -->
     <div class="card-section status-section">
-      <t-tag :theme="docStatusTheme" variant="light-outline" size="small">
+      <ATag :theme="docStatusTheme" variant="light-outline" size="small">
         {{ item.docStatus }}
-      </t-tag>
+      </ATag>
     </div>
 
     <!-- 业务备注 -->
@@ -130,25 +130,25 @@
 
     <!-- 操作按钮 — 仅已登录且未归档 -->
     <div v-if="authStore.isAuthenticated && !item.isArchived" class="card-section card-actions">
-      <t-button v-if="item.projectId" size="small" variant="text" theme="default" @click.stop="goProject">
-        <template #icon><t-icon name="task" /></template>
+      <AButton v-if="item.projectId" size="small" variant="text" theme="default" @click.stop="goProject">
+        <template #icon><AIcon name="task" /></template>
         项目台账
-      </t-button>
-      <t-button size="small" variant="text" theme="primary" @click.stop="handleEdit">
-        <template #icon><t-icon name="edit" /></template>
+      </AButton>
+      <AButton size="small" variant="text" theme="primary" @click.stop="handleEdit">
+        <template #icon><AIcon name="edit" /></template>
         编辑
-      </t-button>
-      <t-button size="small" variant="text" theme="default" @click.stop="handleCopyInfo">
-        <template #icon><t-icon name="file-copy" /></template>
+      </AButton>
+      <AButton size="small" variant="text" theme="default" @click.stop="handleCopyInfo">
+        <template #icon><AIcon name="file-copy" /></template>
         复制台账
-      </t-button>
+      </AButton>
     </div>
 
-    <!-- 操作日志 -->
+    <!-- 操作记录 -->
     <div class="card-log">
       <span>{{ item.log.operator }} · {{ operateTypeText }} · {{ formatDate(item.log.updateTime) }}</span>
     </div>
-  </t-card>
+  </ACard>
 </template>
 
 <script setup lang="ts">
@@ -529,3 +529,4 @@ function handleCopyInfo() {
   opacity: 0.85;
 }
 </style>
+

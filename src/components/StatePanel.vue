@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <div class="state-panel" :class="`state-panel--${state}`">
     <div class="state-panel__icon">
-      <t-icon :name="iconName" size="20px" :class="{ 'state-panel__icon--loading': state === 'loading' }" />
+      <AIcon :name="iconName" size="20px" :class="{ 'state-panel__icon--loading': state === 'loading' }" />
     </div>
     <div class="state-panel__body">
       <strong>{{ title }}</strong>
@@ -100,3 +100,4 @@ const iconName = computed(() => {
   }
 }
 </style>
+

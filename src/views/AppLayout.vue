@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <div class="system-shell" :class="`system-shell--${sidebarMode}`">
     <button v-if="sidebarMode === 'hidden'" type="button" class="sidebar-restore" @click="setSidebarMode('full')">
-      <t-icon name="list" />
+      <AIcon name="list" />
       <span>展开导航</span>
     </button>
 
@@ -23,7 +23,7 @@
           :active-class="item.path === '/' ? '' : 'module-link--active'"
           exact-active-class="module-link--active"
         >
-          <t-icon :name="item.icon" />
+          <AIcon :name="item.icon" />
           <span>{{ item.label }}</span>
           <small v-if="item.badge">{{ item.badge }}</small>
         </router-link>
@@ -32,57 +32,53 @@
       <div v-if="authStore.isAdmin" class="nav-group">
         <p>后台管理</p>
         <router-link to="/admin/field-configs" class="module-link">
-          <t-icon name="edit-1" />
+          <AIcon name="edit-1" />
           <span>字段配置</span>
         </router-link>
         <router-link to="/admin/field-options" class="module-link">
-          <t-icon name="list" />
-          <span>内容库管理</span>
-        </router-link>
-        <router-link to="/admin/file-library" class="module-link">
-          <t-icon name="folder" />
-          <span>文件库</span>
+          <AIcon name="list" />
+          <span>选项配置</span>
         </router-link>
         <router-link to="/admin/settings" class="module-link">
-          <t-icon name="system-setting" />
+          <AIcon name="system-setting" />
           <span>主题设置</span>
         </router-link>
         <router-link to="/admin/users" class="module-link">
-          <t-icon name="usergroup" />
+          <AIcon name="usergroup" />
           <span>用户管理</span>
         </router-link>
         <router-link to="/admin/operation-logs" class="module-link">
-          <t-icon name="file-paste" />
-          <span>操作日志</span>
+          <AIcon name="file-paste" />
+          <span>操作记录</span>
         </router-link>
       </div>
 
       <div class="sidebar-foot">
         <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
           <button type="button" :class="{ active: sidebarMode === 'full' }" title="展开侧边栏" @click="setSidebarMode('full')">
-            <t-icon name="list" />
+            <AIcon name="list" />
             <span>展开</span>
           </button>
           <button type="button" :class="{ active: sidebarMode === 'icon' }" title="折叠为图标栏" @click="setSidebarMode('icon')">
-            <t-icon name="view-module" />
+            <AIcon name="view-module" />
             <span>窄栏</span>
           </button>
           <button type="button" title="完全收起侧边栏" @click="setSidebarMode('hidden')">
-            <t-icon name="eye-invisible" />
+            <AIcon name="eye-invisible" />
             <span>隐藏</span>
           </button>
         </div>
         <div class="sidebar-actions">
           <router-link v-if="authStore.isAdmin" to="/admin" class="sidebar-action">
-            <t-icon name="setting" />
+            <AIcon name="setting" />
             <span>后台</span>
           </router-link>
           <button v-if="authStore.isAuthenticated" type="button" class="sidebar-action" @click="logout">
-            <t-icon name="rollback" />
+            <AIcon name="rollback" />
             <span>退出登录</span>
           </button>
           <button v-else type="button" class="sidebar-action" @click="router.push('/login')">
-            <t-icon name="user" />
+            <AIcon name="user" />
             <span>登录系统</span>
           </button>
         </div>
@@ -117,8 +113,9 @@ const sidebarMode = ref<SidebarMode>('full')
 
 const mainNav = [
   { path: '/', label: '首页数据看板', icon: 'dashboard', badge: 'LIVE' },
-  { path: '/audit', label: '审计看板', icon: 'view-module', badge: '已启用' },
   { path: '/project-management', label: '项目管理', icon: 'task', badge: '已启用' },
+  { path: '/materials', label: '资料中心', icon: 'folder', badge: '已启用' },
+  { path: '/audit', label: '审计看板', icon: 'view-module', badge: '已启用' },
   { path: '/bidding', label: '招投标看板', icon: 'file-paste', badge: '建设中' },
   { path: '/finance', label: '财务看板', icon: 'list', badge: '建设中' },
 ]
@@ -343,7 +340,7 @@ async function logout() {
   font-weight: 600;
 }
 
-.module-link :deep(.t-icon) { flex: 0 0 auto; }
+.module-link :deep(.arco-icon) { flex: 0 0 auto; }
 .module-link span { flex: 1; min-width: 0; }
 .module-link small {
   color: var(--text-tertiary);
@@ -530,3 +527,4 @@ async function logout() {
   .system-main { min-height: auto; }
 }
 </style>
+

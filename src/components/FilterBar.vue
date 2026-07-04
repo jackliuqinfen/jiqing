@@ -1,8 +1,8 @@
-<template>
+﻿<template>
   <div class="filter-bar">
     <div class="filter-row">
       <!-- 搜索框 -->
-      <t-input
+      <AInput
         v-model="localKeyword"
         placeholder="搜索项目名/楼栋/结算编号..."
         clearable
@@ -10,14 +10,14 @@
         class="search-box"
         @change="onSearchChange"
       >
-        <template #prefix-icon><t-icon name="search" /></template>
-      </t-input>
+        <template #prefix-icon><AIcon name="search" /></template>
+      </AInput>
 
       <div class="filter-divider" />
 
       <!-- 筛选下拉 -->
       <div class="filter-selects">
-        <t-select
+        <ASelect
           v-model="localFilters.contractor"
           placeholder="经办人"
           clearable filterable
@@ -26,7 +26,7 @@
           :options="contractorOpts"
           @change="onFilterChange"
         />
-        <t-select
+        <ASelect
           v-model="localFilters.priority"
           placeholder="紧急等级"
           clearable
@@ -35,7 +35,7 @@
           :options="priorityOpts"
           @change="onFilterChange"
         />
-        <t-select
+        <ASelect
           v-model="localFilters.category"
           placeholder="工程分类"
           clearable filterable
@@ -44,7 +44,7 @@
           :options="categoryOpts"
           @change="onFilterChange"
         />
-        <t-select
+        <ASelect
           v-model="localFilters.auditUnit"
           placeholder="审计单位"
           clearable filterable
@@ -53,7 +53,7 @@
           :options="auditUnitOpts"
           @change="onFilterChange"
         />
-        <t-select
+        <ASelect
           v-model="localFilters.docStatus"
           placeholder="资料状态"
           clearable
@@ -68,28 +68,28 @@
 
       <!-- 快捷操作 -->
       <div class="filter-actions">
-        <t-button
+        <AButton
           :variant="store.filters.onlyOverdue ? 'base' : 'outline'"
           :theme="store.filters.onlyOverdue ? 'danger' : 'default'"
           size="small"
           @click="toggleOverdue"
         >
-          <template #icon><t-icon name="error-circle" /></template>
+          <template #icon><AIcon name="error-circle" /></template>
           超期
-        </t-button>
-        <t-button
+        </AButton>
+        <AButton
           :variant="store.filters.onlyDisputed ? 'base' : 'outline'"
           :theme="store.filters.onlyDisputed ? 'warning' : 'default'"
           size="small"
           @click="toggleDisputed"
         >
-          <template #icon><t-icon name="flag" /></template>
+          <template #icon><AIcon name="flag" /></template>
           争议
-        </t-button>
-        <t-button variant="outline" size="small" @click="handleReset">
-          <template #icon><t-icon name="refresh" /></template>
+        </AButton>
+        <AButton variant="outline" size="small" @click="handleReset">
+          <template #icon><AIcon name="refresh" /></template>
           重置
-        </t-button>
+        </AButton>
       </div>
     </div>
   </div>
@@ -201,3 +201,4 @@ const auditUnitOpts = computed(() => store.auditUnitOptions.map(u => ({ label: u
   .filter-row { flex-wrap: wrap; }
 }
 </style>
+

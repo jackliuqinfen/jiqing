@@ -490,8 +490,11 @@ export interface ProjectRecord {
   companyRole: string
   managerName: string
   projectStatus: string
+  projectStatusText?: string
   settlementStatus: string
+  settlementStatusText?: string
   auditStage: string
+  auditStageText?: string
   contractAmount: number
   submittedAmount: number
   paidAmount: number
@@ -520,6 +523,9 @@ export interface ProjectMeta {
   projectStatuses: { label: string; value: string }[]
   settlementStatuses: { label: string; value: string }[]
   auditStages: { label: string; value: string }[]
+  auditStatuses?: { label: string; value: string }[]
+  evidenceStatuses?: { label: string; value: string }[]
+  riskLevels?: { label: string; value: string }[]
 }
 
 export interface ProjectSummary {
@@ -541,10 +547,13 @@ export interface WorkItem {
   owner: string
   dueDate: string
   level: 'danger' | 'warning' | 'primary' | 'normal' | string
+  levelText?: string
   source: string
   action: string
+  actionPath?: string
   description: string
   status: string
+  statusText?: string
 }
 
 export interface ProjectFilters {

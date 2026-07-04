@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="login-page">
     <router-link class="login-brand" to="/">
       <span class="brand-logo">
@@ -42,7 +42,7 @@
               <p>账号登录</p>
               <h2>欢迎回来</h2>
             </div>
-            <t-tag variant="light" theme="primary">单位内部使用</t-tag>
+            <ATag variant="light" theme="primary">单位内部使用</ATag>
           </div>
 
           <div class="auth-tabs" role="tablist" aria-label="登录注册切换">
@@ -54,7 +54,7 @@
             >
               登录
             </button>
-            <t-tooltip content="注册入口由管理员统一开通" placement="top" :show-arrow="true">
+            <ATooltip content="注册入口由管理员统一开通" placement="top" :show-arrow="true">
               <button
                 class="auth-tab auth-tab--disabled"
                 type="button"
@@ -66,23 +66,23 @@
               >
                 注册
               </button>
-            </t-tooltip>
+            </ATooltip>
           </div>
 
-          <t-alert v-if="loginErrorMessage" theme="danger" class="auth-alert">
+          <AAlert v-if="loginErrorMessage" theme="danger" class="auth-alert">
             {{ loginErrorMessage }}
-          </t-alert>
+          </AAlert>
 
-          <t-form
+          <AForm
             ref="loginFormRef"
-            :data="loginForm"
+            :model="loginForm"
             :rules="loginRules"
-            label-align="top"
+            layout="vertical"
             class="auth-form"
-            @submit="handleLogin"
+            @submit="() => handleLogin()"
           >
-            <t-form-item label="账号" name="username">
-              <t-input
+            <AFormItem label="账号" name="username">
+              <AInput
                 v-model="loginForm.username"
                 placeholder="请输入您的账号"
                 clearable
@@ -90,13 +90,13 @@
                 autocomplete="username"
               >
                 <template #prefix-icon>
-                  <t-icon name="user" />
+                  <AIcon name="user" />
                 </template>
-              </t-input>
-            </t-form-item>
+              </AInput>
+            </AFormItem>
 
-            <t-form-item label="密码" name="password">
-              <t-input
+            <AFormItem label="密码" name="password">
+              <AInput
                 v-model="loginForm.password"
                 :type="passwordVisible ? 'text' : 'password'"
                 placeholder="请输入密码"
@@ -104,7 +104,7 @@
                 autocomplete="current-password"
               >
                 <template #prefix-icon>
-                  <t-icon name="lock-on" />
+                  <AIcon name="lock-on" />
                 </template>
                 <template #suffix-icon>
                   <button
@@ -114,29 +114,29 @@
                     @click="togglePasswordVisible"
                     @mousedown.prevent
                   >
-                    <t-icon :name="passwordVisible ? 'eye-invisible' : 'eye'" />
+                    <AIcon :name="passwordVisible ? 'eye-invisible' : 'eye'" />
                   </button>
                 </template>
-              </t-input>
-            </t-form-item>
+              </AInput>
+            </AFormItem>
 
             <div class="form-meta">
               <span>如无账号，请联系系统管理员开通。</span>
             </div>
 
-            <t-button
+            <AButton
               theme="primary"
-              type="submit"
+              html-type="submit"
               block
               size="large"
               :loading="authStore.isAuthLoading"
             >
               登录系统
-            </t-button>
-          </t-form>
+            </AButton>
+          </AForm>
 
           <div class="form-tip">
-            <t-icon name="info-circle" size="14px" />
+            <AIcon name="info-circle" size="14px" />
             <span>忘记账号或无法登录时，请联系系统管理员协助处理。</span>
           </div>
         </div>
@@ -151,14 +151,14 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
-import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
+import type { AppFormInstance, AppValidationRule } from '@/ui/arcoAppComponents'
 import brandLogo from '@/assets/aoqiang-construction-logo.svg'
 
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-const loginFormRef = ref<FormInstanceFunctions | null>(null)
+const loginFormRef = ref<AppFormInstance | null>(null)
 const particleCanvasRef = ref<HTMLCanvasElement | null>(null)
 const passwordVisible = ref(false)
 const loginForm = reactive({
@@ -180,7 +180,7 @@ let particleFrame = 0
 let particles: Particle[] = []
 const pointer = { x: -9999, y: -9999, active: false }
 
-const loginRules: Record<string, FormRule[]> = {
+const loginRules: Record<string, AppValidationRule[]> = {
   username: [
     { required: true, message: '请输入账号', trigger: 'blur' },
     { min: 2, message: '账号至少 2 个字符', trigger: 'blur' },
@@ -649,7 +649,7 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
-.form-tip :deep(.t-icon) {
+.form-tip :deep(.arco-icon) {
   flex-shrink: 0;
   margin-top: 1px;
   color: var(--text-tertiary);
@@ -706,3 +706,6 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+
+

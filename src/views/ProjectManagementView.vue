@@ -1,27 +1,42 @@
-<template>
+﻿<template>
   <div class="project-management">
     <PageHeader
       title="项目管理"
       description="统一管理项目主数据、资料台账、合同付款条款、付款结算和变更签证，并为审计看板预留联动入口。"
     >
       <template #meta>
-        <t-tag variant="light" theme="primary">主数据源</t-tag>
-        <t-tag variant="light">资料工作台闭环</t-tag>
-        <t-tag variant="light" :theme="summary.auditLinkedProjects ? 'success' : 'warning'">
+        <ATag variant="light" theme="primary">主数据源</ATag>
+        <ATag variant="light">资料工作台闭环</ATag>
+        <ATag variant="light" :theme="summary.auditLinkedProjects ? 'success' : 'warning'">
           {{ summary.auditLinkedProjects ? `已联动 ${summary.auditLinkedProjects} 个审计项目` : '待联动审计项目' }}
-        </t-tag>
+        </ATag>
       </template>
       <template #actions>
-        <t-button variant="outline" :loading="loading" @click="loadAll">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton variant="outline" :loading="loading" @click="loadAll">
+          <template #icon><AIcon name="refresh" /></template>
           刷新
-        </t-button>
-        <t-button theme="primary" @click="openProjectForm()">
-          <template #icon><t-icon name="add" /></template>
+        </AButton>
+        <AButton theme="primary" @click="openProjectForm()">
+          <template #icon><AIcon name="add" /></template>
           新建项目
-        </t-button>
+        </AButton>
       </template>
     </PageHeader>
+
+    <section class="toolbar">
+      <AInput v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
+        <template #prefix-icon><AIcon name="search" /></template>
+      </AInput>
+      <ASelect v-model="filters.projectStatus" clearable placeholder="项目状态" :options="projectStatusOptions" @change="applyToolbarFilters" />
+      <ASelect v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="settlementStatusOptions" @change="applyToolbarFilters" />
+      <AInput v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="applyToolbarFilters" />
+      <ACheckbox v-model="filters.onlyMissingDocuments" class="toolbar-check" @change="applyToolbarFilters">
+        仅看资料不齐
+      </ACheckbox>
+      <ASelect v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
+      <AButton theme="primary" @click="applyToolbarFilters">查询</AButton>
+      <AButton variant="outline" @click="resetFilters">重置</AButton>
+    </section>
 
     <section class="summary-grid">
       <button
@@ -38,109 +53,13 @@
       </button>
     </section>
 
-    <section class="project-dashboard" aria-label="项目总览">
-      <article class="dashboard-panel dashboard-panel--hero">
-        <div class="dashboard-panel__head">
-          <div>
-            <span class="mini-label">今日重点</span>
-            <h3>项目总览工作台</h3>
-            <p>先看风险、到期、资料缺口，再进入对应项目处理。</p>
-          </div>
-          <t-button size="small" theme="primary" variant="outline" @click="applyDashboardAction('risk')">查看风险项目</t-button>
-        </div>
-        <div class="focus-metrics">
-          <button type="button" @click="applyDashboardAction('due')">
-            <span>即将到期</span>
-            <strong>{{ dueSoonProjects.length }}</strong>
-            <em>7 天内计划完成</em>
-          </button>
-          <button type="button" @click="applyDashboardAction('risk')">
-            <span>风险项目</span>
-            <strong>{{ riskProjects.length }}</strong>
-            <em>资料缺口或超期</em>
-          </button>
-          <button type="button" @click="applyDashboardAction('missing')">
-            <span>待补资料</span>
-            <strong>{{ summary.missingDocuments }}</strong>
-            <em>影响审计流转</em>
-          </button>
-        </div>
-      </article>
-
-      <article class="dashboard-panel">
-        <div class="dashboard-panel__head">
-          <div>
-            <h3>负责人分布</h3>
-            <p>点击负责人快速查看对应项目。</p>
-          </div>
-        </div>
-        <div class="owner-list">
-          <button v-for="owner in ownerDistribution" :key="owner.name" type="button" @click="filterByOwner(owner.name)">
-            <span>{{ owner.name }}</span>
-            <strong>{{ owner.count }}</strong>
-          </button>
-          <p v-if="ownerDistribution.length === 0" class="quiet-empty">暂无负责人数据</p>
-        </div>
-      </article>
-
-      <article class="dashboard-panel">
-        <div class="dashboard-panel__head">
-          <div>
-            <h3>最近更新</h3>
-            <p>优先回到刚变化的项目。</p>
-          </div>
-        </div>
-        <div class="recent-list">
-          <button v-for="project in recentProjects" :key="project.id" type="button" @click="selectProject(project)">
-            <strong>{{ project.projectName }}</strong>
-            <span>{{ project.managerName || '未分配负责人' }} · {{ shortDate(project.updatedAt) }}</span>
-          </button>
-          <p v-if="recentProjects.length === 0" class="quiet-empty">暂无最近更新</p>
-        </div>
-      </article>
-    </section>
-
-    <section class="project-work-items" aria-label="待办与异常">
-      <div class="project-work-items__head">
-        <div>
-          <span class="mini-label">待办与异常</span>
-          <h3>优先处理事项</h3>
-          <p>来自资料缺失、到期提醒、金额异常和审计结论确认。</p>
-        </div>
-        <t-button size="small" variant="outline" @click="applyDashboardAction('risk')">查看风险项目</t-button>
+    <section v-if="showProjectEmptyOnboarding" class="project-empty-onboarding">
+      <div>
+        <span class="mini-label">开始使用</span>
+        <h3>项目库还没有项目</h3>
+        <p>先建立项目主档案，再到资料中心补充资料，并按需从项目主档案发起审计流程。</p>
       </div>
-      <div class="project-work-list">
-        <button
-          v-for="item in projectWorkItems"
-          :key="item.id"
-          type="button"
-          class="project-work-card"
-          :data-level="item.level"
-          @click="openProjectWorkItem(item)"
-        >
-          <span>{{ item.type }}</span>
-          <strong>{{ item.projectName || '未命名项目' }}</strong>
-          <em>{{ item.owner || '未分配负责人' }} · {{ item.dueDate || '未设期限' }}</em>
-          <b>{{ item.action || '查看处理' }}</b>
-        </button>
-        <p v-if="projectWorkItems.length === 0" class="quiet-empty">当前没有需要优先处理的事项。</p>
-      </div>
-    </section>
-
-    <section class="toolbar">
-      <t-input v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
-        <template #prefix-icon><t-icon name="search" /></template>
-      </t-input>
-      <t-select v-model="filters.projectStatus" clearable placeholder="项目状态" :options="meta.projectStatuses" @change="applyToolbarFilters" />
-      <t-select v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="meta.settlementStatuses" @change="applyToolbarFilters" />
-      <t-input v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="applyToolbarFilters" />
-      <label class="toolbar-check">
-        <input v-model="filters.onlyMissingDocuments" type="checkbox" @change="applyToolbarFilters" />
-        仅看资料不齐
-      </label>
-      <t-select v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
-      <t-button theme="primary" @click="applyToolbarFilters">查询</t-button>
-      <t-button variant="outline" @click="resetFilters">重置</t-button>
+      <AButton type="primary" @click="openProjectForm()">新建第一个项目</AButton>
     </section>
 
     <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
@@ -152,17 +71,17 @@
       <button type="button" class="active-filter-strip__clear" @click="resetFilters">清除全部</button>
     </section>
 
-    <t-alert v-if="error" theme="error" :close="false" class="page-alert">
+    <AAlert v-if="error" theme="error" :close="false" class="page-alert">
       <template #message>
         <div class="recoverable-alert">
           <div>
             <strong>数据加载失败</strong>
             <span>{{ error }}</span>
           </div>
-          <t-button size="small" variant="outline" :loading="loading" @click="loadAll">重新加载</t-button>
+          <AButton size="small" variant="outline" :loading="loading" @click="loadAll">重新加载</AButton>
         </div>
       </template>
-    </t-alert>
+    </AAlert>
 
     <StatePanel
       v-if="loading && records.length === 0"
@@ -172,14 +91,14 @@
     />
 
     <StatePanel
-      v-else-if="!loading && records.length === 0"
+      v-else-if="!loading && records.length === 0 && !showProjectEmptyOnboarding"
       state="empty"
-      title="未找到项目"
-      description="请调整筛选条件，或先新建一个项目作为资料工作台的起点。"
+      title="未找到符合条件的项目"
+      description="请调整筛选条件，或清除筛选后重新查看项目台账。"
     >
       <template #actions>
-        <t-button variant="outline" @click="resetFilters">清除筛选</t-button>
-        <t-button theme="primary" @click="openProjectForm()">新建项目</t-button>
+        <AButton variant="outline" @click="resetFilters">清除筛选</AButton>
+        <AButton theme="primary" @click="openProjectForm()">新建项目</AButton>
       </template>
     </StatePanel>
 
@@ -215,9 +134,9 @@
           </div>
           <div class="table-tools">
             <span v-if="selectedRecords.length">已选 {{ selectedRecords.length }} 项</span>
-            <t-button size="small" variant="outline" :disabled="displayRecords.length === 0" @click="selectCurrentPage">选择当前页</t-button>
-            <t-button size="small" variant="outline" :disabled="selectedRecords.length === 0" @click="batchMarkFocus">标记关注</t-button>
-            <t-button
+            <AButton size="small" variant="outline" :disabled="displayRecords.length === 0" @click="selectCurrentPage">选择当前页</AButton>
+            <AButton size="small" variant="outline" :disabled="selectedRecords.length === 0" @click="batchMarkFocus">标记关注</AButton>
+            <AButton
               size="small"
               theme="primary"
               variant="outline"
@@ -226,23 +145,23 @@
               @click="batchStartAudit"
             >
               批量发起审计
-            </t-button>
-            <t-button size="small" variant="text" :disabled="selectedRecords.length === 0" @click="clearProjectSelection">清空选择</t-button>
-            <t-button size="small" variant="outline" @click="saveCurrentFilterView">保存筛选</t-button>
-            <t-select v-model="groupBy" :options="projectGroupOptions" size="small" style="width: 138px" />
-            <t-button size="small" variant="outline" @click="columnSettingsVisible = !columnSettingsVisible">列显示</t-button>
+            </AButton>
+            <AButton size="small" variant="text" :disabled="selectedRecords.length === 0" @click="clearProjectSelection">清空选择</AButton>
+            <AButton size="small" variant="outline" @click="saveCurrentFilterView">保存筛选</AButton>
+            <ASelect v-model="groupBy" :options="projectGroupOptions" size="small" style="width: 138px" />
+            <AButton size="small" variant="outline" @click="columnSettingsVisible = !columnSettingsVisible">列显示</AButton>
           </div>
         </div>
 
         <div v-if="columnSettingsVisible" class="column-settings-panel">
-          <label v-for="column in configurableColumns" :key="column.colKey">
-            <input
-              type="checkbox"
-              :checked="visibleProjectColumnKeys.includes(String(column.colKey))"
-              @change="toggleProjectColumn(String(column.colKey))"
-            />
+          <ACheckbox
+            v-for="column in configurableColumns"
+            :key="column.colKey"
+            :model-value="visibleProjectColumnKeys.includes(String(column.colKey))"
+            @change="toggleProjectColumn(String(column.colKey))"
+          >
             {{ column.title }}
-          </label>
+          </ACheckbox>
         </div>
 
         <StatePanel
@@ -262,7 +181,7 @@
               </div>
               <em>{{ group.records.length }} 项</em>
             </header>
-            <t-table
+            <ATable
               :data="group.records"
               :columns="tableColumns"
               :loading="loading"
@@ -272,9 +191,8 @@
               hover
             >
               <template #select="{ row }">
-                <input
-                  type="checkbox"
-                  :checked="selectedProjectIds.includes(row.id)"
+                <ACheckbox
+                  :model-value="selectedProjectIds.includes(row.id)"
                   aria-label="选择项目"
                   @change="toggleProjectSelection(row.id)"
                 />
@@ -287,8 +205,8 @@
               </template>
               <template #status="{ row }">
                 <div class="status-stack">
-                  <t-tag variant="light" :theme="statusTheme(row.projectStatus)">{{ projectStatusLabel(row.projectStatus) }}</t-tag>
-                  <t-tag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</t-tag>
+                  <ATag variant="light" :theme="statusTheme(row.projectStatus)">{{ projectStatusLabel(row.projectStatus) }}</ATag>
+                  <ATag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</ATag>
                 </div>
               </template>
               <template #docs="{ row }">
@@ -316,19 +234,19 @@
                   <button type="button" :disabled="!canDelete" @click="confirmDeleteProject(row)">删除</button>
                 </div>
               </template>
-            </t-table>
+            </ATable>
           </section>
         </div>
 
         <div v-if="displayRecords.length > 0" class="pager">
           <span>当前显示 {{ displayRecords.length }} 条 / 共 {{ total }} 条，第 {{ page }} 页</span>
-          <t-select v-model="filters.pageSize" :options="pageSizeOptions" style="width: 120px" @change="loadRecords" />
-          <t-button variant="outline" :disabled="page <= 1" @click="changePage(page - 1)">上一页</t-button>
-          <t-button variant="outline" :disabled="page >= totalPages" @click="changePage(page + 1)">下一页</t-button>
+          <ASelect v-model="filters.pageSize" :options="pageSizeOptions" style="width: 120px" @change="loadRecords" />
+          <AButton variant="outline" :disabled="page <= 1" @click="changePage(page - 1)">上一页</AButton>
+          <AButton variant="outline" :disabled="page >= totalPages" @click="changePage(page + 1)">下一页</AButton>
         </div>
       </div>
 
-      <t-dialog
+      <AModal
         v-model:visible="detailDialogVisible"
         header="项目详情"
         :confirm-btn="null"
@@ -347,16 +265,16 @@
               <p>{{ currentProject.projectCode }} · {{ currentProject.constructionUnit || currentProject.ownerUnit || '未填写建设单位' }}</p>
             </div>
             <div class="detail-head__actions">
-              <t-button size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</t-button>
-              <t-button
+              <AButton size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</AButton>
+              <AButton
                 v-if="currentProject.auditProjectId"
                 size="small"
                 variant="outline"
                 @click="goAudit(currentProject.auditProjectId)"
               >
                 查看审计进度
-              </t-button>
-              <t-button
+              </AButton>
+              <AButton
                 v-else
                 size="small"
                 variant="outline"
@@ -364,8 +282,8 @@
                 @click="startAudit(currentProject)"
               >
                 发起审计
-              </t-button>
-              <t-button size="small" theme="primary" @click="openFileDialog()">上传资料</t-button>
+              </AButton>
+              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
           </div>
 
@@ -421,12 +339,24 @@
           </div>
 
           <div class="detail-tabs" role="tablist" aria-label="项目详情分区">
-            <button v-for="tab in tabs" :key="tab.value" type="button" :class="{ active: activeTab === tab.value }" @click="activeTab = tab.value">
+            <button
+              v-for="tab in tabs"
+              :id="detailTabId(tab.value)"
+              :key="tab.value"
+              type="button"
+              role="tab"
+              :aria-selected="activeTab === tab.value"
+              :aria-controls="detailTabPanelId(tab.value)"
+              :tabindex="activeTab === tab.value ? 0 : -1"
+              :class="{ active: activeTab === tab.value }"
+              @click="selectDetailTab(tab.value)"
+              @keydown="handleDetailTabKeydown($event, tab.value)"
+            >
               {{ tab.label }}
             </button>
           </div>
 
-          <div v-if="activeTab === 'overview'" class="detail-section">
+          <div v-if="activeTab === 'overview'" :id="detailTabPanelId('overview')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('overview')" tabindex="0">
             <div class="info-grid">
               <article>
                 <span>负责人</span>
@@ -460,14 +390,14 @@
                 <strong>{{ currentProject.auditProjectId ? '已进入审计流程' : '尚未进入审计流程' }}</strong>
                 <p>{{ currentProject.auditProjectId ? '审计看板将读取项目主数据，并维护阶段、金额和审计记录。' : '可从项目主档案发起审计，系统会自动带入项目名称、金额、负责人和计划日期。' }}</p>
               </div>
-              <t-button
+              <AButton
                 :variant="currentProject.auditProjectId ? 'outline' : undefined"
                 :theme="currentProject.auditProjectId ? 'default' : 'primary'"
                 :loading="auditStarting"
                 @click="currentProject.auditProjectId ? goAudit(currentProject.auditProjectId) : startAudit(currentProject)"
               >
                 {{ currentProject.auditProjectId ? '查看审计进度' : '发起审计' }}
-              </t-button>
+              </AButton>
             </div>
 
             <div class="project-timeline-card">
@@ -493,7 +423,7 @@
                     <strong>{{ category.categoryName }}</strong>
                     <span>{{ category.description }}</span>
                   </div>
-                  <t-tag v-if="category.required" variant="light" theme="primary">必填</t-tag>
+                  <ATag v-if="category.required" variant="light" theme="primary">必填</ATag>
                 </div>
                 <div class="doc-card__body">
                   <div class="doc-files">
@@ -518,7 +448,7 @@
                     </button>
                   </div>
                   <div class="doc-actions">
-                    <t-button size="small" variant="outline" @click="openFileDialog(category)">上传资料</t-button>
+                    <AButton size="small" variant="outline" @click="openFileDialog(category)">上传资料</AButton>
                     <span>{{ filesByCategory(category.categoryKey).length ? `${filesByCategory(category.categoryKey).length} 份资料` : '待补充' }}</span>
                   </div>
                 </div>
@@ -526,12 +456,12 @@
             </div>
           </div>
 
-          <div v-else-if="activeTab === 'files'" class="detail-section">
+          <div v-else-if="activeTab === 'files'" :id="detailTabPanelId('files')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('files')" tabindex="0">
             <div class="section-head">
               <strong>资料列表</strong>
-              <t-button size="small" theme="primary" @click="openFileDialog()">上传资料</t-button>
+              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
-            <t-table :data="currentProject.files || []" :columns="fileColumns" bordered hover>
+            <ATable :data="currentProject.files || []" :columns="fileColumns" bordered hover>
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.displayName }}</strong>
@@ -539,7 +469,7 @@
                 </div>
               </template>
               <template #category="{ row }">
-                <t-tag variant="light">{{ row.categoryName }}</t-tag>
+                <ATag variant="light">{{ row.categoryName }}</ATag>
               </template>
           <template #size="{ row }">{{ formatSize(row.fileSize) }}</template>
           <template #uploadedAt="{ row }">{{ formatDate(row.uploadedAt) }}</template>
@@ -551,20 +481,20 @@
                   <button type="button" :disabled="!canDelete" @click="confirmDeleteFile(row)">删除</button>
                 </div>
               </template>
-            </t-table>
+            </ATable>
             <div v-if="(currentProject.files || []).length === 0" class="detail-empty-action">
               <strong>当前项目还没有上传资料</strong>
               <span>建议先上传合同、招投标、过程资料或结算资料，后续审计会直接引用这些文件。</span>
-              <t-button size="small" theme="primary" @click="openFileDialog()">上传资料</t-button>
+              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
           </div>
 
-          <div v-else-if="activeTab === 'settlements'" class="detail-section">
+          <div v-else-if="activeTab === 'settlements'" :id="detailTabPanelId('settlements')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('settlements')" tabindex="0">
             <div class="section-head">
               <strong>付款结算</strong>
-              <t-button size="small" theme="primary" @click="openSettlementDialog()">新增结算</t-button>
+              <AButton size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
             </div>
-            <t-table :data="currentProject.settlements || []" :columns="settlementColumns" bordered hover>
+            <ATable :data="currentProject.settlements || []" :columns="settlementColumns" bordered hover>
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.settlementName }}</strong>
@@ -572,7 +502,7 @@
                 </div>
               </template>
               <template #status="{ row }">
-                <t-tag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</t-tag>
+                <ATag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</ATag>
               </template>
               <template #amount="{ row }">{{ formatWan(row.approvedAmount || row.applyAmount || 0) }}</template>
               <template #actions="{ row }">
@@ -580,20 +510,20 @@
                   <button type="button" @click="openSettlementDialog(row)">编辑</button>
                 </div>
               </template>
-            </t-table>
+            </ATable>
             <div v-if="(currentProject.settlements || []).length === 0" class="detail-empty-action">
               <strong>尚未维护付款结算记录</strong>
               <span>补充结算记录后，可以在项目台账中同步查看付款进度和结算状态。</span>
-              <t-button size="small" theme="primary" @click="openSettlementDialog()">新增结算</t-button>
+              <AButton size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
             </div>
           </div>
 
-          <div v-else-if="activeTab === 'variations'" class="detail-section">
+          <div v-else-if="activeTab === 'variations'" :id="detailTabPanelId('variations')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('variations')" tabindex="0">
             <div class="section-head">
               <strong>变更签证</strong>
-              <t-button size="small" theme="primary" @click="openVariationDialog()">新增签证</t-button>
+              <AButton size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
             </div>
-            <t-table :data="currentProject.variations || []" :columns="variationColumns" bordered hover>
+            <ATable :data="currentProject.variations || []" :columns="variationColumns" bordered hover>
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.variationName }}</strong>
@@ -601,7 +531,7 @@
                 </div>
               </template>
               <template #status="{ row }">
-                <t-tag variant="light" :theme="statusTheme(row.variationStatus)">{{ variationStatusLabel(row.variationStatus) }}</t-tag>
+                <ATag variant="light" :theme="statusTheme(row.variationStatus)">{{ variationStatusLabel(row.variationStatus) }}</ATag>
               </template>
               <template #amount="{ row }">{{ formatWan(row.amount || 0) }}</template>
               <template #actions="{ row }">
@@ -609,17 +539,17 @@
                   <button type="button" @click="openVariationDialog(row)">编辑</button>
                 </div>
               </template>
-            </t-table>
+            </ATable>
             <div v-if="(currentProject.variations || []).length === 0" class="detail-empty-action">
               <strong>暂无变更签证记录</strong>
               <span>如项目发生工程量、范围或金额调整，可在这里记录变更签证。</span>
-              <t-button size="small" theme="primary" @click="openVariationDialog()">新增签证</t-button>
+              <AButton size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
             </div>
           </div>
 
-          <div v-else class="detail-section">
+          <div v-else :id="detailTabPanelId('logs')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('logs')" tabindex="0">
             <div class="section-head">
-              <strong>操作日志</strong>
+              <strong>操作记录</strong>
               <span>最新 {{ (currentProject.logs || []).length }} 条</span>
             </div>
             <div class="log-list">
@@ -635,62 +565,144 @@
           </div>
         </template>
       </section>
-      </t-dialog>
+      </AModal>
     </section>
 
-    <t-dialog
-      v-model:visible="projectDialog.visible"
-      :header="projectDialog.mode === 'create' ? '新建项目' : '编辑项目'"
-      :confirm-btn="{ content: '保存项目', loading: projectDialog.saving }"
-      width="880px"
-      destroy-on-close
-      @confirm="saveProject"
+    <AModal
+      :visible="projectDialog.visible"
+      :title="projectDialog.mode === 'create' ? '新建项目' : '编辑项目'"
+      :ok-text="projectDialog.mode === 'create' ? '保存项目' : '保存修改'"
+      cancel-text="取消"
+      :ok-loading="projectDialog.saving"
+      :mask-closable="false"
+      :esc-to-close="false"
+      :width="920"
+      unmount-on-close
+      modal-class="project-form-modal"
+      @ok="saveProject"
+      @cancel="requestCloseProjectDialog"
     >
-      <div class="dialog-grid">
-        <label v-for="field in projectFieldsLeft" :key="field.key">
-          <span>{{ field.label }}<b v-if="field.required">*</b></span>
-          <t-input v-model="projectForm[field.key]" :placeholder="field.placeholder" />
-        </label>
-        <label v-for="field in projectFieldsRight" :key="field.key">
-          <span>{{ field.label }}<b v-if="field.required">*</b></span>
-          <t-input v-model="projectForm[field.key]" :placeholder="field.placeholder" />
-        </label>
-        <label>
-          <span>项目状态</span>
-          <t-select v-model="projectForm.projectStatus" :options="meta.projectStatuses" />
-        </label>
-        <label>
-          <span>结算状态</span>
-          <t-select v-model="projectForm.settlementStatus" :options="meta.settlementStatuses" />
-        </label>
-        <label>
-          <span>合同金额</span>
-          <t-input-number v-model="projectForm.contractAmount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>送审金额</span>
-          <t-input-number v-model="projectForm.submittedAmount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>已付款金额</span>
-          <t-input-number v-model="projectForm.paidAmount" :min="0" :precision="2" />
-        </label>
-        <label v-if="projectDialog.mode === 'edit' && projectForm.auditProjectId">
-          <span>审计联动</span>
-          <t-input v-model="projectForm.auditProjectId" readonly placeholder="保存项目后可从详情中发起审计" />
-        </label>
-        <label class="dialog-span-2">
-          <span>付款条款</span>
-          <t-textarea v-model="projectForm.paymentTerms" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="如：按节点完成后支付 80%，结算定案后支付尾款" />
-        </label>
-        <label class="dialog-span-2">
-          <span>项目说明</span>
-          <t-textarea v-model="projectForm.description" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="项目背景、当前资料状态、需要提醒的事项" />
-        </label>
-      </div>
-    </t-dialog>
+      <AForm ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
+        <div class="dialog-grid">
+          <AFormItem
+            v-for="field in projectFieldsLeft"
+            :key="field.key"
+            :field="field.key"
+            :label="field.label"
+            :required="field.required"
+            :validate-status="projectFormErrors[field.key] ? 'error' : undefined"
+            :help="projectFormErrors[field.key]"
+          >
+            <AInput
+              v-model="projectForm[field.key]"
+              :data-project-field="field.key"
+              :placeholder="field.placeholder"
+              allow-clear
+              @input="clearProjectFieldError(field.key)"
+            />
+          </AFormItem>
+          <AFormItem
+            v-for="field in projectFieldsRight"
+            :key="field.key"
+            :field="field.key"
+            :label="field.label"
+            :required="field.required"
+            :validate-status="projectFormErrors[field.key] ? 'error' : undefined"
+            :help="projectFormErrors[field.key]"
+          >
+            <AInput
+              v-model="projectForm[field.key]"
+              :data-project-field="field.key"
+              :placeholder="field.placeholder"
+              allow-clear
+              @input="clearProjectFieldError(field.key)"
+            />
+          </AFormItem>
+          <AFormItem field="projectStatus" label="项目状态">
+            <ASelect v-model="projectForm.projectStatus" :options="projectStatusOptions" />
+          </AFormItem>
+          <AFormItem field="settlementStatus" label="结算状态">
+            <ASelect v-model="projectForm.settlementStatus" :options="settlementStatusOptions" />
+          </AFormItem>
+          <AFormItem
+            field="contractAmount"
+            label="合同金额"
+            :validate-status="projectFormErrors.contractAmount ? 'error' : undefined"
+            :help="projectFormErrors.contractAmount"
+          >
+            <AInputNumber v-model="projectForm.contractAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('contractAmount')" />
+          </AFormItem>
+          <AFormItem
+            field="submittedAmount"
+            label="送审金额"
+            :validate-status="projectFormErrors.submittedAmount ? 'error' : undefined"
+            :help="projectFormErrors.submittedAmount"
+          >
+            <AInputNumber v-model="projectForm.submittedAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('submittedAmount')" />
+          </AFormItem>
+          <AFormItem
+            field="paidAmount"
+            label="已付款金额"
+            :validate-status="projectFormErrors.paidAmount ? 'error' : undefined"
+            :help="projectFormErrors.paidAmount"
+          >
+            <AInputNumber v-model="projectForm.paidAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('paidAmount')" />
+          </AFormItem>
+          <AFormItem field="plannedStartDate" label="计划开始日期">
+            <ADatePicker v-model="projectForm.plannedStartDate" data-project-field="plannedStartDate" allow-clear placeholder="请选择计划开始日期" @change="clearProjectFieldError('plannedStartDate')" />
+          </AFormItem>
+          <AFormItem
+            field="plannedEndDate"
+            label="计划完成日期"
+            :validate-status="projectFormErrors.plannedEndDate ? 'error' : undefined"
+            :help="projectFormErrors.plannedEndDate"
+          >
+            <ADatePicker v-model="projectForm.plannedEndDate" data-project-field="plannedEndDate" allow-clear placeholder="请选择计划完成日期" @change="clearProjectFieldError('plannedEndDate')" />
+          </AFormItem>
+          <AFormItem v-if="projectDialog.mode === 'edit' && projectForm.auditProjectId" field="auditProjectId" label="审计联动">
+            <AInput v-model="projectForm.auditProjectId" readonly placeholder="保存项目后可从详情中发起审计" />
+          </AFormItem>
+          <AFormItem class="dialog-span-2" field="paymentTerms" label="付款条款">
+            <ATextarea v-model="projectForm.paymentTerms" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="如：按节点完成后支付 80%，结算定案后支付尾款" allow-clear />
+          </AFormItem>
+          <AFormItem class="dialog-span-2" field="description" label="项目说明">
+            <ATextarea v-model="projectForm.description" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="项目背景、当前资料状态、需要提醒的事项" allow-clear />
+          </AFormItem>
+        </div>
+      </AForm>
+    </AModal>
 
-    <t-dialog
+    <AModal
+      :visible="filterViewDialog.visible"
+      title="保存筛选方案"
+      ok-text="保存方案"
+      cancel-text="取消"
+      :width="480"
+      :mask-closable="false"
+      @ok="confirmSaveFilterView"
+      @cancel="closeFilterViewDialog"
+    >
+      <AForm :model="filterViewDialog" layout="vertical" class="filter-view-form">
+        <AFormItem
+          label="方案名称"
+          field="filterViewName"
+          required
+          :validate-status="filterViewDialog.error ? 'error' : undefined"
+          :help="filterViewDialog.error || '用于快速回到当前筛选条件，最多保存 8 个方案。'"
+        >
+          <AInput
+            v-model="filterViewDialog.name"
+            placeholder="例如：本周待处理项目"
+            :max-length="20"
+            allow-clear
+            show-word-limit
+            @input="filterViewDialog.error = ''"
+          />
+        </AFormItem>
+      </AForm>
+    </AModal>
+
+    <AModal
       v-model:visible="fileDialog.visible"
       header="上传资料"
       :confirm-btn="{ content: '开始上传', loading: fileDialog.saving }"
@@ -700,11 +712,11 @@
       <div class="dialog-grid dialog-grid--single">
         <label>
           <span>资料分类</span>
-          <t-select v-model="fileDialog.categoryKey" :options="categoryOptions" />
+          <ASelect v-model="fileDialog.categoryKey" :options="categoryOptions" />
         </label>
         <label>
           <span>资料名称</span>
-          <t-input v-model="fileDialog.displayName" placeholder="请输入便于识别的资料名称" />
+          <AInput v-model="fileDialog.displayName" placeholder="请输入便于识别的资料名称" />
         </label>
         <label>
           <span>文件</span>
@@ -712,9 +724,9 @@
         </label>
         <p class="dialog-hint">同一项目、同一分类、同一资料名称再次上传时会自动作为新版本处理。</p>
       </div>
-    </t-dialog>
+    </AModal>
 
-    <t-dialog
+    <AModal
       v-model:visible="confirmState.visible"
       :header="confirmState.title"
       :confirm-btn="{ content: confirmState.confirmText, theme: confirmState.danger ? 'danger' : 'primary', loading: confirmState.loading }"
@@ -725,9 +737,9 @@
       @close="closeConfirm"
     >
       <p class="confirm-message">{{ confirmState.message }}</p>
-    </t-dialog>
+    </AModal>
 
-    <t-dialog
+    <AModal
       v-model:visible="settlementDialog.visible"
       :header="settlementDialog.mode === 'create' ? '新增结算' : '编辑结算'"
       :confirm-btn="{ content: '保存结算', loading: settlementDialog.saving }"
@@ -737,48 +749,48 @@
       <div class="dialog-grid">
         <label class="dialog-span-2">
           <span>结算名称</span>
-          <t-input v-model="settlementForm.settlementName" placeholder="如：一期竣工结算" />
+          <AInput v-model="settlementForm.settlementName" placeholder="如：一期竣工结算" />
         </label>
         <label>
           <span>结算状态</span>
-          <t-select v-model="settlementForm.settlementStatus" :options="meta.settlementStatuses" />
+          <ASelect v-model="settlementForm.settlementStatus" :options="settlementStatusOptions" />
         </label>
         <label>
           <span>结算类型</span>
-          <t-input v-model="settlementForm.settlementType" placeholder="progress / final / other" />
+          <AInput v-model="settlementForm.settlementType" placeholder="progress / final / other" />
         </label>
         <label>
           <span>申报金额</span>
-          <t-input-number v-model="settlementForm.applyAmount" :min="0" :precision="2" />
+          <AInputNumber v-model="settlementForm.applyAmount" :min="0" :precision="2" />
         </label>
         <label>
           <span>核定金额</span>
-          <t-input-number v-model="settlementForm.approvedAmount" :min="0" :precision="2" />
+          <AInputNumber v-model="settlementForm.approvedAmount" :min="0" :precision="2" />
         </label>
         <label>
           <span>已付款金额</span>
-          <t-input-number v-model="settlementForm.paidAmount" :min="0" :precision="2" />
+          <AInputNumber v-model="settlementForm.paidAmount" :min="0" :precision="2" />
         </label>
         <label>
           <span>申报日期</span>
-          <t-input v-model="settlementForm.applyDate" placeholder="YYYY-MM-DD" />
+          <AInput v-model="settlementForm.applyDate" placeholder="YYYY-MM-DD" />
         </label>
         <label>
           <span>预计付款日期</span>
-          <t-input v-model="settlementForm.expectedPayDate" placeholder="YYYY-MM-DD" />
+          <AInput v-model="settlementForm.expectedPayDate" placeholder="YYYY-MM-DD" />
         </label>
         <label>
           <span>实际付款日期</span>
-          <t-input v-model="settlementForm.paidDate" placeholder="YYYY-MM-DD" />
+          <AInput v-model="settlementForm.paidDate" placeholder="YYYY-MM-DD" />
         </label>
         <label class="dialog-span-2">
           <span>备注</span>
-          <t-textarea v-model="settlementForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
+          <ATextarea v-model="settlementForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
         </label>
       </div>
-    </t-dialog>
+    </AModal>
 
-    <t-dialog
+    <AModal
       v-model:visible="variationDialog.visible"
       :header="variationDialog.mode === 'create' ? '新增变更签证' : '编辑变更签证'"
       :confirm-btn="{ content: '保存签证', loading: variationDialog.saving }"
@@ -788,36 +800,36 @@
       <div class="dialog-grid">
         <label class="dialog-span-2">
           <span>签证名称</span>
-          <t-input v-model="variationForm.variationName" placeholder="如：设计变更签证 01" />
+          <AInput v-model="variationForm.variationName" placeholder="如：设计变更签证 01" />
         </label>
         <label>
           <span>签证状态</span>
-          <t-input v-model="variationForm.variationStatus" placeholder="例如：待确认、已确认、需更正" />
+          <AInput v-model="variationForm.variationStatus" placeholder="例如：待确认、已确认、需更正" />
         </label>
         <label>
           <span>签证类型</span>
-          <t-input v-model="variationForm.variationType" placeholder="change / visa / other" />
+          <AInput v-model="variationForm.variationType" placeholder="change / visa / other" />
         </label>
         <label>
           <span>金额</span>
-          <t-input-number v-model="variationForm.amount" :min="0" :precision="2" />
+          <AInputNumber v-model="variationForm.amount" :min="0" :precision="2" />
         </label>
         <label>
           <span>发生日期</span>
-          <t-input v-model="variationForm.occurredDate" placeholder="YYYY-MM-DD" />
+          <AInput v-model="variationForm.occurredDate" placeholder="YYYY-MM-DD" />
         </label>
         <label>
           <span>确认日期</span>
-          <t-input v-model="variationForm.approvedDate" placeholder="YYYY-MM-DD" />
+          <AInput v-model="variationForm.approvedDate" placeholder="YYYY-MM-DD" />
         </label>
         <label class="dialog-span-2">
           <span>备注</span>
-          <t-textarea v-model="variationForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
+          <ATextarea v-model="variationForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
         </label>
       </div>
-    </t-dialog>
+    </AModal>
 
-    <t-dialog
+    <AModal
       v-model:visible="renameDialog.visible"
       header="重命名资料"
       :confirm-btn="{ content: '保存名称', loading: renameDialog.saving }"
@@ -827,21 +839,30 @@
       <div class="dialog-grid dialog-grid--single">
         <label>
           <span>新的资料名称</span>
-          <t-input v-model="renameDialog.displayName" placeholder="请输入新的资料名称" />
+          <AInput v-model="renameDialog.displayName" placeholder="请输入新的资料名称" />
         </label>
       </div>
-    </t-dialog>
+    </AModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Button as AButton, DatePicker as ADatePicker, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Modal as AModal, Select as ASelect, Textarea as ATextarea } from '@arco-design/web-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { MessagePlugin } from '@/ui/message'
 import { formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
+import {
+  businessColor,
+  businessLabel,
+  materialStatusOptions as materialStatusDict,
+  projectStatusOptions as projectStatusDict,
+  settlementStatusOptions as settlementStatusDict,
+  variationStatusOptions as variationStatusDict,
+} from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
 import {
   createProjectRecord,
@@ -883,13 +904,13 @@ type SavedProjectFilterView = {
 const SAVED_PROJECT_FILTERS_KEY = 'project-management-saved-filters'
 
 const baseTableColumns = [
-  { colKey: 'select', title: '选择', width: 64, fixed: 'left' },
-  { colKey: 'project', title: '项目', width: 320, fixed: 'left' },
+  { colKey: 'select', title: '选择', width: 64, fixed: 'left' as const },
+  { colKey: 'project', title: '项目', width: 320, fixed: 'left' as const },
   { colKey: 'status', title: '状态', width: 170 },
   { colKey: 'docs', title: '资料', width: 110 },
   { colKey: 'amount', title: '金额', width: 140 },
   { colKey: 'audit', title: '审计联动', width: 170 },
-  { colKey: 'actions', title: '操作', width: 160, fixed: 'right' },
+  { colKey: 'actions', title: '操作', width: 160, fixed: 'right' as const },
 ]
 
 const fileColumns = [
@@ -935,6 +956,10 @@ const projectGroupOptions = [
   { label: '按审计联动', value: 'audit' },
 ]
 
+const defaultProjectStatuses = projectStatusDict.map(({ label, value }) => ({ label, value }))
+
+const defaultSettlementStatuses = settlementStatusDict.map(({ label, value }) => ({ label, value }))
+
 const tabs: Array<{ label: string; value: DetailTab }> = [
   { label: '概览', value: 'overview' },
   { label: '资料', value: 'files' },
@@ -942,6 +967,33 @@ const tabs: Array<{ label: string; value: DetailTab }> = [
   { label: '签证', value: 'variations' },
   { label: '日志', value: 'logs' },
 ]
+
+function detailTabId(tab: DetailTab) {
+  return `project-detail-tab-${tab}`
+}
+
+function detailTabPanelId(tab: DetailTab) {
+  return `project-detail-panel-${tab}`
+}
+
+function selectDetailTab(tab: DetailTab, focusTab = false) {
+  activeTab.value = tab
+  if (!focusTab) return
+  nextTick(() => document.getElementById(detailTabId(tab))?.focus())
+}
+
+function handleDetailTabKeydown(event: KeyboardEvent, tab: DetailTab) {
+  const currentIndex = tabs.findIndex((item) => item.value === tab)
+  if (currentIndex < 0) return
+  let nextIndex = currentIndex
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % tabs.length
+  else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = tabs.length - 1
+  else return
+  event.preventDefault()
+  selectDetailTab(tabs[nextIndex].value, true)
+}
 
 const filters = reactive<ProjectFilters>({
   keyword: '',
@@ -998,7 +1050,8 @@ const activeTab = ref<DetailTab>('overview')
 const activeSummaryKey = ref('')
 const canDelete = true
 
-const projectDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false })
+const projectDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, initialSnapshot: '' })
+const filterViewDialog = reactive({ visible: false, name: '', error: '' })
 const confirmState = reactive({
   visible: false,
   title: '',
@@ -1021,6 +1074,7 @@ const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' |
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const renameDialog = reactive({ visible: false, saving: false, id: '', displayName: '' })
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const projectFormRef = ref<InstanceType<typeof AForm> | null>(null)
 
 const projectForm = reactive({
   id: '',
@@ -1045,6 +1099,9 @@ const projectForm = reactive({
   auditProjectId: '',
 })
 type ProjectFormKey = keyof typeof projectForm
+type ProjectTextFormKey = 'projectCode' | 'projectName' | 'constructionUnit' | 'ownerUnit' | 'contractorName' | 'contractorContact' | 'managerName' | 'companyRole'
+type ProjectFormErrors = Partial<Record<ProjectFormKey, string>>
+const projectFormErrors = reactive<ProjectFormErrors>({})
 
 const settlementForm = reactive({
   settlementName: '',
@@ -1069,14 +1126,14 @@ const variationForm = reactive({
   remark: '',
 })
 
-const projectFieldsLeft: Array<{ key: ProjectFormKey; label: string; placeholder: string; required: boolean }> = [
+const projectFieldsLeft: Array<{ key: ProjectTextFormKey; label: string; placeholder: string; required: boolean }> = [
   { key: 'projectCode', label: '项目编号', placeholder: '系统将保留该编号', required: false },
   { key: 'projectName', label: '项目名称', placeholder: '请输入项目名称', required: true },
   { key: 'constructionUnit', label: '施工单位', placeholder: '请输入施工单位', required: false },
   { key: 'ownerUnit', label: '建设单位', placeholder: '请输入建设单位', required: false },
 ]
 
-const projectFieldsRight: Array<{ key: ProjectFormKey; label: string; placeholder: string; required: boolean }> = [
+const projectFieldsRight: Array<{ key: ProjectTextFormKey; label: string; placeholder: string; required: boolean }> = [
   { key: 'contractorName', label: '施工联系人/负责人', placeholder: '请输入负责人姓名', required: false },
   { key: 'contractorContact', label: '联系电话', placeholder: '请输入联系电话', required: false },
   { key: 'managerName', label: '项目负责人', placeholder: '请输入项目负责人', required: false },
@@ -1084,6 +1141,8 @@ const projectFieldsRight: Array<{ key: ProjectFormKey; label: string; placeholde
 ]
 
 const categoryOptions = computed(() => meta.categories.map((item) => ({ label: item.categoryName, value: item.categoryKey })))
+const projectStatusOptions = computed(() => meta.projectStatuses.length ? meta.projectStatuses : defaultProjectStatuses)
+const settlementStatusOptions = computed(() => meta.settlementStatuses.length ? meta.settlementStatuses : defaultSettlementStatuses)
 const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
 const configurableColumns = computed(() => baseTableColumns.filter((column) => !['select', 'project', 'actions'].includes(String(column.colKey))))
 const displayRecords = computed(() => records.value)
@@ -1103,6 +1162,7 @@ const activeFilterChips = computed<ProjectFilterChip[]>(() => {
   }
   return chips
 })
+const showProjectEmptyOnboarding = computed(() => !loading.value && total.value === 0 && activeFilterChips.value.length === 0)
 const groupedDisplayRecords = computed(() => {
   if (groupBy.value === 'none') {
     return [{ key: 'all', label: '全部项目', hint: '当前筛选结果', records: displayRecords.value }]
@@ -1244,44 +1304,35 @@ const ownerDistribution = computed(() => {
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
 function statusTheme(status: string) {
-  if (['completed', 'approved'].includes(status)) return 'success'
-  if (['rejected', 'paused'].includes(status)) return 'danger'
-  if (['reviewing', 'settlement', 'active'].includes(status)) return 'primary'
-  return 'warning'
+  return tagTheme(businessColor(projectStatusDict, status, businessColor(variationStatusDict, status, 'orange')))
 }
 
 function settlementTheme(status: string) {
-  if (status === 'paid' || status === 'approved') return 'success'
-  if (status === 'rejected') return 'danger'
-  if (status === 'reviewing') return 'warning'
-  return 'primary'
+  return tagTheme(businessColor(settlementStatusDict, status, 'gray'))
+}
+
+function tagTheme(color: string) {
+  if (color === 'green') return 'success'
+  if (color === 'red') return 'danger'
+  if (color === 'orange') return 'warning'
+  if (color === 'arcoblue') return 'primary'
+  return 'default'
 }
 
 function projectStatusLabel(value: string) {
-  return meta.projectStatuses.find((item) => item.value === value)?.label || value || '未设置'
+  return projectStatusOptions.value.find((item) => item.value === value)?.label || businessLabel(projectStatusDict, value)
 }
 
 function settlementStatusLabel(value: string) {
-  return meta.settlementStatuses.find((item) => item.value === value)?.label || value || '未设置'
+  return settlementStatusOptions.value.find((item) => item.value === value)?.label || businessLabel(settlementStatusDict, value)
 }
 
 function variationStatusLabel(value: string) {
-  const map: Record<string, string> = { pending: '待确认', approved: '已确认', rejected: '已驳回' }
-  return map[value] || value || '未设置'
+  return businessLabel(variationStatusDict, value, '未设置')
 }
 
 function materialStatusLabel(value: string) {
-  const map: Record<string, string> = {
-    pending: '待处理',
-    not_started: '待处理',
-    submitted: '已提交',
-    complete: '已确认',
-    completed: '已确认',
-    confirmed: '已确认',
-    missing: '待补充',
-    rejected: '需更正',
-  }
-  return map[value] || value || '未设置'
+  return businessLabel(materialStatusDict, value, '未设置')
 }
 
 function projectGroupKey(record: ProjectRecord) {
@@ -1363,6 +1414,79 @@ function fillProjectForm(record?: ProjectRecord | null) {
     description: record?.description || '',
     auditProjectId: record?.auditProjectId || '',
   })
+}
+
+function projectFormSnapshot() {
+  return JSON.stringify({
+    projectCode: projectForm.projectCode,
+    projectName: projectForm.projectName,
+    constructionUnit: projectForm.constructionUnit,
+    contractorName: projectForm.contractorName,
+    contractorContact: projectForm.contractorContact,
+    ownerUnit: projectForm.ownerUnit,
+    companyRole: projectForm.companyRole,
+    managerName: projectForm.managerName,
+    projectStatus: projectForm.projectStatus,
+    settlementStatus: projectForm.settlementStatus,
+    auditStage: projectForm.auditStage,
+    contractAmount: Number(projectForm.contractAmount || 0),
+    submittedAmount: Number(projectForm.submittedAmount || 0),
+    paidAmount: Number(projectForm.paidAmount || 0),
+    paymentTerms: projectForm.paymentTerms,
+    plannedStartDate: projectForm.plannedStartDate,
+    plannedEndDate: projectForm.plannedEndDate,
+    description: projectForm.description,
+    auditProjectId: projectForm.auditProjectId,
+  })
+}
+
+function resetProjectFormErrors() {
+  Object.keys(projectFormErrors).forEach((key) => {
+    delete projectFormErrors[key as ProjectFormKey]
+  })
+}
+
+function clearProjectFieldError(key: ProjectFormKey) {
+  if (projectFormErrors[key]) delete projectFormErrors[key]
+}
+
+function focusProjectField(key: ProjectFormKey) {
+  nextTick(() => {
+    const field = document.querySelector<HTMLElement>(`[data-project-field="${key}"] input, [data-project-field="${key}"] textarea, [data-project-field="${key}"]`)
+    field?.focus()
+  })
+}
+
+function validateProjectForm() {
+  resetProjectFormErrors()
+  if (!projectForm.projectName.trim()) {
+    projectFormErrors.projectName = '请填写项目名称，便于后续资料、结算和审计流转。'
+  }
+  if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
+    projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
+  }
+  const contractAmount = Number(projectForm.contractAmount || 0)
+  const submittedAmount = Number(projectForm.submittedAmount || 0)
+  const paidAmount = Number(projectForm.paidAmount || 0)
+  if (contractAmount > 0 && submittedAmount > contractAmount) {
+    projectFormErrors.submittedAmount = '送审金额不能大于合同金额，请核对金额口径。'
+  }
+  if (contractAmount > 0 && paidAmount > contractAmount) {
+    projectFormErrors.paidAmount = '已付款金额不能大于合同金额，请核对付款记录。'
+  }
+  if (projectForm.plannedStartDate && projectForm.plannedEndDate && projectForm.plannedStartDate > projectForm.plannedEndDate) {
+    projectFormErrors.plannedEndDate = '计划完成日期不能早于计划开始日期。'
+  }
+  const firstErrorKey = Object.keys(projectFormErrors)[0] as ProjectFormKey | undefined
+  if (firstErrorKey) {
+    focusProjectField(firstErrorKey)
+    return false
+  }
+  return true
+}
+
+function isProjectFormDirty() {
+  return projectDialog.visible && projectFormSnapshot() !== projectDialog.initialSnapshot
 }
 
 function fillSettlementForm(record?: ProjectSettlement | null) {
@@ -1458,8 +1582,22 @@ function persistSavedFilterViews() {
 }
 
 function saveCurrentFilterView() {
-  const name = window.prompt('为当前筛选方案命名，例如：本周待处理项目')
-  const trimmed = name?.trim()
+  filterViewDialog.name = ''
+  filterViewDialog.error = ''
+  filterViewDialog.visible = true
+}
+
+function closeFilterViewDialog() {
+  filterViewDialog.visible = false
+  filterViewDialog.error = ''
+}
+
+function confirmSaveFilterView() {
+  const trimmed = filterViewDialog.name.trim()
+  if (!trimmed) {
+    filterViewDialog.error = '请填写方案名称，方便下次快速使用。'
+    return
+  }
   if (!trimmed) return
   const id = `filter-${Date.now()}`
   const view = {
@@ -1471,6 +1609,7 @@ function saveCurrentFilterView() {
   persistSavedFilterViews()
   activeSavedView.value = 'all'
   activeCustomFilterId.value = id
+  closeFilterViewDialog()
   MessagePlugin.success('筛选方案已保存')
 }
 
@@ -1814,6 +1953,10 @@ function filterByOwner(owner: string) {
 }
 
 async function openProjectWorkItem(item: WorkItem) {
+  if (item.actionPath && item.actionPath.startsWith('/audit')) {
+    router.push(item.actionPath)
+    return
+  }
   if (item.projectId) {
     const local = records.value.find((record) => record.id === item.projectId)
     if (local) {
@@ -1846,13 +1989,39 @@ function changePage(nextPage: number) {
 function openProjectForm(record?: ProjectRecord | null) {
   projectDialog.mode = record ? 'edit' : 'create'
   projectDialog.saving = false
+  resetProjectFormErrors()
   if (!record) {
     detailDialogVisible.value = false
     currentProject.value = null
     activeTab.value = 'overview'
   }
   fillProjectForm(record || null)
+  projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
+}
+
+function closeProjectDialog(force = false) {
+  if (!force && projectDialog.saving) return
+  projectDialog.visible = false
+  projectDialog.saving = false
+  projectDialog.initialSnapshot = ''
+  resetProjectFormErrors()
+}
+
+function requestCloseProjectDialog() {
+  if (projectDialog.saving) return
+  if (!isProjectFormDirty()) {
+    closeProjectDialog(true)
+    return
+  }
+  openConfirm({
+    title: '放弃未保存的项目信息？',
+    message: '当前项目表单还有未保存内容。关闭后，本次填写的信息将不会保留。',
+    confirmText: '放弃修改',
+    cancelText: '继续编辑',
+    danger: true,
+    onConfirm: () => closeProjectDialog(true),
+  })
 }
 
 function openFileDialog(category?: ProjectDocumentCategory | null) {
@@ -1963,12 +2132,19 @@ async function loadAll() {
     await Promise.all([loadMeta(), loadSummary(), loadWorkItems()])
     applyRouteFilters()
     await loadRecords()
+    showAuditIntentGuide()
   } catch (err) {
     error.value = friendlyErrorMessage(err, '数据加载失败，请稍后重试或联系管理员')
     MessagePlugin.error(error.value)
   } finally {
     loading.value = false
   }
+}
+
+function showAuditIntentGuide() {
+  if (route.query.intent !== 'start-audit') return
+  MessagePlugin.info('请选择项目后点击“发起审计”，系统会自动带入项目主数据')
+  router.replace({ path: '/project-management', query: {} })
 }
 
 async function selectProject(record: ProjectRecord, fetchDetail = true) {
@@ -1990,8 +2166,8 @@ function closeProjectDetail() {
 }
 
 async function saveProject() {
-  if (!projectForm.projectName.trim()) {
-    MessagePlugin.error('请先填写项目名称')
+  if (!validateProjectForm()) {
+    MessagePlugin.error('请先完善项目表单中的提示项')
     return
   }
   projectDialog.saving = true
@@ -2006,8 +2182,8 @@ async function saveProject() {
       ? await createProjectRecord(payload)
       : await updateProjectRecord(projectForm.id, payload)
     MessagePlugin.success('项目已保存')
-    projectDialog.visible = false
-    await loadRecords()
+    closeProjectDialog(true)
+    await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
     await selectProject(result)
   } catch (err) {
     MessagePlugin.error(friendlyErrorMessage(err, '项目保存失败，请稍后重试或联系管理员'))
@@ -2248,20 +2424,61 @@ watch(detailDialogVisible, (visible) => {
 <style scoped>
 .project-management {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-2);
   min-height: 100%;
   background: #F7F8FA;
+}
+
+.project-management :deep(.page-header) {
+  margin-bottom: 0;
+}
+
+.project-management :deep(.page-header__copy) {
+  gap: 2px;
+}
+
+.project-management :deep(.page-header__description) {
+  line-height: 1.45;
+}
+
+.project-management :deep(.page-header__meta) {
+  margin-top: 2px;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-2);
+}
+
+.project-empty-onboarding {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--color-brand-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.project-empty-onboarding h3 {
+  margin: 1px 0;
+  font-size: var(--text-base);
+  line-height: 1.25;
+}
+
+.project-empty-onboarding p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .summary-card {
   text-align: left;
-  padding: var(--space-4);
+  min-height: 72px;
+  padding: 10px 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -2280,7 +2497,7 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .summary-card span { color: var(--text-secondary); font-size: var(--text-xs); }
-.summary-card strong { display: block; margin: 6px 0 4px; font-size: var(--text-2xl); }
+.summary-card strong { display: block; margin: 3px 0 2px; font-size: var(--text-xl); line-height: 1.2; }
 .summary-card em { color: var(--text-tertiary); font-size: var(--text-xs); }
 
 .project-dashboard {
@@ -2289,12 +2506,28 @@ watch(detailDialogVisible, (visible) => {
   gap: var(--space-3);
 }
 
+.project-dashboard--secondary {
+  margin-top: 0;
+  grid-template-columns: minmax(0, 1.15fr) minmax(180px, 0.5fr) minmax(180px, 0.5fr);
+  grid-auto-rows: minmax(0, 108px);
+  height: 108px;
+  overflow: hidden;
+  gap: var(--space-2);
+}
+
 .dashboard-panel {
   min-width: 0;
   padding: var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
+}
+
+.project-dashboard--secondary .dashboard-panel {
+  min-height: 0;
+  height: 108px;
+  overflow: hidden;
+  padding: 8px 10px;
 }
 
 .dashboard-panel--hero {
@@ -2310,9 +2543,19 @@ watch(detailDialogVisible, (visible) => {
   margin-bottom: var(--space-3);
 }
 
+.project-dashboard--secondary .dashboard-panel__head {
+  gap: var(--space-2);
+  margin-bottom: 6px;
+}
+
 .dashboard-panel__head h3 {
   margin: 0;
   font-size: var(--text-lg);
+}
+
+.project-dashboard--secondary .dashboard-panel__head h3 {
+  font-size: var(--text-sm);
+  line-height: 1.25;
 }
 
 .dashboard-panel__head p {
@@ -2321,10 +2564,18 @@ watch(detailDialogVisible, (visible) => {
   font-size: var(--text-xs);
 }
 
+.project-dashboard--secondary .dashboard-panel__head p {
+  display: none;
+}
+
 .focus-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
+}
+
+.project-dashboard--secondary .focus-metrics {
+  gap: 6px;
 }
 
 .focus-metrics button,
@@ -2342,6 +2593,11 @@ watch(detailDialogVisible, (visible) => {
   padding: var(--space-3);
 }
 
+.project-dashboard--secondary .focus-metrics button {
+  gap: 2px;
+  padding: 6px 8px;
+}
+
 .focus-metrics span,
 .focus-metrics em,
 .owner-list span,
@@ -2356,10 +2612,22 @@ watch(detailDialogVisible, (visible) => {
   font-size: var(--text-2xl);
 }
 
+.project-dashboard--secondary .focus-metrics strong {
+  font-size: var(--text-base);
+  line-height: 1.1;
+}
+
 .owner-list,
 .recent-list {
   display: grid;
   gap: 8px;
+}
+
+.project-dashboard--secondary .owner-list,
+.project-dashboard--secondary .recent-list {
+  gap: 4px;
+  max-height: 30px;
+  overflow: hidden;
 }
 
 .owner-list button,
@@ -2369,6 +2637,11 @@ watch(detailDialogVisible, (visible) => {
   gap: var(--space-2);
   align-items: center;
   padding: 9px 10px;
+}
+
+.project-dashboard--secondary .owner-list button,
+.project-dashboard--secondary .recent-list button {
+  padding: 4px 8px;
 }
 
 .recent-list button {
@@ -2391,6 +2664,17 @@ watch(detailDialogVisible, (visible) => {
   border-radius: var(--radius-lg);
 }
 
+.project-work-items--secondary {
+  margin-top: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 58px;
+  max-height: 72px;
+  overflow: hidden;
+  padding: 8px 10px;
+}
+
 .project-work-items__head {
   display: flex;
   align-items: flex-start;
@@ -2398,9 +2682,18 @@ watch(detailDialogVisible, (visible) => {
   gap: var(--space-3);
 }
 
+.project-work-items--secondary .project-work-items__head {
+  align-items: center;
+}
+
 .project-work-items__head h3 {
   margin: 4px 0;
   font-size: var(--text-lg);
+}
+
+.project-work-items--secondary .project-work-items__head h3 {
+  margin: 0;
+  font-size: var(--text-sm);
 }
 
 .project-work-items__head p {
@@ -2409,10 +2702,27 @@ watch(detailDialogVisible, (visible) => {
   font-size: var(--text-xs);
 }
 
+.project-work-items--secondary .project-work-items__head p {
+  display: none;
+}
+
 .project-work-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.project-work-items--secondary .project-work-list {
+  grid-template-columns: minmax(180px, 1fr);
+  min-width: 220px;
+  max-width: 320px;
+  gap: 6px;
+}
+
+.project-work-items--secondary .quiet-empty {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .project-work-card {
@@ -2426,6 +2736,11 @@ watch(detailDialogVisible, (visible) => {
   border: 1px solid var(--border-color);
   border-left: 3px solid var(--color-brand-500);
   cursor: pointer;
+}
+
+.project-work-items--secondary .project-work-card {
+  gap: 2px;
+  padding: 6px 8px;
 }
 
 .project-work-card[data-level='danger'] {
@@ -2456,13 +2771,49 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .toolbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) repeat(5, minmax(0, 1fr)) auto auto;
-  gap: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   align-items: center;
-  padding: var(--space-3);
+  padding: var(--space-2);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.toolbar > * {
+  min-width: 0;
+}
+
+.toolbar > .project-keyword-input {
+  flex: 1 1 260px;
+}
+
+.toolbar > .arco-select-view,
+.toolbar > .arco-input-wrapper:not(.project-keyword-input),
+.toolbar > .arco-select-view,
+.toolbar > .arco-input-wrapper {
+  flex: 0 1 132px;
+  width: auto;
+}
+
+.toolbar :deep(.arco-select-view) {
+  flex: 0 1 132px;
+  width: auto;
+}
+
+.toolbar :deep(.arco-input-wrapper:not(.project-keyword-input)) {
+  flex: 0 1 132px;
+  width: auto;
+}
+
+.toolbar-check {
+  flex: 0 0 auto;
+}
+
+.toolbar > .arco-btn,
+.toolbar > .arco-btn {
+  flex: 0 0 76px;
 }
 
 .toolbar-check {
@@ -3188,6 +3539,33 @@ watch(detailDialogVisible, (visible) => {
   gap: var(--space-3);
 }
 
+.arco-project-form :deep(.arco-form-item) {
+  margin-bottom: 0;
+}
+
+.arco-project-form :deep(.arco-form-item-label) {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.arco-project-form :deep(.arco-input-wrapper),
+.arco-project-form :deep(.arco-select-view-single),
+.arco-project-form :deep(.arco-input-number),
+.arco-project-form :deep(.arco-picker),
+.arco-project-form :deep(.arco-textarea-wrapper),
+.filter-view-form :deep(.arco-input-wrapper) {
+  width: 100%;
+  background: #fff;
+  border-color: var(--border-strong);
+}
+
+.arco-project-form :deep(.arco-form-item-error .arco-input-wrapper),
+.arco-project-form :deep(.arco-form-item-error .arco-input-number),
+.arco-project-form :deep(.arco-form-item-error .arco-picker) {
+  border-color: var(--color-danger);
+}
+
 .dialog-grid--single {
   grid-template-columns: 1fr;
 }
@@ -3217,10 +3595,26 @@ watch(detailDialogVisible, (visible) => {
   width: 100%;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1080px) {
   .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .project-dashboard { grid-template-columns: 1fr; }
+  .project-dashboard--secondary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .project-work-items--secondary {
+    display: flex;
+    min-height: 52px;
+  }
+  .project-work-items--secondary .project-work-items__head {
+    flex: 1 1 auto;
+  }
+  .project-work-items--secondary .project-work-list {
+    flex: 0 0 220px;
+  }
   .project-work-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-work-items--secondary .project-work-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
@@ -3235,6 +3629,10 @@ watch(detailDialogVisible, (visible) => {
   .next-action-list,
   .info-grid,
   .dialog-grid { grid-template-columns: 1fr; }
+  .project-empty-onboarding {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .dialog-span-2,
   .dialog-hint { grid-column: span 1; }
   .toolbar {
@@ -3252,3 +3650,4 @@ watch(detailDialogVisible, (visible) => {
   .project-work-list { grid-template-columns: 1fr; }
 }
 </style>
+

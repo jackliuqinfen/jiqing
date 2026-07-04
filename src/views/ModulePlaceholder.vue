@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <section class="placeholder-page">
     <div class="placeholder-main">
-      <span class="placeholder-icon"><t-icon :name="iconName" /></span>
+      <span class="placeholder-icon"><AIcon :name="iconName" /></span>
       <div>
         <h2>{{ title }}</h2>
         <p>{{ description }}</p>
@@ -27,7 +27,7 @@ const iconName = computed(() => String(route.meta.icon || 'task'))
 
 const roadmap = [
   { title: '业务边界', text: '确认字段、流程、权限和数据口径。' },
-  { title: '数据模型', text: '设计数据库表、接口和导入策略。' },
+  { title: '业务资料', text: '梳理项目台账、资料口径和导入规则。' },
   { title: '工作台', text: '接入稳态指挥台的统计、预警和操作入口。' },
 ]
 </script>
@@ -97,3 +97,4 @@ const roadmap = [
   .placeholder-steps { grid-template-columns: 1fr; }
 }
 </style>
+

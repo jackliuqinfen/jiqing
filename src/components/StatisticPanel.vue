@@ -1,10 +1,10 @@
-<template>
+﻿<template>
   <div class="statistic-panel" role="region" aria-label="全局统计">
     <!-- 数量维度 -->
     <div class="stat-row">
       <div class="stat-item">
         <div class="stat-icon" style="background:var(--color-brand-50); color:var(--color-brand-500)">
-          <t-icon name="view-module" size="16px" />
+          <AIcon name="view-module" size="16px" />
         </div>
         <div class="stat-body">
           <span class="stat-label">总报审</span>
@@ -14,7 +14,7 @@
 
       <div class="stat-item">
         <div class="stat-icon" style="background:var(--color-warning-bg); color:var(--color-warning)">
-          <t-icon name="task" size="16px" />
+          <AIcon name="task" size="16px" />
         </div>
         <div class="stat-body">
           <span class="stat-label">在审</span>
@@ -24,7 +24,7 @@
 
       <div class="stat-item">
         <div class="stat-icon" style="background:var(--color-success-bg); color:var(--color-success)">
-          <t-icon name="check-circle" size="16px" />
+          <AIcon name="check-circle" size="16px" />
         </div>
         <div class="stat-body">
           <span class="stat-label">已办结</span>
@@ -34,7 +34,7 @@
 
       <div class="stat-item stat-item--danger">
         <div class="stat-icon" style="background:var(--color-danger-bg); color:var(--color-danger)">
-          <t-icon name="error-circle" size="16px" />
+          <AIcon name="error-circle" size="16px" />
         </div>
         <div class="stat-body">
           <span class="stat-label">超期督办</span>
@@ -189,3 +189,4 @@ function formatAmount(value: number): string {
   .stat-value { font-size: var(--text-lg); }
 }
 </style>
+

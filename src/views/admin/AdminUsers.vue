@@ -1,32 +1,32 @@
-<template>
+﻿<template>
   <div class="admin-users">
     <PageHeader title="用户管理" description="管理系统用户账号、角色和权限">
       <template #meta>
-        <t-tag variant="light" theme="primary">共 {{ filteredUsers.length }} 人</t-tag>
-        <t-tag v-if="searchKeyword || roleFilter" variant="light">已应用筛选</t-tag>
+        <ATag variant="light" theme="primary">共 {{ filteredUsers.length }} 人</ATag>
+        <ATag v-if="searchKeyword || roleFilter" variant="light">已应用筛选</ATag>
       </template>
       <template #actions>
-        <t-button variant="outline" :loading="loading" @click="fetchUsers">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton variant="outline" :loading="loading" @click="fetchUsers">
+          <template #icon><AIcon name="refresh" /></template>
           刷新
-        </t-button>
-        <t-button theme="primary" @click="openCreate">
-          <template #icon><t-icon name="add" /></template>
+        </AButton>
+        <AButton theme="primary" @click="openCreate">
+          <template #icon><AIcon name="add" /></template>
           添加用户
-        </t-button>
+        </AButton>
       </template>
     </PageHeader>
 
     <div class="user-toolbar">
-      <t-input
+      <AInput
         v-model="searchKeyword"
         placeholder="搜索用户名或姓名"
         clearable
         :style="{ width: '260px' }"
       >
-        <template #prefix-icon><t-icon name="search" /></template>
-      </t-input>
-      <t-select
+        <template #prefix-icon><AIcon name="search" /></template>
+      </AInput>
+      <ASelect
         v-model="roleFilter"
         placeholder="角色筛选"
         clearable
@@ -50,10 +50,10 @@
       description="刚才没有取到用户数据，可能是网络波动或服务暂时不可用。你可以重试，若仍失败请联系管理员。"
     >
       <template #actions>
-        <t-button theme="primary" :loading="loading" @click="fetchUsers">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton theme="primary" :loading="loading" @click="fetchUsers">
+          <template #icon><AIcon name="refresh" /></template>
           重新加载
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
@@ -64,15 +64,15 @@
       :description="searchKeyword || roleFilter ? '请调整筛选条件后再试，或直接清除筛选查看全部用户。' : '当前还没有可管理的用户账号。'"
     >
       <template #actions>
-        <t-button v-if="searchKeyword || roleFilter" variant="outline" @click="resetFilters">清除筛选</t-button>
-        <t-button theme="primary" @click="openCreate">
-          <template #icon><t-icon name="add" /></template>
+        <AButton v-if="searchKeyword || roleFilter" variant="outline" @click="resetFilters">清除筛选</AButton>
+        <AButton theme="primary" @click="openCreate">
+          <template #icon><AIcon name="add" /></template>
           添加用户
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
-    <t-table
+    <ATable
       v-else
       :data="filteredUsers"
       :columns="tableColumns"
@@ -86,35 +86,35 @@
         <span class="username-cell">{{ row.username }}</span>
       </template>
       <template #role="{ row }">
-        <t-tag :theme="roleTheme(row.role)" variant="light" size="small">
+        <ATag :theme="roleTheme(row.role)" variant="light" size="small">
           {{ roleLabel(row.role) }}
-        </t-tag>
+        </ATag>
       </template>
       <template #isActive="{ row }">
-        <t-tag :theme="row.isActive ? 'success' : 'default'" variant="light" size="small">
+        <ATag :theme="row.isActive ? 'success' : 'default'" variant="light" size="small">
           {{ row.isActive ? '启用' : '禁用' }}
-        </t-tag>
+        </ATag>
       </template>
       <template #createdAt="{ row }">
         <span class="date-cell">{{ formatDate(row.createdAt) }}</span>
       </template>
       <template #operation="{ row }">
-        <t-space size="small">
-          <t-button variant="text" size="small" theme="primary" @click="openEdit(row)">编辑</t-button>
-          <t-popconfirm
+        <ASpace size="small">
+          <AButton variant="text" size="small" theme="primary" @click="openEdit(row)">编辑</AButton>
+          <APopconfirm
             :content="row.isActive ? '确定禁用该用户？' : '确定启用该用户？'"
             @confirm="toggleUser(row)"
           >
-            <t-button variant="text" size="small" :theme="row.isActive ? 'warning' : 'success'">
+            <AButton variant="text" size="small" :theme="row.isActive ? 'warning' : 'success'">
               {{ row.isActive ? '禁用' : '启用' }}
-            </t-button>
-          </t-popconfirm>
-        </t-space>
+            </AButton>
+          </APopconfirm>
+        </ASpace>
       </template>
-    </t-table>
+    </ATable>
 
     <!-- 添加/编辑弹窗 -->
-    <t-dialog
+    <AModal
       v-model:visible="modalVisible"
       :header="modalMode === 'create' ? '添加用户' : '编辑用户'"
       :confirm-btn="{ content: modalMode === 'create' ? '创建' : '保存', loading: modalLoading }"
@@ -122,24 +122,24 @@
       width="480px"
       @confirm="handleSubmit"
     >
-      <t-form ref="formRef" :data="formData" :rules="formRules" label-align="left" label-width="72px">
-        <t-form-item label="账号" name="username">
-          <t-input v-model="formData.username" placeholder="登录账号" :disabled="modalMode === 'edit'" />
-        </t-form-item>
-        <t-form-item label="姓名" name="displayName">
-          <t-input v-model="formData.displayName" placeholder="真实姓名" />
-        </t-form-item>
-        <t-form-item label="邮箱" name="email">
-          <t-input v-model="formData.email" placeholder="用于密码找回" />
-        </t-form-item>
-        <t-form-item v-if="modalMode === 'create'" label="密码" name="password">
-          <t-input v-model="formData.password" type="password" placeholder="请输入密码" />
-        </t-form-item>
-        <t-form-item label="角色" name="role">
-          <t-select v-model="formData.role" :options="roleOptions" placeholder="选择角色" />
-        </t-form-item>
-      </t-form>
-    </t-dialog>
+      <AForm ref="formRef" :model="formData" :rules="validationRules" label-align="left" label-width="72px">
+        <AFormItem label="账号" name="username">
+          <AInput v-model="formData.username" placeholder="登录账号" :disabled="modalMode === 'edit'" />
+        </AFormItem>
+        <AFormItem label="姓名" name="displayName">
+          <AInput v-model="formData.displayName" placeholder="真实姓名" />
+        </AFormItem>
+        <AFormItem label="邮箱" name="email">
+          <AInput v-model="formData.email" placeholder="用于密码找回" />
+        </AFormItem>
+        <AFormItem v-if="modalMode === 'create'" label="密码" name="password">
+          <AInput v-model="formData.password" type="password" placeholder="请输入密码" />
+        </AFormItem>
+        <AFormItem label="角色" name="role">
+          <ASelect v-model="formData.role" :options="roleOptions" placeholder="选择角色" />
+        </AFormItem>
+      </AForm>
+    </AModal>
   </div>
 </template>
 
@@ -148,7 +148,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
 import { MessagePlugin } from '@/ui/message'
 import type { AdminUser, AdminRole, CreateAdminUserDto, UpdateAdminUserDto } from '@/types'
-import type { FormInstanceFunctions, FormRule } from '@/ui/tdesignCompat'
+import type { AppFormInstance, AppValidationRule } from '@/ui/arcoAppComponents'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 
@@ -159,7 +159,7 @@ const tableColumns = [
   { colKey: 'role', title: '角色', width: 90 },
   { colKey: 'isActive', title: '状态', width: 70 },
   { colKey: 'createdAt', title: '创建时间', width: 130 },
-  { colKey: 'operation', title: '操作', width: 130, fixed: 'right' },
+  { colKey: 'operation', title: '操作', width: 130, fixed: 'right' as const },
 ]
 
 const roleOptions = [
@@ -219,13 +219,13 @@ const modalVisible = ref(false)
 const modalMode = ref<'create' | 'edit'>('create')
 const modalLoading = ref(false)
 const editingUserId = ref<string | null>(null)
-const formRef = ref<FormInstanceFunctions | null>(null)
+const formRef = ref<AppFormInstance | null>(null)
 
 const formData = reactive<CreateAdminUserDto & { id?: string }>({
   username: '', displayName: '', email: '', password: '', role: 'viewer',
 })
 
-const formRules: Record<string, FormRule[]> = {
+const validationRules: Record<string, AppValidationRule[]> = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }, { min: 2, max: 50, message: '2-50 个字符', trigger: 'blur' }],
   displayName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   email: [{ required: true, message: '请输入邮箱', trigger: 'blur' }, { email: true, message: '邮箱格式不正确', trigger: 'blur' }],
@@ -311,3 +311,6 @@ async function toggleUser(user: AdminUser) {
 .username-cell { font-weight: 500; }
 .date-cell { font-size: var(--text-xs); color: var(--text-secondary); }
 </style>
+
+
+

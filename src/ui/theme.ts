@@ -118,15 +118,15 @@ function mixColor(color: string, target: string, weight: number) {
   })
 }
 
-export function sanitizeBrandColor(value?: string, fallback = '#165DFF') {
+export function sanitizeBrandColor(value?: string, defaultColor = '#165DFF') {
   const normalized = normalizeHexColor(value)
-  const safeFallback = normalizeHexColor(fallback) || '#165DFF'
-  if (!normalized) return safeFallback
+  const safeDefault = normalizeHexColor(defaultColor) || '#165DFF'
+  if (!normalized) return safeDefault
   if (relativeLuminance(normalized) <= 0.82) return normalized
   const darker = mixColor(normalized, '#000000', 0.45)
   if (relativeLuminance(darker) <= 0.82) return darker
   const darkerFallback = mixColor(normalized, '#000000', 0.6)
-  return relativeLuminance(darkerFallback) <= 0.82 ? darkerFallback : safeFallback
+  return relativeLuminance(darkerFallback) <= 0.82 ? darkerFallback : safeDefault
 }
 
 const themeTokens: Record<string, ThemeTokens> = {

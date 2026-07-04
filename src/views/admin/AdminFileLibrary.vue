@@ -1,53 +1,53 @@
-<template>
+﻿<template>
   <div class="file-library">
     <PageHeader title="项目资料中心" description="统一归集项目资料与审计证据，按项目、类型和阶段快速筛选">
       <template #meta>
-        <t-tag variant="light" theme="primary">共 {{ filteredFiles.length }} 个文件</t-tag>
-        <t-tag variant="light">项目 {{ projectGroups.length }} 组</t-tag>
-        <t-tag v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="light">已应用筛选</t-tag>
+        <ATag variant="light" theme="primary">共 {{ filteredFiles.length }} 个文件</ATag>
+        <ATag variant="light">项目 {{ projectGroups.length }} 组</ATag>
+        <ATag v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="light">已应用筛选</ATag>
       </template>
       <template #actions>
-        <t-button variant="outline" :loading="loading" @click="loadFiles">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton variant="outline" :loading="loading" @click="loadFiles">
+          <template #icon><AIcon name="refresh" /></template>
           刷新
-        </t-button>
+        </AButton>
       </template>
     </PageHeader>
 
     <div class="library-toolbar">
-      <t-input v-model="keyword" placeholder="搜索项目名称或文件名" clearable :style="{ width: '280px' }">
-        <template #prefix-icon><t-icon name="search" /></template>
-      </t-input>
-      <t-select
+      <AInput v-model="keyword" placeholder="搜索项目名称或文件名" clearable :style="{ width: '280px' }">
+        <template #prefix-icon><AIcon name="search" /></template>
+      </AInput>
+      <ASelect
         v-model="fileType"
         placeholder="文件类型"
         clearable
         :style="{ width: '150px' }"
         :options="fileTypeOptions"
       />
-      <t-select v-model="selectedStage" placeholder="审计阶段" clearable :style="{ width: '170px' }" :options="stageOptions" />
-      <t-input v-model="uploader" placeholder="上传人" clearable :style="{ width: '160px' }" />
+      <ASelect v-model="selectedStage" placeholder="审计阶段" clearable :style="{ width: '170px' }" :options="stageOptions" />
+      <AInput v-model="uploader" placeholder="上传人" clearable :style="{ width: '160px' }" />
       <span class="library-count">共 {{ filteredFiles.length }} 个文件</span>
     </div>
 
     <StatePanel
       v-if="loading && files.length === 0"
       state="loading"
-      title="正在加载文件库"
+      title="正在加载项目资料中心"
       description="系统正在整理各项目附件，请稍候。"
     />
 
     <StatePanel
       v-else-if="fetchError"
       state="error"
-      title="文件库加载失败"
+      title="项目资料中心加载失败"
       description="文件列表暂时没有读取成功，可能是网络异常或附件服务繁忙。你可以重试，或联系管理员检查上传服务。"
     >
       <template #actions>
-        <t-button theme="primary" :loading="loading" @click="loadFiles">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton theme="primary" :loading="loading" @click="loadFiles">
+          <template #icon><AIcon name="refresh" /></template>
           重新加载
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
@@ -58,11 +58,11 @@
       :description="keyword || fileType || selectedProject || selectedStage || uploader ? '请调整筛选条件后再试，或清除筛选查看全部资料。' : '当前还没有归集到项目资料或审计证据。'"
     >
       <template #actions>
-        <t-button v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="outline" @click="clearFilters">清除筛选</t-button>
-        <t-button theme="primary" :loading="loading" @click="loadFiles">
-          <template #icon><t-icon name="refresh" /></template>
+        <AButton v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="outline" @click="clearFilters">清除筛选</AButton>
+        <AButton theme="primary" :loading="loading" @click="loadFiles">
+          <template #icon><AIcon name="refresh" /></template>
           重新加载
-        </t-button>
+        </AButton>
       </template>
     </StatePanel>
 
@@ -129,7 +129,7 @@
             </button>
           </div>
 
-          <t-table
+          <ATable
             :data="filteredFiles"
             :columns="tableColumns"
             row-key="id"
@@ -139,7 +139,7 @@
           >
           <template #file="{ row }">
             <div class="file-cell">
-              <t-icon :name="fileIcon(row)" />
+              <AIcon :name="fileIcon(row)" />
               <div>
                 <strong>{{ attachmentName(row) }}</strong>
                 <span>{{ typeLabel(row) }} · {{ formatFileSize(row.fileSize) }}</span>
@@ -170,7 +170,7 @@
               <button type="button" @click="downloadFile(row)">下载</button>
             </div>
           </template>
-          </t-table>
+          </ATable>
         </section>
       </div>
     </template>
@@ -207,6 +207,7 @@ import {
 import { fetchProjectEvidence, fetchProjectFileDownloadBlob, fetchProjectFilePreviewBlob } from '@/api/projects'
 import { MessagePlugin } from '@/ui/message'
 import type { ProjectEvidenceFile } from '@/types'
+import { auditStageOptions } from '@/utils/businessDictionaries'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 
@@ -227,13 +228,7 @@ const fileTypeOptions = [
   { label: '其他', value: 'other' },
 ]
 
-const stageOptions = [
-  { label: '报审待受理', value: 'submitted' },
-  { label: '一级初审', value: 'first_audit' },
-  { label: '二级复审', value: 'second_audit' },
-  { label: '定案结论', value: 'conclusion' },
-  { label: '办结归档', value: 'archived' },
-]
+const stageOptions = auditStageOptions.map(({ label, value }) => ({ label, value }))
 
 const files = ref<ProjectEvidenceFile[]>([])
 const loading = ref(false)
@@ -369,7 +364,7 @@ async function loadFiles() {
       uploader: uploader.value,
     })
   } catch (err) {
-    fetchError.value = err instanceof Error ? err.message : '获取文件库失败'
+    fetchError.value = err instanceof Error ? err.message : '获取项目资料中心失败'
     MessagePlugin.error(fetchError.value)
   } finally {
     loading.value = false
@@ -670,3 +665,4 @@ onMounted(loadFiles)
   .summary-grid { grid-template-columns: 1fr; }
 }
 </style>
+

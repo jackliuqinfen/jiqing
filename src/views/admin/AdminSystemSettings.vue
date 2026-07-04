@@ -1,15 +1,15 @@
-<template>
+﻿<template>
   <div class="admin-settings">
     <PageHeader title="系统设置" description="管理登录、账号开通和界面风格等常用设置">
       <template #meta>
-        <t-tag variant="light" theme="primary">常用设置</t-tag>
-        <t-tag variant="light">界面 / 账号 / 登录</t-tag>
+        <ATag variant="light" theme="primary">常用设置</ATag>
+        <ATag variant="light">界面 / 账号 / 登录</ATag>
       </template>
     </PageHeader>
 
-    <t-card class="settings-card theme-card" title="界面风格" :bordered="true">
+    <ACard class="settings-card theme-card" title="界面风格" :bordered="true">
       <template #actions>
-        <t-button size="small" variant="outline" :loading="savingTheme" @click="resetTheme">恢复默认</t-button>
+        <AButton size="small" variant="outline" :loading="savingTheme" @click="resetTheme">恢复默认</AButton>
       </template>
       <div class="theme-current">
         <div>
@@ -19,11 +19,11 @@
         </div>
         <div class="theme-toggles">
           <label>
-            <t-switch v-model="themeSettings.compactMode" size="small" @change="saveTheme" />
+            <ASwitch v-model="themeSettings.compactMode" size="small" @change="saveTheme" />
             <span>紧凑显示</span>
           </label>
           <label>
-            <t-switch v-model="themeSettings.darkMode" size="small" @change="saveTheme" />
+            <ASwitch v-model="themeSettings.darkMode" size="small" @change="saveTheme" />
             <span>深色模式</span>
           </label>
         </div>
@@ -43,14 +43,14 @@
             aria-label="选择品牌主色"
             @input="updateBrandColor"
           />
-          <input
+          <AInput
             v-model.trim="themeSettings.brandColor"
             class="brand-color-input"
             placeholder="#165DFF"
             :disabled="savingTheme"
             @keyup.enter="saveTheme"
           />
-          <t-button size="small" theme="primary" :loading="savingTheme" @click="saveTheme">应用品牌色</t-button>
+          <AButton size="small" theme="primary" :loading="savingTheme" @click="saveTheme">应用品牌色</AButton>
           <span v-if="brandColorError" class="brand-color-error">{{ brandColorError }}</span>
         </div>
       </div>
@@ -81,15 +81,15 @@
           <em>需要使用主题商店样式时，粘贴完整样式名称。应用成功后会询问是否同步推荐品牌色，并返回首页查看效果。</em>
         </div>
         <div class="theme-package-controls">
-          <input
+          <AInput
             v-model.trim="themePackageInput"
             class="theme-package-input"
             placeholder="请输入主题商店样式名称"
             :disabled="savingTheme"
             @keyup.enter="applyThemePackage"
           />
-          <t-button size="small" theme="primary" :loading="savingTheme" @click="applyThemePackage">应用样式</t-button>
-          <t-button size="small" variant="outline" :disabled="savingTheme || !themeSettings.themePackage" @click="clearThemePackage">恢复内置样式</t-button>
+          <AButton size="small" theme="primary" :loading="savingTheme" @click="applyThemePackage">应用样式</AButton>
+          <AButton size="small" variant="outline" :disabled="savingTheme || !themeSettings.themePackage" @click="clearThemePackage">恢复内置样式</AButton>
           <span v-if="themePackageError" class="theme-package-error">{{ themePackageError }}</span>
         </div>
       </div>
@@ -179,9 +179,9 @@
           <p class="preview-note">数据图会跟随当前品牌色和辅助色，方便看板保持统一观感。</p>
         </section>
       </div>
-    </t-card>
+    </ACard>
 
-    <t-dialog
+    <AModal
       v-model:visible="brandFollowDialogVisible"
       header="是否同步品牌主色"
       :confirm-btn="{ content: '同步推荐颜色', loading: savingTheme }"
@@ -198,47 +198,47 @@
         </div>
         <em>选择“保留当前品牌色”会只应用界面样式，不改变侧栏、按钮和业务高亮色。</em>
       </div>
-    </t-dialog>
+    </AModal>
 
     <!-- 注册设置卡片 -->
-    <t-card class="settings-card" title="账号开通" :bordered="true">
+    <ACard class="settings-card" title="账号开通" :bordered="true">
       <template #actions>
-        <t-button size="small" variant="outline" :loading="savingReg" @click="saveRegistration">保存</t-button>
+        <AButton size="small" variant="outline" :loading="savingReg" @click="saveRegistration">保存</AButton>
       </template>
-      <t-form label-align="left" label-width="140px" class="settings-form">
-        <t-form-item label="允许自行申请账号" help="关闭后，新账号由管理员统一开通">
-          <t-switch v-model="regSettings.enabled" size="large" />
+      <AForm :model="regSettings" label-align="left" label-width="140px" class="settings-form">
+        <AFormItem label="允许自行申请账号" help="关闭后，新账号由管理员统一开通">
+          <ASwitch v-model="regSettings.enabled" size="medium" />
           <span class="switch-text">{{ regSettings.enabled ? '已开放' : '已关闭' }}</span>
-        </t-form-item>
-        <t-form-item label="申请后需要审核" help="开启后，新账号审核通过后才能登录">
-          <t-switch v-model="regSettings.requireApproval" size="large" />
+        </AFormItem>
+        <AFormItem label="申请后需要审核" help="开启后，新账号审核通过后才能登录">
+          <ASwitch v-model="regSettings.requireApproval" size="medium" />
           <span class="switch-text">{{ regSettings.requireApproval ? '需要审批' : '无需审批' }}</span>
-        </t-form-item>
-      </t-form>
-    </t-card>
+        </AFormItem>
+      </AForm>
+    </ACard>
 
     <!-- 登录规则卡片 -->
-    <t-card class="settings-card" title="登录安全" :bordered="true">
+    <ACard class="settings-card" title="登录安全" :bordered="true">
       <template #actions>
-        <t-button size="small" variant="outline" :loading="savingLogin" @click="saveLoginRules">保存</t-button>
+        <AButton size="small" variant="outline" :loading="savingLogin" @click="saveLoginRules">保存</AButton>
       </template>
-      <t-form label-align="left" label-width="160px" class="settings-form">
-        <t-form-item label="密码最少位数" help="建议不少于 6 位，降低账号被误用的风险">
-          <t-input-number v-model="loginRulesSettings.minPasswordLength" :min="1" :max="32" style="width:180px" />
-        </t-form-item>
-        <t-form-item label="最多输错次数" help="连续输错超过该次数后，账号会暂时保护">
-          <t-input-number v-model="loginRulesSettings.maxLoginAttempts" :min="1" :max="20" style="width:180px" />
-        </t-form-item>
-        <t-form-item label="自动退出时间" help="长时间未操作时，系统会自动退出登录">
-          <t-input-number v-model="loginRulesSettings.sessionTimeoutMinutes" :min="15" :max="1440" style="width:180px" />
+      <AForm :model="loginRulesSettings" label-align="left" label-width="160px" class="settings-form">
+        <AFormItem label="密码最少位数" help="建议不少于 6 位，降低账号被误用的风险">
+          <AInputNumber v-model="loginRulesSettings.minPasswordLength" :min="1" :max="32" style="width:180px" />
+        </AFormItem>
+        <AFormItem label="最多输错次数" help="连续输错超过该次数后，账号会暂时保护">
+          <AInputNumber v-model="loginRulesSettings.maxLoginAttempts" :min="1" :max="20" style="width:180px" />
+        </AFormItem>
+        <AFormItem label="自动退出时间" help="长时间未操作时，系统会自动退出登录">
+          <AInputNumber v-model="loginRulesSettings.sessionTimeoutMinutes" :min="15" :max="1440" style="width:180px" />
           <span class="switch-text">分钟</span>
-        </t-form-item>
-        <t-form-item label="允许多处登录" help="关闭后，同一账号新登录时，原位置会自动退出">
-          <t-switch v-model="loginRulesSettings.allowConcurrentSessions" size="large" />
+        </AFormItem>
+        <AFormItem label="允许多处登录" help="关闭后，同一账号新登录时，原位置会自动退出">
+          <ASwitch v-model="loginRulesSettings.allowConcurrentSessions" size="medium" />
           <span class="switch-text">{{ loginRulesSettings.allowConcurrentSessions ? '允许' : '不允许' }}</span>
-        </t-form-item>
-      </t-form>
-    </t-card>
+        </AFormItem>
+      </AForm>
+    </ACard>
   </div>
 </template>
 
@@ -369,7 +369,7 @@ function friendlyThemeName(theme?: ThemeOption | null) {
   if (key === 'engineering-green') return '工程绿色风格'
   if (key === 'gov-gray-blue') return '政企灰蓝风格'
   if (key === 'dark-command') return '深色看板风格'
-  return theme.themeName.replace(/Arco|Theme|主题包|fallback/gi, '').trim() || '自定义风格'
+  return theme.themeName.replace(/Arco|Theme|主题包|默认兼容/gi, '').trim() || '自定义风格'
 }
 
 function friendlyThemeDescription(theme: ThemeOption) {
@@ -653,7 +653,7 @@ async function saveLoginRules() {
   max-width: 1120px;
   min-width: 0;
 }
-.page-header { margin-bottom: var(--space-8); }
+.page-header { margin-bottom: var(--space-4); }
 .page-title { font-size: var(--text-2xl); font-weight: 700; color: var(--text-primary); margin: 0 0 var(--space-1); }
 .page-desc { font-size: var(--text-sm); color: var(--text-secondary); margin: 0; }
 .settings-card { margin-bottom: var(--space-5); }
@@ -1076,3 +1076,4 @@ async function saveLoginRules() {
   .theme-facts { grid-template-columns: 1fr; }
 }
 </style>
+

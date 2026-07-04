@@ -73,7 +73,9 @@ export interface AuditProject {
   actualEndDate: string
   docStatus: string
   stage: AuditStageCode
+  stageLabel?: string
   status: string
+  statusText?: string
   progressPercent: number
   managerName: string
   isDelayed: boolean
