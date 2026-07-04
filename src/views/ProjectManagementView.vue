@@ -747,21 +747,22 @@
       width="620px"
       @confirm="saveFile"
     >
-      <div class="dialog-grid dialog-grid--single">
-        <label>
-          <span>资料分类</span>
-          <ASelect v-model="fileDialog.categoryKey" :options="categoryOptions" />
-        </label>
-        <label>
-          <span>资料名称</span>
+      <AForm :model="fileDialog" layout="vertical" class="file-upload-form">
+        <AFormItem field="categoryKey" label="资料分类">
+          <ASelect
+            v-model="fileDialog.categoryKey"
+            :options="categoryOptions"
+            placeholder="请选择资料分类"
+          />
+        </AFormItem>
+        <AFormItem field="displayName" label="资料名称">
           <AInput v-model="fileDialog.displayName" placeholder="请输入便于识别的资料名称" />
-        </label>
-        <label>
-          <span>文件</span>
+        </AFormItem>
+        <AFormItem field="file" label="文件">
           <input ref="fileInputRef" type="file" class="native-file" @change="onFilePicked" />
-        </label>
+        </AFormItem>
         <p class="dialog-hint">同一项目、同一分类、同一资料名称再次上传时会自动作为新版本处理。</p>
-      </div>
+      </AForm>
     </AModal>
 
     <AModal
@@ -3677,6 +3678,20 @@ watch(detailDialogVisible, (visible) => {
 
 .arco-project-form :deep(.arco-form-item) {
   margin-bottom: 0;
+}
+
+.file-upload-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.file-upload-form :deep(.arco-form-item) {
+  margin-bottom: 0;
+}
+
+.file-upload-form :deep(.arco-select-view-single),
+.file-upload-form :deep(.arco-input-wrapper) {
+  width: 100%;
 }
 
 .arco-project-form :deep(.arco-form-item-label) {
