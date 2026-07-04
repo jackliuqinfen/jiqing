@@ -498,7 +498,7 @@
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.settlementName }}</strong>
-                  <span>{{ row.settlementType }}</span>
+                  <span>{{ settlementTypeLabel(row.settlementType) }}</span>
                 </div>
               </template>
               <template #status="{ row }">
@@ -527,7 +527,7 @@
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.variationName }}</strong>
-                  <span>{{ row.variationType }}</span>
+                  <span>{{ variationTypeLabel(row.variationType) }}</span>
                 </div>
               </template>
               <template #status="{ row }">
@@ -785,48 +785,38 @@
       width="700px"
       @confirm="saveSettlement"
     >
-      <div class="dialog-grid">
-        <label class="dialog-span-2">
-          <span>结算名称</span>
+      <AForm :model="settlementForm" layout="vertical" class="dialog-grid modal-business-form">
+        <AFormItem class="dialog-span-2" field="settlementName" label="结算名称">
           <AInput v-model="settlementForm.settlementName" placeholder="如：一期竣工结算" />
-        </label>
-        <label>
-          <span>结算状态</span>
-          <ASelect v-model="settlementForm.settlementStatus" :options="settlementStatusOptions" />
-        </label>
-        <label>
-          <span>结算类型</span>
-          <AInput v-model="settlementForm.settlementType" placeholder="progress / final / other" />
-        </label>
-        <label>
-          <span>申报金额</span>
+        </AFormItem>
+        <AFormItem field="settlementStatus" label="付款状态">
+          <ASelect v-model="settlementForm.settlementStatus" :options="settlementStatusOptions" placeholder="请选择付款状态" />
+        </AFormItem>
+        <AFormItem field="settlementType" label="结算事项">
+          <ASelect v-model="settlementForm.settlementType" :options="settlementTypeOptions" placeholder="请选择结算事项" />
+        </AFormItem>
+        <AFormItem field="applyAmount" label="申报金额">
           <AInputNumber v-model="settlementForm.applyAmount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>核定金额</span>
+        </AFormItem>
+        <AFormItem field="approvedAmount" label="核定金额">
           <AInputNumber v-model="settlementForm.approvedAmount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>已付款金额</span>
+        </AFormItem>
+        <AFormItem field="paidAmount" label="已付款金额">
           <AInputNumber v-model="settlementForm.paidAmount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>申报日期</span>
+        </AFormItem>
+        <AFormItem field="applyDate" label="申报日期">
           <AInput v-model="settlementForm.applyDate" placeholder="YYYY-MM-DD" />
-        </label>
-        <label>
-          <span>预计付款日期</span>
+        </AFormItem>
+        <AFormItem field="expectedPayDate" label="预计付款日期">
           <AInput v-model="settlementForm.expectedPayDate" placeholder="YYYY-MM-DD" />
-        </label>
-        <label>
-          <span>实际付款日期</span>
+        </AFormItem>
+        <AFormItem field="paidDate" label="实际付款日期">
           <AInput v-model="settlementForm.paidDate" placeholder="YYYY-MM-DD" />
-        </label>
-        <label class="dialog-span-2">
-          <span>备注</span>
+        </AFormItem>
+        <AFormItem class="dialog-span-2" field="remark" label="备注">
           <ATextarea v-model="settlementForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
-        </label>
-      </div>
+        </AFormItem>
+      </AForm>
     </AModal>
 
     <AModal
@@ -836,36 +826,29 @@
       width="700px"
       @confirm="saveVariation"
     >
-      <div class="dialog-grid">
-        <label class="dialog-span-2">
-          <span>签证名称</span>
+      <AForm :model="variationForm" layout="vertical" class="dialog-grid modal-business-form">
+        <AFormItem class="dialog-span-2" field="variationName" label="签证名称">
           <AInput v-model="variationForm.variationName" placeholder="如：设计变更签证 01" />
-        </label>
-        <label>
-          <span>签证状态</span>
-          <AInput v-model="variationForm.variationStatus" placeholder="例如：待确认、已确认、需更正" />
-        </label>
-        <label>
-          <span>签证类型</span>
-          <AInput v-model="variationForm.variationType" placeholder="change / visa / other" />
-        </label>
-        <label>
-          <span>金额</span>
+        </AFormItem>
+        <AFormItem field="variationStatus" label="确认状态">
+          <ASelect v-model="variationForm.variationStatus" :options="variationStatusOptions" placeholder="请选择确认状态" />
+        </AFormItem>
+        <AFormItem field="variationType" label="签证事项">
+          <ASelect v-model="variationForm.variationType" :options="variationTypeOptions" placeholder="请选择签证事项" />
+        </AFormItem>
+        <AFormItem field="amount" label="金额">
           <AInputNumber v-model="variationForm.amount" :min="0" :precision="2" />
-        </label>
-        <label>
-          <span>发生日期</span>
+        </AFormItem>
+        <AFormItem field="occurredDate" label="发生日期">
           <AInput v-model="variationForm.occurredDate" placeholder="YYYY-MM-DD" />
-        </label>
-        <label>
-          <span>确认日期</span>
+        </AFormItem>
+        <AFormItem field="approvedDate" label="确认日期">
           <AInput v-model="variationForm.approvedDate" placeholder="YYYY-MM-DD" />
-        </label>
-        <label class="dialog-span-2">
-          <span>备注</span>
+        </AFormItem>
+        <AFormItem class="dialog-span-2" field="remark" label="备注">
           <ATextarea v-model="variationForm.remark" :auto-size="{ minRows: 3, maxRows: 5 }" />
-        </label>
-      </div>
+        </AFormItem>
+      </AForm>
     </AModal>
 
     <AModal
@@ -987,6 +970,23 @@ const pageSizeOptions = [
   { label: '10 条/页', value: 10 },
   { label: '20 条/页', value: 20 },
   { label: '50 条/页', value: 50 },
+]
+
+const settlementTypeOptions = [
+  { label: '进度款结算', value: 'progress' },
+  { label: '竣工结算', value: 'final' },
+  { label: '补充结算', value: 'supplement' },
+  { label: '其他结算', value: 'other' },
+]
+
+const variationStatusOptions = variationStatusDict.map(({ label, value }) => ({ label, value }))
+
+const variationTypeOptions = [
+  { label: '设计变更', value: 'change' },
+  { label: '现场签证', value: 'visa' },
+  { label: '工程量调整', value: 'quantity_adjustment' },
+  { label: '价格调整', value: 'price_adjustment' },
+  { label: '其他事项', value: 'other' },
 ]
 
 const projectGroupOptions = [
@@ -1372,6 +1372,14 @@ function settlementStatusLabel(value: string) {
 
 function variationStatusLabel(value: string) {
   return businessLabel(variationStatusDict, value, '未设置')
+}
+
+function settlementTypeLabel(value: string) {
+  return settlementTypeOptions.find((item) => item.value === value)?.label || value || '未设置'
+}
+
+function variationTypeLabel(value: string) {
+  return variationTypeOptions.find((item) => item.value === value)?.label || value || '未设置'
 }
 
 function materialStatusLabel(value: string) {
@@ -3691,6 +3699,17 @@ watch(detailDialogVisible, (visible) => {
 
 .file-upload-form :deep(.arco-select-view-single),
 .file-upload-form :deep(.arco-input-wrapper) {
+  width: 100%;
+}
+
+.modal-business-form :deep(.arco-form-item) {
+  margin-bottom: 0;
+}
+
+.modal-business-form :deep(.arco-select-view-single),
+.modal-business-form :deep(.arco-input-wrapper),
+.modal-business-form :deep(.arco-input-number),
+.modal-business-form :deep(.arco-textarea-wrapper) {
   width: 100%;
 }
 
