@@ -483,6 +483,7 @@ export interface ProjectRecord {
   id: string
   projectCode: string
   projectName: string
+  contractDate: string
   constructionUnit: string
   contractorName: string
   contractorContact: string
@@ -522,6 +523,7 @@ export interface ProjectMeta {
   categories: ProjectDocumentCategory[]
   projectStatuses: { label: string; value: string }[]
   settlementStatuses: { label: string; value: string }[]
+  dictionaryOptions?: Record<string, { label: string; value: string }[]>
   auditStages: { label: string; value: string }[]
   auditStatuses?: { label: string; value: string }[]
   evidenceStatuses?: { label: string; value: string }[]

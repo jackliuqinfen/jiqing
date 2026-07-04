@@ -585,6 +585,21 @@
       <AForm ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
         <div class="dialog-grid">
           <AFormItem
+            field="projectCode"
+            label="项目编号"
+            :help="projectDialog.mode === 'create' ? '保存时由系统按合同日期、施工单位核心字号和序号生成。' : '系统编号不可人工修改。'"
+          >
+            <AInput :model-value="projectCodePreview" readonly placeholder="填写合同日期和施工单位后自动预览" />
+          </AFormItem>
+          <AFormItem
+            field="contractDate"
+            label="工程合同签订日期"
+            :validate-status="projectFormErrors.contractDate ? 'error' : undefined"
+            :help="projectFormErrors.contractDate"
+          >
+            <ADatePicker v-model="projectForm.contractDate" data-project-field="contractDate" allow-clear placeholder="请选择合同签订日期" @change="clearProjectFieldError('contractDate')" />
+          </AFormItem>
+          <AFormItem
             v-for="field in projectFieldsLeft"
             :key="field.key"
             :field="field.key"
@@ -593,7 +608,19 @@
             :validate-status="projectFormErrors[field.key] ? 'error' : undefined"
             :help="projectFormErrors[field.key]"
           >
+            <ASelect
+              v-if="projectDictionaryField(field.key)"
+              v-model="projectForm[field.key]"
+              :data-project-field="field.key"
+              :placeholder="field.placeholder"
+              :options="dictionarySelectOptions(projectDictionaryField(field.key))"
+              allow-clear
+              allow-search
+              allow-create
+              @change="handleProjectDictionaryChange(field.key)"
+            />
             <AInput
+              v-else
               v-model="projectForm[field.key]"
               :data-project-field="field.key"
               :placeholder="field.placeholder"
@@ -610,7 +637,19 @@
             :validate-status="projectFormErrors[field.key] ? 'error' : undefined"
             :help="projectFormErrors[field.key]"
           >
+            <ASelect
+              v-if="projectDictionaryField(field.key)"
+              v-model="projectForm[field.key]"
+              :data-project-field="field.key"
+              :placeholder="field.placeholder"
+              :options="dictionarySelectOptions(projectDictionaryField(field.key))"
+              allow-clear
+              allow-search
+              allow-create
+              @change="handleProjectDictionaryChange(field.key)"
+            />
             <AInput
+              v-else
               v-model="projectForm[field.key]"
               :data-project-field="field.key"
               :placeholder="field.placeholder"
@@ -865,6 +904,7 @@ import {
 } from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
 import {
+  createProjectDictionaryOption,
   createProjectRecord,
   deleteProjectFile,
   deleteProjectRecord,
@@ -1014,6 +1054,7 @@ const meta = reactive<ProjectMeta>({
   categories: [],
   projectStatuses: [],
   settlementStatuses: [],
+  dictionaryOptions: {},
   auditStages: [],
 })
 
@@ -1080,13 +1121,14 @@ const projectForm = reactive({
   id: '',
   projectCode: '',
   projectName: '',
+  contractDate: '',
   constructionUnit: '',
   contractorName: '',
   contractorContact: '',
   ownerUnit: '',
   companyRole: '工程咨询',
   managerName: '',
-  projectStatus: 'active',
+  projectStatus: 'awarded',
   settlementStatus: 'not_started',
   auditStage: 'not_linked',
   contractAmount: 0,
@@ -1099,14 +1141,15 @@ const projectForm = reactive({
   auditProjectId: '',
 })
 type ProjectFormKey = keyof typeof projectForm
-type ProjectTextFormKey = 'projectCode' | 'projectName' | 'constructionUnit' | 'ownerUnit' | 'contractorName' | 'contractorContact' | 'managerName' | 'companyRole'
+type ProjectTextFormKey = 'projectName' | 'constructionUnit' | 'ownerUnit' | 'contractorName' | 'contractorContact' | 'managerName' | 'companyRole'
+type ProjectDictionaryGroup = 'construction_unit' | 'owner_unit' | 'contractor_name' | 'manager_name' | 'company_role'
 type ProjectFormErrors = Partial<Record<ProjectFormKey, string>>
 const projectFormErrors = reactive<ProjectFormErrors>({})
 
 const settlementForm = reactive({
   settlementName: '',
   settlementType: 'progress',
-  settlementStatus: 'pending',
+  settlementStatus: 'not_started',
   applyAmount: 0,
   approvedAmount: 0,
   paidAmount: 0,
@@ -1127,22 +1170,22 @@ const variationForm = reactive({
 })
 
 const projectFieldsLeft: Array<{ key: ProjectTextFormKey; label: string; placeholder: string; required: boolean }> = [
-  { key: 'projectCode', label: '项目编号', placeholder: '系统将保留该编号', required: false },
   { key: 'projectName', label: '项目名称', placeholder: '请输入项目名称', required: true },
-  { key: 'constructionUnit', label: '施工单位', placeholder: '请输入施工单位', required: false },
-  { key: 'ownerUnit', label: '建设单位', placeholder: '请输入建设单位', required: false },
+  { key: 'constructionUnit', label: '施工单位', placeholder: '搜索或输入施工单位', required: true },
+  { key: 'ownerUnit', label: '建设单位', placeholder: '搜索或输入建设单位', required: false },
 ]
 
 const projectFieldsRight: Array<{ key: ProjectTextFormKey; label: string; placeholder: string; required: boolean }> = [
-  { key: 'contractorName', label: '施工联系人/负责人', placeholder: '请输入负责人姓名', required: false },
+  { key: 'contractorName', label: '施工联系人/负责人', placeholder: '搜索或输入负责人姓名', required: false },
   { key: 'contractorContact', label: '联系电话', placeholder: '请输入联系电话', required: false },
-  { key: 'managerName', label: '项目负责人', placeholder: '请输入项目负责人', required: false },
-  { key: 'companyRole', label: '我方角色', placeholder: '请输入我方角色', required: false },
+  { key: 'managerName', label: '项目负责人', placeholder: '搜索或输入项目负责人', required: false },
+  { key: 'companyRole', label: '我方角色', placeholder: '搜索或输入我方角色', required: false },
 ]
 
 const categoryOptions = computed(() => meta.categories.map((item) => ({ label: item.categoryName, value: item.categoryKey })))
 const projectStatusOptions = computed(() => meta.projectStatuses.length ? meta.projectStatuses : defaultProjectStatuses)
 const settlementStatusOptions = computed(() => meta.settlementStatuses.length ? meta.settlementStatuses : defaultSettlementStatuses)
+const projectCodePreview = computed(() => projectForm.projectCode || buildProjectCodePreview(projectForm.contractDate, projectForm.constructionUnit))
 const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
 const configurableColumns = computed(() => baseTableColumns.filter((column) => !['select', 'project', 'actions'].includes(String(column.colKey))))
 const displayRecords = computed(() => records.value)
@@ -1252,7 +1295,7 @@ const projectTimeline = computed(() => {
     {
       label: '结算推进',
       text: settlementStatusLabel(project.settlementStatus),
-      done: ['approved', 'paid', 'completed'].includes(project.settlementStatus),
+      done: ['partially_paid', 'settled'].includes(project.settlementStatus),
     },
     {
       label: '审计联动',
@@ -1264,8 +1307,8 @@ const projectTimeline = computed(() => {
 
 const summaryCards = computed(() => [
   { key: 'all', label: '项目总数', value: summary.totalProjects, hint: '全部项目主数据' },
-  { key: 'active', label: '进行中', value: summary.activeProjects, hint: '正在推进的项目' },
-  { key: 'settlement', label: '结算中', value: summary.settlementProjects, hint: '进入付款结算的项目' },
+  { key: 'active', label: '施工及审计中', value: summary.activeProjects, hint: '施工、报审、一审、二审推进中' },
+  { key: 'settlement', label: '付款未清', value: summary.settlementProjects, hint: '已付款但部分未结清' },
   { key: 'audit', label: '已联动审计', value: summary.auditLinkedProjects, hint: '已进入审计流程的项目' },
   { key: 'missing', label: '资料不齐', value: summary.missingDocuments, hint: '需要补资料的项目' },
   { key: 'variation', label: '变更签证金额', value: formatWan(summary.variationAmount || 0), hint: '汇总已维护的签证金额' },
@@ -1280,11 +1323,11 @@ const dueSoonProjects = computed(() => records.value.filter((record) => {
   const today = new Date()
   const end = new Date(record.plannedEndDate)
   const diffDays = Math.ceil((end.getTime() - today.getTime()) / 86400000)
-  return diffDays >= 0 && diffDays <= 7 && record.projectStatus !== 'completed'
+  return diffDays >= 0 && diffDays <= 7 && record.projectStatus !== 'archived'
 }))
 
 const riskProjects = computed(() => records.value.filter((record) => {
-  return record.missingRequiredCount > 0 || isProjectOverdue(record) || record.settlementStatus === 'rejected'
+  return record.missingRequiredCount > 0 || isProjectOverdue(record) || record.settlementStatus === 'partially_paid'
 }))
 
 const projectWorkItems = computed(() => workItems.value.filter((item) => item.projectId || item.auditProjectId).slice(0, 4))
@@ -1382,7 +1425,7 @@ function shortDate(iso: string) {
 }
 
 function isProjectOverdue(record: ProjectRecord) {
-  if (!record.plannedEndDate || record.projectStatus === 'completed') return false
+  if (!record.plannedEndDate || record.projectStatus === 'archived') return false
   const today = new Date().toISOString().slice(0, 10)
   return record.plannedEndDate < today
 }
@@ -1391,18 +1434,81 @@ function filesByCategory(categoryKey: string) {
   return (currentProject.value?.files || []).filter((file) => file.categoryKey === categoryKey)
 }
 
+const projectDictionaryFieldMap: Partial<Record<ProjectTextFormKey, ProjectDictionaryGroup>> = {
+  constructionUnit: 'construction_unit',
+  ownerUnit: 'owner_unit',
+  contractorName: 'contractor_name',
+  managerName: 'manager_name',
+  companyRole: 'company_role',
+}
+
+function projectDictionaryField(key: ProjectTextFormKey) {
+  return projectDictionaryFieldMap[key]
+}
+
+function dictionarySelectOptions(groupKey?: ProjectDictionaryGroup) {
+  if (!groupKey) return []
+  return meta.dictionaryOptions?.[groupKey] || []
+}
+
+function localCompanyCoreName(value: string) {
+  let name = String(value || '').replace(/[\s（）()·,，.。-]+/g, '')
+  name = name.replace(/^江苏省?/, '')
+  const suffixes = ['建设工程有限公司', '建筑工程有限公司', '工程建设有限公司', '建设有限公司', '工程有限公司', '有限公司', '有限责任公司', '股份有限公司', '集团有限公司', '公司']
+  let changed = true
+  while (changed && name) {
+    changed = false
+    const suffix = suffixes.find((item) => name.endsWith(item) && name.length > item.length)
+    if (suffix) {
+      name = name.slice(0, -suffix.length)
+      changed = true
+    }
+  }
+  return name || value
+}
+
+function localPinyinInitials(value: string) {
+  const ascii = localCompanyCoreName(value).match(/[a-zA-Z0-9]/g)
+  if (ascii?.length) return ascii.join('').toUpperCase().slice(0, 8)
+  return '自动'
+}
+
+function buildProjectCodePreview(contractDate: string, constructionUnit: string) {
+  const datePart = String(contractDate || '').replace(/\D/g, '').slice(0, 8) || 'YYYYMMDD'
+  const unitPart = constructionUnit ? localPinyinInitials(constructionUnit) : '单位'
+  return `${datePart}-${unitPart}-001`
+}
+
+async function handleProjectDictionaryChange(key: ProjectTextFormKey) {
+  clearProjectFieldError(key)
+  const groupKey = projectDictionaryField(key)
+  const value = String(projectForm[key] || '').trim()
+  if (!groupKey || !value) return
+  if (dictionarySelectOptions(groupKey).some((item) => item.value === value || item.label === value)) return
+  try {
+    const option = await createProjectDictionaryOption(groupKey, value)
+    meta.dictionaryOptions = {
+      ...(meta.dictionaryOptions || {}),
+      [groupKey]: [...dictionarySelectOptions(groupKey), option],
+    }
+  } catch (err) {
+    MessagePlugin.warning(friendlyErrorMessage(err, '新选项暂未保存，项目保存时会再次尝试沉淀到字典。'))
+  }
+}
+
 function fillProjectForm(record?: ProjectRecord | null) {
   Object.assign(projectForm, {
     id: record?.id || '',
     projectCode: record?.projectCode || '',
     projectName: record?.projectName || '',
+    contractDate: record?.contractDate || '',
     constructionUnit: record?.constructionUnit || '',
     contractorName: record?.contractorName || '',
     contractorContact: record?.contractorContact || '',
     ownerUnit: record?.ownerUnit || '',
     companyRole: record?.companyRole || '工程咨询',
     managerName: record?.managerName || '',
-    projectStatus: record?.projectStatus || 'active',
+    projectStatus: record?.projectStatus || 'awarded',
     settlementStatus: record?.settlementStatus || 'not_started',
     auditStage: record?.auditStage || 'not_linked',
     contractAmount: record?.contractAmount || 0,
@@ -1420,6 +1526,7 @@ function projectFormSnapshot() {
   return JSON.stringify({
     projectCode: projectForm.projectCode,
     projectName: projectForm.projectName,
+    contractDate: projectForm.contractDate,
     constructionUnit: projectForm.constructionUnit,
     contractorName: projectForm.contractorName,
     contractorContact: projectForm.contractorContact,
@@ -1462,6 +1569,12 @@ function validateProjectForm() {
   if (!projectForm.projectName.trim()) {
     projectFormErrors.projectName = '请填写项目名称，便于后续资料、结算和审计流转。'
   }
+  if (!projectForm.contractDate) {
+    projectFormErrors.contractDate = '请选择工程合同签订日期，系统将据此生成项目编号。'
+  }
+  if (!projectForm.constructionUnit.trim()) {
+    projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
+  }
   if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
     projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
   }
@@ -1493,7 +1606,7 @@ function fillSettlementForm(record?: ProjectSettlement | null) {
   Object.assign(settlementForm, {
     settlementName: record?.settlementName || '',
     settlementType: record?.settlementType || 'progress',
-    settlementStatus: record?.settlementStatus || 'pending',
+    settlementStatus: record?.settlementStatus || 'not_started',
     applyAmount: record?.applyAmount || 0,
     approvedAmount: record?.approvedAmount || 0,
     paidAmount: record?.paidAmount || 0,
@@ -1749,8 +1862,8 @@ function applySummaryFilter(key: string) {
   filters.onlyRisk = false
   filters.onlyUpcomingDue = false
   filters.onlyMonthlyNew = false
-  if (key === 'active') filters.projectStatus = 'active'
-  else if (key === 'settlement') filters.settlementStatus = 'pending'
+  if (key === 'active') filters.projectStatus = 'under_construction'
+  else if (key === 'settlement') filters.settlementStatus = 'partially_paid'
   else if (key === 'audit') filters.onlyAuditLinked = true
   else if (key === 'missing') filters.onlyMissingDocuments = true
   filters.page = 1
@@ -2069,6 +2182,7 @@ async function loadMeta() {
   meta.categories = value.categories || []
   meta.projectStatuses = value.projectStatuses || []
   meta.settlementStatuses = value.settlementStatuses || []
+  meta.dictionaryOptions = value.dictionaryOptions || {}
   meta.auditStages = value.auditStages || []
 }
 
@@ -3539,6 +3653,29 @@ watch(detailDialogVisible, (visible) => {
   gap: var(--space-3);
 }
 
+.project-form-modal :deep(.arco-modal-header) {
+  height: 48px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.project-form-modal :deep(.arco-modal-title) {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.project-form-modal :deep(.arco-modal-body) {
+  max-height: min(72vh, 680px);
+  overflow: auto;
+  padding: var(--space-4);
+  background: var(--bg-surface);
+}
+
+.project-form-modal :deep(.arco-modal-footer) {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-color);
+}
+
 .arco-project-form :deep(.arco-form-item) {
   margin-bottom: 0;
 }
@@ -3558,6 +3695,28 @@ watch(detailDialogVisible, (visible) => {
   width: 100%;
   background: #fff;
   border-color: var(--border-strong);
+}
+
+.arco-project-form :deep(.arco-input-wrapper),
+.arco-project-form :deep(.arco-select-view-single),
+.arco-project-form :deep(.arco-input-number),
+.arco-project-form :deep(.arco-picker) {
+  min-height: 34px;
+}
+
+.arco-project-form :deep(.arco-input-wrapper.arco-input-disabled),
+.arco-project-form :deep(.arco-input-wrapper:has(input[readonly])) {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+:global(.arco-select-dropdown) {
+  max-height: min(320px, 42vh);
+}
+
+:global(.arco-select-dropdown .arco-scrollbar),
+:global(.arco-select-dropdown .arco-scrollbar-container) {
+  max-height: min(300px, 40vh);
 }
 
 .arco-project-form :deep(.arco-form-item-error .arco-input-wrapper),

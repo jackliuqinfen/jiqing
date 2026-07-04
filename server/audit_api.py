@@ -36,20 +36,27 @@ PROJECT_DOCUMENT_CATEGORIES = [
     ("other", "其他资料", "项目相关补充资料", 0),
 ]
 PROJECT_STATUSES = {
-    "not_started": "未开始",
-    "active": "进行中",
-    "settlement": "结算中",
-    "completed": "已完成",
-    "paused": "暂停",
+    "awarded": "已中标",
+    "contract_signed": "已签订合同",
+    "under_construction": "已进场施工中",
+    "completed_acceptance": "已竣工验收",
+    "pending_submission": "待报审",
+    "first_audit": "一审中",
+    "second_audit": "二审中",
+    "conclusion": "已定案结论",
     "archived": "已归档",
 }
 SETTLEMENT_STATUSES = {
     "not_started": "未开始",
-    "pending": "待处理",
-    "reviewing": "审核中",
-    "approved": "已确认",
-    "paid": "已付款",
-    "rejected": "已退回",
+    "partially_paid": "已付款（部分未结清）",
+    "settled": "已结清",
+}
+PROJECT_DICTIONARY_GROUPS = {
+    "construction_unit",
+    "owner_unit",
+    "contractor_name",
+    "manager_name",
+    "company_role",
 }
 AUDIT_STATUSES = {
     "not_started": "未开始",
@@ -404,6 +411,78 @@ def settlement_status_label(value):
     return SETTLEMENT_STATUSES.get(value or "", value or "未设置")
 
 
+def chinese_initial(char):
+    if not char:
+        return ""
+    if char.isascii() and char.isalnum():
+        return char.upper()
+    try:
+        code = int.from_bytes(char.encode("gb2312"), "big")
+    except UnicodeEncodeError:
+        return ""
+    ranges = [
+        (0xB0A1, "A"), (0xB0C5, "B"), (0xB2C1, "C"), (0xB4EE, "D"), (0xB6EA, "E"), (0xB7A2, "F"),
+        (0xB8C1, "G"), (0xB9FE, "H"), (0xBBF7, "J"), (0xBFA6, "K"), (0xC0AC, "L"), (0xC2E8, "M"),
+        (0xC4C3, "N"), (0xC5B6, "O"), (0xC5BE, "P"), (0xC6DA, "Q"), (0xC8BB, "R"), (0xC8F6, "S"),
+        (0xCBFA, "T"), (0xCDDA, "W"), (0xCEF4, "X"), (0xD1B9, "Y"), (0xD4D1, "Z"),
+    ]
+    for index, (start, letter) in enumerate(ranges):
+        end = ranges[index + 1][0] if index + 1 < len(ranges) else 0xD7FA
+        if start <= code < end:
+            return letter
+    return ""
+
+
+def pinyin_initials(value):
+    letters = [chinese_initial(char) for char in str(value or "").strip()]
+    compact = "".join(char for char in letters if char)
+    return compact[:8] or "XM"
+
+
+def company_core_name(value):
+    name = re.sub(r"[\s（）()·,，.。-]+", "", str(value or ""))
+    if name.startswith(("江苏省", "江苏")):
+        name = re.sub(r"^江苏省?", "", name)
+    suffixes = [
+        "建设工程有限公司",
+        "建筑工程有限公司",
+        "工程建设有限公司",
+        "建设有限公司",
+        "工程有限公司",
+        "有限公司",
+        "有限责任公司",
+        "股份有限公司",
+        "集团有限公司",
+        "公司",
+    ]
+    changed = True
+    while changed and name:
+        changed = False
+        for suffix in suffixes:
+            if name.endswith(suffix) and len(name) > len(suffix):
+                name = name[:-len(suffix)]
+                changed = True
+                break
+    return name or str(value or "").strip()
+
+
+def generate_project_code(conn, contract_date, construction_unit):
+    date_part = re.sub(r"\D", "", str(contract_date or ""))[:8] or datetime.now().strftime("%Y%m%d")
+    unit_part = pinyin_initials(company_core_name(construction_unit))
+    prefix = f"{date_part}-{unit_part}"
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM project_records WHERE project_code LIKE ?",
+        (f"{prefix}-%",),
+    ).fetchone()
+    serial = int(row["c"] or 0) + 1
+    while True:
+        code = f"{prefix}-{serial:03d}"
+        exists = conn.execute("SELECT id FROM project_records WHERE project_code = ?", (code,)).fetchone()
+        if not exists:
+            return code
+        serial += 1
+
+
 def audit_status_label(value):
     return AUDIT_STATUSES.get(value or "", value or "未设置")
 
@@ -579,6 +658,7 @@ def project_record_payload(conn, row, include_detail=False):
         "id": row["id"],
         "projectCode": row["project_code"],
         "projectName": row["project_name"],
+        "contractDate": row_get(row, "contract_date"),
         "constructionUnit": row["construction_unit"],
         "contractorName": row["contractor_name"],
         "contractorContact": row["contractor_contact"],
@@ -645,13 +725,14 @@ def project_record_columns_from_payload(data):
     return {
         "project_code": (data.get("projectCode") or "").strip(),
         "project_name": (data.get("projectName") or "").strip(),
+        "contract_date": data.get("contractDate") or "",
         "construction_unit": (data.get("constructionUnit") or "").strip(),
         "contractor_name": (data.get("contractorName") or "").strip(),
         "contractor_contact": (data.get("contractorContact") or "").strip(),
         "owner_unit": (data.get("ownerUnit") or "").strip(),
         "company_role": (data.get("companyRole") or "工程咨询").strip(),
         "manager_name": (data.get("managerName") or "").strip(),
-        "project_status": data.get("projectStatus") or "active",
+        "project_status": data.get("projectStatus") or "awarded",
         "settlement_status": data.get("settlementStatus") or "not_started",
         "audit_stage": data.get("auditStage") or "not_linked",
         "contract_amount": float(data.get("contractAmount") or 0),
@@ -666,6 +747,58 @@ def project_record_columns_from_payload(data):
         "second_audit_material_status": data.get("secondAuditMaterialStatus") or "missing",
         "audit_project_id": (data.get("auditProjectId") or data.get("audit_project_id") or "").strip(),
     }
+
+
+def project_dictionary_options(conn):
+    rows = conn.execute(
+        """
+        SELECT group_key, option_label, option_value
+        FROM audit_field_options
+        WHERE group_key IN (?, ?, ?, ?, ?) AND COALESCE(enabled, is_enabled, 1) = 1
+        ORDER BY group_key, sort_order, option_label
+        """,
+        tuple(PROJECT_DICTIONARY_GROUPS),
+    ).fetchall()
+    grouped = {key: [] for key in PROJECT_DICTIONARY_GROUPS}
+    seen = {key: set() for key in PROJECT_DICTIONARY_GROUPS}
+    for row in rows:
+        group_key = row["group_key"]
+        label = row["option_label"] or row["option_value"] or ""
+        value = row["option_value"] or label
+        if not label or value in seen[group_key]:
+            continue
+        grouped[group_key].append({"label": label, "value": value})
+        seen[group_key].add(value)
+    return grouped
+
+
+def save_project_dictionary_values(conn, data):
+    ts = now_iso()
+    field_map = {
+        "construction_unit": data.get("constructionUnit"),
+        "owner_unit": data.get("ownerUnit"),
+        "contractor_name": data.get("contractorName"),
+        "manager_name": data.get("managerName"),
+        "company_role": data.get("companyRole"),
+    }
+    for group_key, raw_value in field_map.items():
+        label = str(raw_value or "").strip()
+        if not label:
+            continue
+        exists = conn.execute(
+            "SELECT id FROM audit_field_options WHERE group_key = ? AND option_value = ? AND COALESCE(enabled, is_enabled, 1) = 1",
+            (group_key, label),
+        ).fetchone()
+        if exists:
+            continue
+        conn.execute(
+            """
+            INSERT INTO audit_field_options
+            (id, group_key, field_key, option_label, option_value, color, sort_order, enabled, is_enabled, is_system, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '', ?, 1, 1, 0, ?, ?)
+            """,
+            (new_id(), group_key, group_key, label, label, 999, ts, ts),
+        )
 
 
 def project_log(conn, project_id, action, content, user=None, before=None, after=None):
@@ -1094,6 +1227,7 @@ def ensure_compatible_columns(conn):
             "created_at": "TEXT DEFAULT ''",
         },
         "project_records": {
+            "contract_date": "TEXT DEFAULT ''",
             "construction_unit": "TEXT DEFAULT ''",
             "contractor_contact": "TEXT DEFAULT ''",
             "company_role": "TEXT DEFAULT ''",
@@ -1299,8 +1433,15 @@ def backfill_project_records(conn):
     for row in rows:
         pid = new_id()
         ts = row["created_at"] or now_iso()
-        status = "completed" if row["current_stage"] == "archived" else ("settlement" if row["current_stage"] in ("conclusion", "second_audit") else "active")
-        settlement_status = "approved" if row["current_stage"] in ("conclusion", "archived") else ("reviewing" if row["current_stage"] in ("first_audit", "second_audit") else "pending")
+        stage_to_status = {
+            "submitted": "pending_submission",
+            "first_audit": "first_audit",
+            "second_audit": "second_audit",
+            "conclusion": "conclusion",
+            "archived": "archived",
+        }
+        status = stage_to_status.get(row["current_stage"], "pending_submission")
+        settlement_status = "settled" if row["current_stage"] == "archived" else "not_started"
         doc_status = row["doc_status"] or ""
         settlement_book_status = "complete" if doc_status == "资料齐全" else "missing"
         conn.execute(
@@ -1947,6 +2088,7 @@ class Handler(BaseHTTPRequestHandler):
                 "categories": [category_payload(row) for row in categories],
                 "projectStatuses": [{"label": label, "value": value} for value, label in PROJECT_STATUSES.items()],
                 "settlementStatuses": [{"label": label, "value": value} for value, label in SETTLEMENT_STATUSES.items()],
+                "dictionaryOptions": project_dictionary_options(conn),
                 "auditStages": [{"label": title, "value": code} for code, title, _ in STAGES],
                 "auditStatuses": [{"label": label, "value": value} for value, label in AUDIT_STATUSES.items() if value != "deleted"],
                 "evidenceStatuses": [{"label": label, "value": value} for value, label in EVIDENCE_STATUSES.items()],
@@ -1962,14 +2104,44 @@ class Handler(BaseHTTPRequestHandler):
             "success": True,
             "data": {
                 "totalProjects": len(rows),
-                "activeProjects": sum(1 for row in rows if row["project_status"] == "active"),
-                "settlementProjects": sum(1 for row in rows if row["project_status"] == "settlement" or row["settlement_status"] in ("pending", "reviewing")),
+                "activeProjects": sum(1 for row in rows if row["project_status"] in {"under_construction", "pending_submission", "first_audit", "second_audit"}),
+                "settlementProjects": sum(1 for row in rows if row["settlement_status"] == "partially_paid"),
                 "auditLinkedProjects": sum(1 for row in rows if row["audit_project_id"]),
                 "missingDocuments": sum(1 for row in rows if int(row["missing_required_count"] or 0) > 0),
                 "contractMissing": sum(1 for row in rows if not float(row["contract_amount"] or 0)),
                 "variationAmount": sum(float(row["variation_amount"] or 0) for row in rows),
             },
         })
+
+    def create_project_dictionary_option(self, conn, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        group_key = str(data.get("groupKey") or "").strip()
+        label = str(data.get("label") or data.get("value") or "").strip()
+        if group_key not in PROJECT_DICTIONARY_GROUPS:
+            self.respond(400, {"success": False, "error": "不支持的项目字典类型"})
+            return
+        if not label:
+            self.respond(400, {"success": False, "error": "选项内容不能为空"})
+            return
+        existing = conn.execute(
+            "SELECT option_label, option_value FROM audit_field_options WHERE group_key = ? AND option_value = ? AND COALESCE(enabled, is_enabled, 1) = 1",
+            (group_key, label),
+        ).fetchone()
+        if not existing:
+            ts = now_iso()
+            conn.execute(
+                """
+                INSERT INTO audit_field_options
+                (id, group_key, field_key, option_label, option_value, color, sort_order, enabled, is_enabled, is_system, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, '', ?, 1, 1, 0, ?, ?)
+                """,
+                (new_id(), group_key, group_key, label, label, 999, ts, ts),
+            )
+            self.write_operation_log(conn, "field_option.upsert", user, "audit_field_option", group_key, detail={"label": label})
+            conn.commit()
+        self.respond(201, {"success": True, "data": {"label": label, "value": label}})
 
     def work_items(self, conn, params):
         if not self.require_user(conn):
@@ -2118,12 +2290,12 @@ class Handler(BaseHTTPRequestHandler):
             where.append("COALESCE(audit_project_id, '') != ''")
         if params.get("onlyRisk", [""])[0] in ("1", "true"):
             today = date.today().isoformat()
-            where.append("(missing_required_count > 0 OR (planned_end_date != '' AND planned_end_date < ? AND project_status != 'completed') OR settlement_status = 'rejected')")
+            where.append("(missing_required_count > 0 OR (planned_end_date != '' AND planned_end_date < ? AND project_status != 'archived') OR settlement_status = 'partially_paid')")
             values.append(today)
         if params.get("onlyUpcomingDue", [""])[0] in ("1", "true"):
             today = date.today().isoformat()
             upcoming = (date.today() + timedelta(days=7)).isoformat()
-            where.append("(planned_end_date != '' AND planned_end_date >= ? AND planned_end_date <= ? AND project_status != 'completed')")
+            where.append("(planned_end_date != '' AND planned_end_date >= ? AND planned_end_date <= ? AND project_status != 'archived')")
             values.extend([today, upcoming])
         if params.get("onlyMonthlyNew", [""])[0] in ("1", "true"):
             month_start = date.today().replace(day=1).isoformat()
@@ -2169,7 +2341,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {"success": False, "error": "请填写项目名称"})
             return
         if not columns["project_code"]:
-            columns["project_code"] = f"XM-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+            columns["project_code"] = generate_project_code(conn, columns.get("contract_date"), columns.get("construction_unit"))
         pid = new_id()
         ts = now_iso()
         columns["created_by"] = user["username"]
@@ -2195,6 +2367,7 @@ class Handler(BaseHTTPRequestHandler):
                 (pid, ts, audit_project_id),
             )
         project_log(conn, pid, "project.create", "新建项目", user, after=columns)
+        save_project_dictionary_values(conn, data)
         self.write_operation_log(conn, "project_record.create", user, "project_record", pid)
         conn.commit()
         row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
@@ -2270,7 +2443,7 @@ class Handler(BaseHTTPRequestHandler):
             (new_id(), audit_id, stage, "报审待受理", ts, row["manager_name"] or row["contractor_name"], 10, 10),
         )
         conn.execute(
-            "UPDATE project_records SET audit_project_id = ?, audit_stage = ?, settlement_status = CASE WHEN settlement_status = 'not_started' THEN 'pending' ELSE settlement_status END, updated_at = ?, updated_by = ? WHERE id = ?",
+            "UPDATE project_records SET audit_project_id = ?, audit_stage = ?, updated_at = ?, updated_by = ? WHERE id = ?",
             (audit_id, stage, ts, user["username"], project_id),
         )
         log_action(conn, audit_id, "create", user["username"], "从项目主档案发起审计", after={"projectId": project_id})
@@ -2327,6 +2500,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         refresh_project_rollups(conn, project_id)
         project_log(conn, project_id, "project.update", "更新项目基础信息", user, before=before, after=columns)
+        save_project_dictionary_values(conn, data)
         self.write_operation_log(conn, "project_record.update", user, "project_record", project_id)
         conn.commit()
         row = conn.execute("SELECT * FROM project_records WHERE id = ?", (project_id,)).fetchone()
@@ -2657,7 +2831,7 @@ class Handler(BaseHTTPRequestHandler):
         columns = {
             "settlement_name": name,
             "settlement_type": data.get("settlementType") or "progress",
-            "settlement_status": data.get("settlementStatus") or "pending",
+            "settlement_status": data.get("settlementStatus") or "not_started",
             "apply_amount": float(data.get("applyAmount") or 0),
             "approved_amount": float(data.get("approvedAmount") or 0),
             "paid_amount": float(data.get("paidAmount") or 0),
@@ -3142,6 +3316,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.reset_theme(conn)
                 elif path == "/api/projects":
                     self.create_project_record(conn, data)
+                elif path == "/api/projects/dictionary-options":
+                    self.create_project_dictionary_option(conn, data)
                 elif re.match(r"^/api/projects/([^/]+)/start-audit$", path):
                     self.start_project_audit(conn, re.match(r"^/api/projects/([^/]+)/start-audit$", path).group(1), data)
                 elif re.match(r"^/api/projects/([^/]+)/settlements$", path):

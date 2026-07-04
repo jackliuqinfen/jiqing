@@ -5,11 +5,14 @@ export type BusinessOption = {
 }
 
 export const projectStatusOptions: BusinessOption[] = [
-  { label: '未开始', value: 'not_started', color: 'gray' },
-  { label: '待处理', value: 'pending', color: 'orange' },
-  { label: '进行中', value: 'active', color: 'arcoblue' },
-  { label: '已完成', value: 'completed', color: 'green' },
-  { label: '已暂停', value: 'paused', color: 'red' },
+  { label: '已中标', value: 'awarded', color: 'arcoblue' },
+  { label: '已签订合同', value: 'contract_signed', color: 'cyan' },
+  { label: '已进场施工中', value: 'under_construction', color: 'orange' },
+  { label: '已竣工验收', value: 'completed_acceptance', color: 'purple' },
+  { label: '待报审', value: 'pending_submission', color: 'gold' },
+  { label: '一审中', value: 'first_audit', color: 'magenta' },
+  { label: '二审中', value: 'second_audit', color: 'red' },
+  { label: '已定案结论', value: 'conclusion', color: 'green' },
   { label: '已归档', value: 'archived', color: 'gray' },
 ]
 
@@ -33,12 +36,9 @@ export const materialStatusOptions: BusinessOption[] = [
 ]
 
 export const settlementStatusOptions: BusinessOption[] = [
-  { label: '未结算', value: 'not_started', color: 'gray' },
-  { label: '结算中', value: 'pending', color: 'orange' },
-  { label: '审核中', value: 'reviewing', color: 'arcoblue' },
-  { label: '已确认', value: 'approved', color: 'green' },
-  { label: '已付款', value: 'paid', color: 'green' },
-  { label: '已退回', value: 'rejected', color: 'red' },
+  { label: '未开始', value: 'not_started', color: 'gray' },
+  { label: '已付款（部分未结清）', value: 'partially_paid', color: 'orange' },
+  { label: '已结清', value: 'settled', color: 'green' },
 ]
 
 export const variationStatusOptions: BusinessOption[] = [

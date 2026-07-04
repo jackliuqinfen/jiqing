@@ -96,6 +96,10 @@ export function fetchProjectRecord(id: string): Promise<ProjectRecord> {
   return request(`/projects/${id}`)
 }
 
+export function createProjectDictionaryOption(groupKey: string, label: string): Promise<{ label: string; value: string }> {
+  return request('/projects/dictionary-options', { method: 'POST', body: JSON.stringify({ groupKey, label }) })
+}
+
 export function createProjectRecord(data: Partial<ProjectRecord>): Promise<ProjectRecord> {
   return request('/projects', { method: 'POST', body: JSON.stringify(data) })
 }
