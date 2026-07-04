@@ -849,10 +849,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Button as AButton, DatePicker as ADatePicker, Form as AForm, FormItem as AFormItem, Input as AInput, InputNumber as AInputNumber, Modal as AModal, Select as ASelect, Textarea as ATextarea } from '@arco-design/web-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import { MessagePlugin } from '@/ui/message'
+import type { AppFormInstance } from '@/ui/arcoAppComponents'
 import { formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
 import {
@@ -1074,7 +1074,7 @@ const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' |
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const renameDialog = reactive({ visible: false, saving: false, id: '', displayName: '' })
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const projectFormRef = ref<InstanceType<typeof AForm> | null>(null)
+const projectFormRef = ref<AppFormInstance | null>(null)
 
 const projectForm = reactive({
   id: '',

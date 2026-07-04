@@ -125,6 +125,13 @@ function buttonProps(props: Record<string, unknown>) {
   else if (theme === 'primary') mapped.type = 'primary'
   else mapped.type = mapped.type || 'secondary'
   if (theme && ['success', 'warning', 'danger'].includes(theme)) mapped.status = theme
+  if (theme === 'primary' || mapped.type === 'primary') {
+    mapped.class = [mapped.class, 'app-button--brand'].filter(Boolean)
+  } else if (variant === 'outline' || mapped.type === 'outline') {
+    mapped.class = [mapped.class, 'app-button--brand-outline'].filter(Boolean)
+  } else if (mapped.type === 'secondary') {
+    mapped.class = [mapped.class, 'app-button--neutral'].filter(Boolean)
+  }
   return mapped
 }
 
@@ -136,7 +143,14 @@ function tagProps(props: Record<string, unknown>) {
   if (theme === 'danger') mapped.color = 'red'
   else if (theme === 'warning') mapped.color = 'orange'
   else if (theme === 'success') mapped.color = 'green'
-  else if (theme === 'primary') mapped.color = 'arcoblue'
+  else if (theme === 'primary') {
+    mapped.style = {
+      ...((mapped.style as Record<string, unknown>) || {}),
+      color: 'var(--color-brand-600)',
+      background: 'var(--color-brand-50)',
+      borderColor: 'var(--color-brand-100)',
+    }
+  }
   else if (theme && theme !== 'default') mapped.color = theme
   return mapped
 }
@@ -156,8 +170,17 @@ const AIcon = defineComponent({
 const AAppButton = defineComponent({
   name: 'AButton',
   inheritAttrs: false,
-  setup(_, { attrs, slots }) {
-    return () => h(Button as any, buttonProps(attrs), slots)
+  props: {
+    theme: String,
+    variant: String,
+    type: String,
+    size: String,
+    loading: Boolean,
+    disabled: Boolean,
+    htmlType: String,
+  },
+  setup(props, { attrs, slots }) {
+    return () => h(Button as any, buttonProps({ ...attrs, ...props }), slots)
   },
 })
 

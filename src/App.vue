@@ -221,6 +221,64 @@ a:hover {
 }
 
 /* ============================================================
+   Arco 业务按钮统一：主操作跟随品牌色，次要操作保持中性
+   ============================================================ */
+.arco-btn.app-button--brand,
+.arco-btn-primary {
+  color: var(--text-on-brand) !important;
+  background-color: var(--color-brand-500) !important;
+  border-color: var(--color-brand-500) !important;
+}
+
+.arco-btn.app-button--brand:not(.arco-btn-disabled):hover,
+.arco-btn.app-button--brand:not(.arco-btn-disabled):focus-visible,
+.arco-btn-primary:not(.arco-btn-disabled):hover,
+.arco-btn-primary:not(.arco-btn-disabled):focus-visible {
+  color: var(--text-on-brand) !important;
+  background-color: var(--color-brand-600) !important;
+  border-color: var(--color-brand-600) !important;
+}
+
+.arco-btn.app-button--brand-outline,
+.arco-btn-outline {
+  color: var(--color-brand-600) !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--color-brand-300) !important;
+}
+
+.arco-btn.app-button--brand-outline:not(.arco-btn-disabled):hover,
+.arco-btn.app-button--brand-outline:not(.arco-btn-disabled):focus-visible,
+.arco-btn-outline:not(.arco-btn-disabled):hover,
+.arco-btn-outline:not(.arco-btn-disabled):focus-visible {
+  color: var(--color-brand-700) !important;
+  background-color: var(--color-brand-50) !important;
+  border-color: var(--color-brand-500) !important;
+}
+
+.arco-btn.app-button--neutral,
+.arco-btn-secondary {
+  color: var(--text-secondary) !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+}
+
+.arco-btn.app-button--neutral:not(.arco-btn-disabled):hover,
+.arco-btn.app-button--neutral:not(.arco-btn-disabled):focus-visible,
+.arco-btn-secondary:not(.arco-btn-disabled):hover,
+.arco-btn-secondary:not(.arco-btn-disabled):focus-visible {
+  color: var(--color-brand-600) !important;
+  background-color: var(--color-brand-50) !important;
+  border-color: var(--color-brand-300) !important;
+}
+
+.arco-btn-disabled,
+.arco-btn[disabled] {
+  color: var(--text-disabled) !important;
+  background-color: var(--color-gray-100) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* ============================================================
    通用工具类
    ============================================================ */
 .visually-hidden {
