@@ -6,7 +6,8 @@
  */
 
 :root {
-  --premium-page-bg: #f7fbff;
+  --premium-page-bg: #eaf6ff;
+  --premium-page-gradient: linear-gradient(180deg, #eaf6ff 0%, #f6fbff 38%, #ffffff 76%, #ffffff 100%);
   --premium-blue: #165dff;
   --premium-blue-deep: #0f43d6;
   --premium-cyan: #14c9c9;
@@ -32,8 +33,7 @@ body,
 
 body {
   color: var(--premium-ink);
-  background:
-    linear-gradient(180deg, #f7fbff 0%, #f4f8fc 52%, #f7f9fc 100%) !important;
+  background: var(--premium-page-gradient) fixed !important;
 }
 
 body::before {
@@ -46,10 +46,13 @@ body::before {
   opacity: 0;
 }
 
-.system-shell,
+.system-shell {
+  background: var(--premium-page-gradient) fixed !important;
+}
+
 .system-main,
 .system-content {
-  background: #f7f9fc !important;
+  background: transparent !important;
 }
 
 .system-shell {

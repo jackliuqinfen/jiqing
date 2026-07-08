@@ -1186,7 +1186,7 @@ async function logout() {
   min-height: 0;
   overflow: auto;
   padding: var(--space-5) var(--space-6) var(--space-6);
-  background: #F7F8FA;
+  background: transparent;
 }
 
 @media (max-width: 900px) {
