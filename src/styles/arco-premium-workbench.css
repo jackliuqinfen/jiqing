@@ -788,17 +788,31 @@ body::before {
 .topbar-action-link,
 .topbar-icon-button,
 .topbar-user {
-  background: rgba(255, 255, 255, 0.58) !important;
-  border-color: rgba(128, 158, 210, 0.16) !important;
   border-radius: 999px !important;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset !important;
 }
 
 .topbar-action-link:hover,
-.topbar-icon-button:hover,
-.topbar-user:hover {
+.topbar-icon-button:hover {
   background: #fff !important;
   border-color: rgba(22, 93, 255, 0.18) !important;
+}
+
+.topbar-user {
+  background:
+    linear-gradient(135deg, rgba(22, 93, 255, 0.14), rgba(20, 201, 201, 0.08)),
+    rgba(255, 255, 255, 0.78) !important;
+  border-color: rgba(22, 93, 255, 0.16) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 10px 26px rgba(55, 92, 155, 0.1) !important;
+}
+
+.platform-link__status {
+  display: none !important;
+}
+
+.audit-main .column-body--compact .project-card {
+  min-height: 128px !important;
 }
 
 .system-sidebar {

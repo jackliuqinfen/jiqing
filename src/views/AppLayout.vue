@@ -29,12 +29,6 @@
         >
           <AIcon :name="item.icon" />
           <span>{{ item.label }}</span>
-          <i
-            v-if="item.badge"
-            class="platform-link__status"
-            :class="`platform-link__status--${item.status}`"
-            :aria-label="item.badge"
-          />
         </router-link>
       </nav>
       <div class="topbar-actions">
@@ -42,11 +36,8 @@
           <AIcon name="list" />
         </button>
         <div v-if="authStore.isAuthenticated" class="topbar-user" :title="userDisplayName">
-          <span class="topbar-user__avatar">{{ userInitial }}</span>
-          <span class="topbar-user__copy">
-            <em>欢迎回来</em>
-            <strong>{{ userDisplayName }}</strong>
-          </span>
+          <span>欢迎回来</span>
+          <strong>{{ userDisplayName }}</strong>
         </div>
         <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="topbar-action-link">
           <AIcon name="setting" />
@@ -180,7 +171,6 @@ const resizing = ref(false)
 const navOrder = ref<string[]>([])
 const draggedModulePath = ref('')
 const userDisplayName = computed(() => authStore.displayName || authStore.username || '用户')
-const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'U')
 
 const shellStyle = computed(() => (
   sidebarMode.value === 'full'
@@ -574,23 +564,6 @@ async function logout() {
   opacity: .78;
 }
 
-.platform-link__status {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #a8b3c7;
-}
-
-.platform-link__status--live,
-.platform-link__status--enabled {
-  background: #14c9c9;
-}
-
-.platform-link__status--pending {
-  background: #ffb020;
-}
-
 .platform-link--draggable {
   cursor: grab;
 }
@@ -606,53 +579,48 @@ async function logout() {
 }
 
 .topbar-user {
-  height: 36px;
-  max-width: 176px;
+  position: relative;
+  height: 42px;
+  max-width: 240px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px 0 8px;
+  gap: 10px;
+  padding: 0 16px 0 18px;
   color: #12213b;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(128, 158, 210, 0.16);
-  border-radius: 999px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .72) inset;
-}
-
-.topbar-user__avatar {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: #0f43d6;
-  background:
-    linear-gradient(135deg, rgba(22, 93, 255, 0.12), rgba(20, 201, 201, 0.12));
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.topbar-user__copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  line-height: 1;
-}
-
-.topbar-user__copy em {
-  color: #7c8ba5;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 600;
-}
-
-.topbar-user__copy strong {
-  max-width: 108px;
   overflow: hidden;
-  color: #102040;
+  background:
+    linear-gradient(135deg, rgba(22, 93, 255, 0.14), rgba(20, 201, 201, 0.08)),
+    rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(22, 93, 255, 0.16);
+  border-radius: 999px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .78) inset,
+    0 10px 26px rgba(55, 92, 155, 0.1);
+}
+
+.topbar-user::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #165dff;
+  box-shadow: 0 0 0 5px rgba(22, 93, 255, 0.1);
+}
+
+.topbar-user span {
+  color: #5f6f8f;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.topbar-user strong {
+  max-width: 126px;
+  overflow: hidden;
+  color: #0f43d6;
+  font-size: 14px;
+  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1206,11 +1174,14 @@ async function logout() {
   .platform-link { padding: 0 9px; }
   .platform-link em { display: none; }
   .topbar-user {
-    width: 36px;
-    justify-content: center;
-    padding: 0;
+    height: 34px;
+    max-width: 132px;
+    gap: 6px;
+    padding: 0 10px;
   }
-  .topbar-user__copy { display: none; }
+  .topbar-user::before { display: none; }
+  .topbar-user span { display: none; }
+  .topbar-user strong { max-width: 96px; font-size: 12px; }
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
