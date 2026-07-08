@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import '@arco-themes/vue-0000/css/arco.css'
+import '@/styles/arco-premium-workbench.css'
 import { installArcoAppComponents } from '@/ui/arcoAppComponents'
 import { initThemePreference } from '@/ui/theme'
 import App from './App.vue'
