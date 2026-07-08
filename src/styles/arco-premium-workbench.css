@@ -123,12 +123,20 @@ body::before {
 }
 
 .sidebar-resizer::after {
-  background: rgba(22, 93, 255, 0.28) !important;
+  width: 1px !important;
+  background: rgba(22, 93, 255, 0) !important;
+  opacity: 0;
+  transition:
+    opacity 0.18s ease,
+    width 0.18s ease,
+    background 0.18s ease !important;
 }
 
 .system-shell--resizing .sidebar-resizer::after,
 .sidebar-resizer:hover::after {
-  background: var(--premium-blue) !important;
+  width: 2px !important;
+  background: rgba(55, 92, 155, 0.12) !important;
+  opacity: 1;
 }
 
 .arco-card,
