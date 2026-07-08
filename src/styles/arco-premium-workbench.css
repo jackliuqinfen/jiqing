@@ -752,11 +752,54 @@ body::before {
   background: rgba(244, 248, 255, 0.92) !important;
 }
 
-/* Lighter OceanEngine-like shell: no heavy sidebar panel, no right status dots. */
+/* Premium shell navigation: top platform nav + quiet second-level sidebar. */
+.platform-topbar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 251, 255, 0.78)) !important;
+  border-bottom-color: rgba(128, 158, 210, 0.14) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.92) inset,
+    0 12px 32px rgba(36, 67, 120, 0.055) !important;
+}
+
+.platform-nav {
+  background: rgba(244, 248, 255, 0.66) !important;
+  border-color: rgba(129, 157, 205, 0.14) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.82) inset !important;
+}
+
+.platform-link {
+  color: #3f4f68 !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+
+.platform-link:hover,
+.platform-link--active {
+  color: #0f43d6 !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: rgba(22, 93, 255, 0.12) !important;
+  box-shadow: 0 6px 18px rgba(42, 88, 170, 0.08) !important;
+}
+
+.topbar-action-link,
+.topbar-icon-button {
+  background: rgba(255, 255, 255, 0.58) !important;
+  border-color: rgba(128, 158, 210, 0.16) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset !important;
+}
+
+.topbar-action-link:hover,
+.topbar-icon-button:hover {
+  background: #fff !important;
+  border-color: rgba(22, 93, 255, 0.18) !important;
+}
+
 .system-sidebar {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(244, 249, 255, 0.34)) !important;
-  border-right: 1px solid rgba(95, 134, 202, 0.16) !important;
+    linear-gradient(180deg, rgba(250, 253, 255, 0.42), rgba(245, 249, 255, 0.3)) !important;
+  border-right: 1px solid rgba(95, 134, 202, 0.14) !important;
   container-type: inline-size;
 }
 
@@ -770,32 +813,43 @@ body::before {
   position: relative;
   overflow: hidden;
   min-width: 0;
+  border-radius: var(--premium-radius) !important;
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }
 
 .system-sidebar .module-link::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
+  left: -1px !important;
+  top: 10px !important;
+  bottom: 10px !important;
+  width: 3px !important;
   border-radius: 999px;
-  background: transparent;
-  transition: background 0.18s ease, opacity 0.18s ease;
+  background: transparent !important;
+  transition: background 0.18s ease, opacity 0.18s ease !important;
 }
 
 .system-sidebar .module-link:hover,
 .system-sidebar .module-link--active {
-  background: rgba(255, 255, 255, 0.68) !important;
+  color: #0f43d6 !important;
+  background: rgba(255, 255, 255, 0.82) !important;
   border-color: rgba(22, 93, 255, 0.1) !important;
-  box-shadow: 0 8px 18px rgba(61, 105, 185, 0.07) !important;
+  box-shadow: 0 8px 18px rgba(61, 105, 185, 0.055) !important;
 }
 
 .system-sidebar .module-link--active::before {
-  background: var(--premium-blue);
+  background: linear-gradient(180deg, var(--premium-blue), var(--premium-cyan)) !important;
+}
+
+.system-sidebar .module-link__icon {
+  color: #6f7f98 !important;
+  background: rgba(239, 245, 255, 0.68) !important;
+}
+
+.system-sidebar .module-link:hover .module-link__icon,
+.system-sidebar .module-link--active .module-link__icon {
+  color: var(--premium-blue) !important;
+  background: rgba(22, 93, 255, 0.08) !important;
 }
 
 .system-sidebar .module-status-dot {
@@ -816,7 +870,8 @@ body::before {
 .system-sidebar .sidebar-action,
 .system-sidebar .sidebar-collapse-actions button,
 .system-sidebar .system-status {
-  background: rgba(255, 255, 255, 0.42) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  border-color: rgba(128, 158, 210, 0.16) !important;
   box-shadow: none !important;
 }
 
