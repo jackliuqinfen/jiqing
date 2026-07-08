@@ -21,6 +21,7 @@
   --premium-shadow: 0 18px 48px rgba(55, 92, 155, 0.11);
   --premium-shadow-soft: 0 8px 24px rgba(55, 92, 155, 0.08);
   --premium-radius: 10px;
+  --premium-radius-compact: 8px;
 }
 
 html,
@@ -540,7 +541,7 @@ body::before {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.72) !important;
   border: 1px solid rgba(128, 158, 210, 0.22) !important;
-  border-radius: 12px !important;
+  border-radius: var(--premium-radius) !important;
   box-shadow: var(--premium-shadow-soft) !important;
   backdrop-filter: blur(18px) saturate(145%);
   -webkit-backdrop-filter: blur(18px) saturate(145%);
@@ -552,7 +553,7 @@ body::before {
 .file-library .group-item {
   background: rgba(247, 250, 255, 0.58) !important;
   border-color: rgba(128, 158, 210, 0.16) !important;
-  border-radius: 10px !important;
+  border-radius: var(--premium-radius) !important;
 }
 
 .file-library .type-strip,
@@ -570,7 +571,7 @@ body::before {
 .file-library .arco-table-container,
 .admin-page .arco-table,
 .admin-page .arco-table-container {
-  border-radius: 12px !important;
+  border-radius: var(--premium-radius) !important;
 }
 
 .file-library .arco-table-th,
@@ -619,7 +620,7 @@ body::before {
 .audit-main .kanban-column {
   background: rgba(255, 255, 255, 0.58) !important;
   border-color: rgba(128, 158, 210, 0.2) !important;
-  border-radius: 12px !important;
+  border-radius: var(--premium-radius) !important;
 }
 
 .audit-main .column-head {
@@ -634,7 +635,7 @@ body::before {
 .audit-main .project-card {
   background: rgba(255, 255, 255, 0.82) !important;
   border-color: rgba(128, 158, 210, 0.2) !important;
-  border-radius: 10px !important;
+  border-radius: var(--premium-radius) !important;
 }
 
 .audit-main .project-card:hover {
@@ -651,7 +652,7 @@ body::before {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.78) !important;
   border: 1px solid rgba(128, 158, 210, 0.16) !important;
-  border-radius: 12px !important;
+  border-radius: var(--premium-radius) !important;
 }
 
 .project-management .project-table-group__head {
@@ -662,9 +663,81 @@ body::before {
 .project-management .arco-table,
 .project-management .arco-table-container {
   border: 0 !important;
-  border-radius: 12px !important;
+  border-radius: var(--premium-radius) !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+.admin-page .page-header,
+.file-library .page-header,
+.project-management .page-header,
+.audit-header {
+  padding-inline: 0 !important;
+}
+
+.admin-page .admin-toolbar,
+.admin-page .admin-table-card,
+.file-library .library-toolbar,
+.file-library .group-panel,
+.file-library .file-panel,
+.project-management .ledger-panel,
+.audit-detail-panel,
+.audit-detail-workspace .detail-grid,
+.audit-detail-workspace .progress-box,
+.audit-detail-workspace .stage-history,
+.audit-detail-workspace .attachment-box,
+.audit-detail-workspace .log-box {
+  border-radius: var(--premium-radius) !important;
+}
+
+.admin-page .arco-table,
+.admin-page .arco-table-container,
+.file-library .arco-table,
+.file-library .arco-table-container,
+.project-management .arco-table,
+.project-management .arco-table-container {
+  overflow: hidden !important;
+}
+
+.admin-page .arco-table-th,
+.admin-page .arco-table-td,
+.file-library .arco-table-th,
+.file-library .arco-table-td {
+  background-clip: padding-box !important;
+}
+
+.detail-empty-action,
+.upload-empty,
+.empty-upload,
+.attachment-empty,
+.inline-empty,
+.preview-empty {
+  border-style: solid !important;
+  border-color: rgba(128, 158, 210, 0.22) !important;
+  border-radius: var(--premium-radius) !important;
+  background: rgba(255, 255, 255, 0.42) !important;
+}
+
+.arco-table,
+.arco-table-container,
+.arco-card,
+.summary-card,
+.dashboard-card,
+.dashboard-panel,
+.module-panel,
+.filter-panel,
+.project-card,
+.admin-page,
+.admin-toolbar,
+.admin-table-card,
+.file-panel,
+.group-panel,
+.library-toolbar,
+.audit-detail-panel,
+.doc-card,
+.stage-table-card,
+.kanban-column {
+  border-radius: var(--premium-radius) !important;
 }
 
 .project-management .arco-table-th {
@@ -684,6 +757,7 @@ body::before {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(244, 249, 255, 0.34)) !important;
   border-right: 1px solid rgba(95, 134, 202, 0.16) !important;
+  container-type: inline-size;
 }
 
 .system-sidebar .system-brand,
@@ -744,6 +818,48 @@ body::before {
 .system-sidebar .system-status {
   background: rgba(255, 255, 255, 0.42) !important;
   box-shadow: none !important;
+}
+
+.system-sidebar .sidebar-collapse-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.system-sidebar .sidebar-collapse-actions button,
+.system-sidebar .sidebar-action {
+  min-width: 0;
+}
+
+.system-sidebar .sidebar-collapse-actions span,
+.system-sidebar .sidebar-action span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 218px) {
+  .sidebar-collapse-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sidebar-collapse-actions button,
+  .sidebar-action {
+    height: 34px;
+    justify-content: center;
+    padding-inline: 0 !important;
+  }
+
+  .sidebar-collapse-actions span,
+  .sidebar-action span,
+  .system-status strong,
+  .system-status em {
+    display: none !important;
+  }
+
+  .system-status {
+    grid-template-columns: 1fr !important;
+    justify-items: center;
+    padding: 10px 0 !important;
+  }
 }
 
 @media (max-width: 900px) {
