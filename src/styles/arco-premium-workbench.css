@@ -783,7 +783,8 @@ body::before {
 }
 
 .topbar-action-link,
-.topbar-icon-button {
+.topbar-icon-button,
+.topbar-user {
   background: rgba(255, 255, 255, 0.58) !important;
   border-color: rgba(128, 158, 210, 0.16) !important;
   border-radius: 999px !important;
@@ -791,7 +792,8 @@ body::before {
 }
 
 .topbar-action-link:hover,
-.topbar-icon-button:hover {
+.topbar-icon-button:hover,
+.topbar-user:hover {
   background: #fff !important;
   border-color: rgba(22, 93, 255, 0.18) !important;
 }

@@ -41,6 +41,13 @@
         <button v-if="sidebarMode === 'hidden'" type="button" class="topbar-icon-button" title="展开左侧导航" @click="setSidebarMode('full')">
           <AIcon name="list" />
         </button>
+        <div v-if="authStore.isAuthenticated" class="topbar-user" :title="userDisplayName">
+          <span class="topbar-user__avatar">{{ userInitial }}</span>
+          <span class="topbar-user__copy">
+            <em>欢迎回来</em>
+            <strong>{{ userDisplayName }}</strong>
+          </span>
+        </div>
         <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="topbar-action-link">
           <AIcon name="setting" />
           <span>设置</span>
@@ -172,6 +179,8 @@ const sidebarWidth = ref(240)
 const resizing = ref(false)
 const navOrder = ref<string[]>([])
 const draggedModulePath = ref('')
+const userDisplayName = computed(() => authStore.displayName || authStore.username || '用户')
+const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || 'U')
 
 const shellStyle = computed(() => (
   sidebarMode.value === 'full'
@@ -473,7 +482,7 @@ async function logout() {
   z-index: 50;
   min-width: 0;
   display: grid;
-  grid-template-columns: 184px minmax(0, 1fr) auto;
+  grid-template-columns: 228px minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
   padding: 0 22px;
@@ -494,7 +503,7 @@ async function logout() {
 }
 
 .topbar-brand img {
-  width: 146px;
+  width: 186px;
   height: auto;
   display: block;
 }
@@ -594,6 +603,58 @@ async function logout() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.topbar-user {
+  height: 36px;
+  max-width: 176px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 8px;
+  color: #12213b;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(128, 158, 210, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .72) inset;
+}
+
+.topbar-user__avatar {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #0f43d6;
+  background:
+    linear-gradient(135deg, rgba(22, 93, 255, 0.12), rgba(20, 201, 201, 0.12));
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topbar-user__copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  line-height: 1;
+}
+
+.topbar-user__copy em {
+  color: #7c8ba5;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.topbar-user__copy strong {
+  max-width: 108px;
+  overflow: hidden;
+  color: #102040;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-action-link,
@@ -1137,13 +1198,19 @@ async function logout() {
     grid-template-columns: minmax(0, 1fr);
   }
   .platform-topbar {
-    grid-template-columns: 148px minmax(0, 1fr) auto;
+    grid-template-columns: 176px minmax(0, 1fr) auto;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
   }
-  .topbar-brand img { width: 126px; }
+  .topbar-brand img { width: 152px; }
   .platform-link { padding: 0 9px; }
   .platform-link em { display: none; }
+  .topbar-user {
+    width: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+  .topbar-user__copy { display: none; }
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
@@ -1184,6 +1251,7 @@ async function logout() {
   .topbar-brand { grid-area: brand; }
   .platform-nav { grid-area: nav; padding-top: 2px; }
   .topbar-actions { grid-area: actions; }
+  .topbar-user { display: none; }
   .system-sidebar {
     position: sticky;
     top: 58px;
