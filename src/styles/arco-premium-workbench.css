@@ -482,12 +482,16 @@ body::before {
 .project-management,
 .audit-shell,
 .materials-page,
+.file-library,
+.admin-page,
 .admin-main {
   background: transparent !important;
 }
 
 .project-management .page-header,
 .project-management > .page-header,
+.file-library .page-header,
+.admin-page .page-header,
 .audit-header,
 .materials-header,
 .admin-header {
@@ -500,15 +504,31 @@ body::before {
 
 .project-management .toolbar,
 .project-management .summary-grid,
-.project-management .workspace {
+.project-management .workspace,
+.audit-main,
+.audit-main > section,
+.file-library .library-layout,
+.file-library .summary-grid,
+.admin-page > section {
   background: transparent !important;
 }
 
-.project-management .summary-card {
+.project-management .summary-card,
+.file-library .summary-item,
+.audit-main .summary-card {
   background: rgba(255, 255, 255, 0.7) !important;
 }
 
-.project-management .ledger-panel {
+.project-management .ledger-panel,
+.file-library .library-toolbar,
+.file-library .group-panel,
+.file-library .file-panel,
+.admin-page .admin-toolbar,
+.admin-page .admin-table-card,
+.audit-main .filter-panel,
+.audit-main .gantt-view,
+.audit-main .table-view,
+.audit-main .stage-table-view {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.72) !important;
   border: 1px solid rgba(128, 158, 210, 0.22) !important;
@@ -519,10 +539,98 @@ body::before {
 }
 
 .project-management .list-utility-bar,
-.project-management .column-settings-panel {
+.project-management .column-settings-panel,
+.file-library .type-pill,
+.file-library .group-item {
   background: rgba(247, 250, 255, 0.58) !important;
   border-color: rgba(128, 158, 210, 0.16) !important;
   border-radius: 10px !important;
+}
+
+.file-library .type-strip,
+.file-library .panel-head {
+  background: transparent !important;
+}
+
+.file-library .type-pill--active,
+.file-library .group-item--active {
+  background: rgba(232, 242, 255, 0.72) !important;
+  border-color: rgba(22, 93, 255, 0.34) !important;
+}
+
+.file-library .arco-table,
+.file-library .arco-table-container,
+.admin-page .arco-table,
+.admin-page .arco-table-container {
+  border-radius: 12px !important;
+}
+
+.file-library .arco-table-th,
+.admin-page .arco-table-th {
+  background: rgba(245, 248, 253, 0.92) !important;
+}
+
+.file-library .project-cell,
+.file-library .file-cell,
+.file-library .uploaded-cell {
+  min-width: 0;
+}
+
+.file-library .project-cell strong,
+.file-library .project-cell span,
+.file-library .file-cell strong,
+.file-library .file-cell span,
+.file-library .uploaded-cell strong,
+.file-library .uploaded-cell span {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.file-library .project-cell strong,
+.file-library .file-cell strong,
+.file-library .uploaded-cell strong {
+  white-space: normal !important;
+}
+
+.admin-page .admin-table-card {
+  padding: 0 !important;
+}
+
+.admin-page .arco-table-cell {
+  word-break: normal !important;
+}
+
+.admin-page .muted-text {
+  overflow-wrap: anywhere;
+}
+
+.audit-main .kanban-board {
+  background: transparent !important;
+}
+
+.audit-main .kanban-column {
+  background: rgba(255, 255, 255, 0.58) !important;
+  border-color: rgba(128, 158, 210, 0.2) !important;
+  border-radius: 12px !important;
+}
+
+.audit-main .column-head {
+  background: rgba(247, 250, 255, 0.66) !important;
+  border-color: rgba(128, 158, 210, 0.16) !important;
+}
+
+.audit-main .column-body {
+  background: transparent !important;
+}
+
+.audit-main .project-card {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-color: rgba(128, 158, 210, 0.2) !important;
+  border-radius: 10px !important;
+}
+
+.audit-main .project-card:hover {
+  background: rgba(255, 255, 255, 0.92) !important;
 }
 
 .project-management .project-table-groups,
