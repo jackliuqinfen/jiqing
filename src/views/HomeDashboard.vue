@@ -6,9 +6,14 @@
         <h2>工程项目工作台</h2>
         <p>优先呈现待办、逾期、资料缺失和审计进展，帮助业务人员快速判断下一步处理事项。</p>
         <div class="hero-signals">
-          <span v-for="signal in heroSignals" :key="signal.label">
+          <span
+            v-for="signal in heroSignals"
+            :key="signal.label"
+            :class="{ 'hero-signal--amount': signal.secondary }"
+          >
             <em>{{ signal.label }}</em>
             <strong>{{ signal.value }}</strong>
+            <small v-if="signal.secondary">{{ signal.secondary }}</small>
           </span>
         </div>
       </div>
@@ -178,6 +183,7 @@ import type { ISpec } from '@visactor/vchart/esm/core'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuditStore } from '@/store/audit'
 import { fetchWorkItems } from '@/api/projects'
+import { amountToChineseUpper, formatWan } from '@/utils/format'
 import type { WorkItem } from '@/types'
 
 const store = useAuditStore()
@@ -214,11 +220,12 @@ const todayText = new Date().toLocaleDateString('zh-CN', {
   weekday: 'short',
 })
 
-function money(value: number) {
-  if (!value) return '0'
-  if (value >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`
-  if (value >= 10000) return `${(value / 10000).toFixed(1)} 万`
-  return value.toLocaleString('zh-CN')
+function moneyWan(value: number) {
+  return formatWan(Number(value || 0))
+}
+
+function moneyUpper(value: number) {
+  return amountToChineseUpper(Number(value || 0))
 }
 
 function clamp(value: number, min = 0, max = 100) {
@@ -262,7 +269,11 @@ const missionItems = computed<MissionItem[]>(() => [
 const heroSignals = computed(() => [
   { label: '项目池', value: `${store.summary.totalProjects} 项` },
   { label: '进行中', value: `${store.summary.inAuditProjects} 项` },
-  { label: '送审金额', value: money(store.summary.totalSubmittedAmount) },
+  {
+    label: '送审金额',
+    value: moneyWan(store.summary.totalSubmittedAmount),
+    secondary: moneyUpper(store.summary.totalSubmittedAmount),
+  },
 ])
 
 const stageRows = computed(() =>
@@ -484,7 +495,7 @@ const moduleStatus: ModuleStatusItem[] = [
 
 .hero-signals {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 160px));
+  grid-template-columns: repeat(2, minmax(0, 160px)) minmax(260px, 1fr);
   gap: var(--space-3);
 }
 
@@ -508,6 +519,25 @@ const moduleStatus: ModuleStatusItem[] = [
 .hero-signals strong {
   font-size: var(--text-lg);
   line-height: 1.25;
+}
+
+.hero-signals small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-signal--amount {
+  min-width: 0;
+}
+
+.hero-signal--amount strong {
+  color: var(--color-brand-600);
 }
 
 .hero-console {
@@ -870,7 +900,8 @@ const moduleStatus: ModuleStatusItem[] = [
 
 @media (max-width: 900px) {
   .command-hero { grid-template-columns: 1fr; }
-  .hero-signals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-signal--amount { grid-column: 1 / -1; }
   .mission-strip { grid-template-columns: 1fr; }
   .dashboard-grid { grid-template-columns: 1fr; }
 }
