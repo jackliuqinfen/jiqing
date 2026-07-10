@@ -1,6 +1,6 @@
 <template>
   <div class="admin-page">
-    <PageHeader title="看板字段配置" description="维护审计看板和项目资料中的字段名称、展示位置和表格列宽。">
+    <PageHeader title="审计字段配置" description="维护审计看板、审计详情和编辑表单中的字段名称、展示位置和表格列宽。">
       <template #meta>
         <ATag color="arcoblue">共 {{ rows.length }} 个字段</ATag>
         <ATag v-if="keyword || moduleFilter" color="gray">已应用筛选</ATag>
@@ -117,8 +117,8 @@
           <div class="check-grid">
             <ACheckbox v-model="form.visibleInCard">看板卡片</ACheckbox>
             <ACheckbox v-model="form.visibleInTable">表格列</ACheckbox>
-            <ACheckbox v-model="form.visibleInDetail">详情页</ACheckbox>
-            <ACheckbox v-model="form.visibleInForm">表单</ACheckbox>
+            <ACheckbox v-model="form.visibleInDetail">审计详情展示</ACheckbox>
+            <ACheckbox v-model="form.visibleInForm">审计详情编辑表单</ACheckbox>
             <ACheckbox v-model="form.visibleInGantt">甘特视图</ACheckbox>
             <ACheckbox v-model="form.required">必填项</ACheckbox>
             <ACheckbox v-model="form.enabled">启用字段</ACheckbox>
@@ -159,8 +159,8 @@ const tableColumns = [
 ]
 
 const moduleOptions = [
-  { label: '项目资料', value: 'project' },
-  { label: '审计阶段', value: 'stage' },
+  { label: '审计项目字段', value: 'project' },
+  { label: '审计阶段字段', value: 'stage' },
 ]
 
 const stageOptions = auditStageOptions.map(({ label, value }) => ({ label, value }))
@@ -255,8 +255,8 @@ function sceneText(item: AuditFieldConfig) {
   return [
     item.visibleInCard ? '看板卡片' : '',
     item.visibleInTable ? '表格列' : '',
-    item.visibleInDetail ? '详情页' : '',
-    item.visibleInForm ? '表单' : '',
+    item.visibleInDetail ? '审计详情展示' : '',
+    item.visibleInForm ? '审计详情编辑表单' : '',
     item.visibleInGantt ? '甘特' : '',
   ].filter(Boolean).join(' / ')
 }

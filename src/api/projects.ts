@@ -120,6 +120,10 @@ export function fetchProjectFiles(params?: { projectId?: string; keyword?: strin
   return request(`/project-files${query.toString() ? `?${query.toString()}` : ''}`)
 }
 
+export function updateProjectDocumentCategory(categoryKey: string, data: { required: boolean }): Promise<ProjectMeta['categories'][number]> {
+  return request(`/project-document-categories/${encodeURIComponent(categoryKey)}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
 export function fetchProjectFilePreviewBlob(id: string): Promise<Blob> {
   return authorizedBlob(`/project-files/${id}/preview`)
 }
@@ -147,20 +151,62 @@ function authorizedBlob(path: string): Promise<Blob> {
   })
 }
 
-export async function uploadProjectFile(projectId: string, payload: { categoryKey: string; displayName: string; file: File }): Promise<ProjectFile> {
+export async function uploadProjectFile(
+  projectId: string,
+  payload: { categoryKey: string; displayName: string; file: File },
+  onProgress?: (percent: number) => void
+): Promise<ProjectFile> {
   const token = getAuthToken()
   const form = new FormData()
   form.append('categoryKey', payload.categoryKey)
   form.append('displayName', payload.displayName)
   form.append('file', payload.file)
-  const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
-    method: 'POST',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: form,
+  if (!onProgress) {
+    const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    })
+    if (res.status === 413) {
+      throw new Error('文件超过上传大小限制')
+    }
+    let payloadJson: ApiResult<ProjectFile>
+    try {
+      payloadJson = (await res.json()) as ApiResult<ProjectFile>
+    } catch {
+      throw new Error(`请求失败: ${res.status}`)
+    }
+    if (!res.ok || !payloadJson.success) throw new Error(payloadJson.error || `请求失败: ${res.status}`)
+    return payloadJson.data
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/projects/${projectId}/files`)
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      onProgress(Math.min(98, Math.round((event.loaded / event.total) * 100)))
+    }
+    xhr.onerror = () => reject(new Error('网络异常，资料上传失败'))
+    xhr.onload = () => {
+      if (xhr.status === 413) {
+        reject(new Error('文件超过上传大小限制'))
+        return
+      }
+      try {
+        const payloadJson = JSON.parse(xhr.responseText || '{}') as ApiResult<ProjectFile>
+        if (xhr.status < 200 || xhr.status >= 300 || !payloadJson.success) {
+          reject(new Error(payloadJson.error || `请求失败: ${xhr.status}`))
+          return
+        }
+        onProgress(100)
+        resolve(payloadJson.data)
+      } catch {
+        reject(new Error(`请求失败: ${xhr.status || '未知'}`))
+      }
+    }
+    xhr.send(form)
   })
-  const payloadJson = (await res.json()) as ApiResult<ProjectFile>
-  if (!res.ok || !payloadJson.success) throw new Error(payloadJson.error || `请求失败: ${res.status}`)
-  return payloadJson.data
 }
 
 export function renameProjectFile(id: string, displayName: string): Promise<ProjectFile> {

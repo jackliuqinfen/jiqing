@@ -3,7 +3,7 @@
     <PageHeader title="系统设置" description="管理登录、账号开通和界面风格等常用设置">
       <template #meta>
         <ATag variant="light" theme="primary">常用设置</ATag>
-        <ATag variant="light">界面 / 账号 / 登录</ATag>
+        <ATag variant="light">界面 / 账号 / 登录 / 上传</ATag>
       </template>
     </PageHeader>
 
@@ -239,6 +239,29 @@
         </AFormItem>
       </AForm>
     </ACard>
+
+    <ACard class="settings-card" title="文件上传" :bordered="true">
+      <template #actions>
+        <AButton size="small" variant="outline" :loading="savingUpload" @click="saveUploadSettings">保存</AButton>
+      </template>
+      <AForm :model="uploadSettings" label-align="left" label-width="160px" class="settings-form">
+        <AFormItem
+          label="单文件最大大小"
+          help="限制每次上传的单个资料文件大小，影响项目资料、资料中心和审计相关附件。"
+        >
+          <AInputNumber
+            v-model="uploadSettings.maxFileSizeMb"
+            :min="1"
+            :max="500"
+            style="width:180px"
+          />
+          <span class="switch-text">MB</span>
+        </AFormItem>
+      </AForm>
+      <p class="settings-note">
+        建议日常资料控制在 100MB 以内。超过该限制时，系统会提示员工压缩文件或联系管理员调整上限。
+      </p>
+    </ACard>
   </div>
 </template>
 
@@ -258,7 +281,7 @@ import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage } from '@/ui/theme'
-import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting } from '@/types'
+import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting, UploadSetting } from '@/types'
 import PageHeader from '@/components/PageHeader.vue'
 
 const authStore = useAuthStore()
@@ -266,6 +289,7 @@ const router = useRouter()
 const savingReg = ref(false)
 const savingLogin = ref(false)
 const savingTheme = ref(false)
+const savingUpload = ref(false)
 const themeOptions = ref<ThemeOption[]>([])
 const themePackageInput = ref('')
 const brandFollowDialogVisible = ref(false)
@@ -277,6 +301,7 @@ const regSettings = reactive<RegistrationSetting>({ enabled: false, requireAppro
 const loginRulesSettings = reactive<LoginRulesSetting>({
   minPasswordLength: 1, maxLoginAttempts: 5, sessionTimeoutMinutes: 480, allowConcurrentSessions: true,
 })
+const uploadSettings = reactive<UploadSetting>({ maxFileSizeMb: 100 })
 const themeSettings = reactive<ThemeSetting>({
   themeKey: 'arco-theme-0000',
   darkMode: false,
@@ -424,14 +449,16 @@ const chartPreviewSpec = computed<ISpec>(() => ({
 
 onMounted(async () => {
   try {
-    const [reg, login, themes, currentTheme] = await Promise.all([
+    const [reg, login, upload, themes, currentTheme] = await Promise.all([
       getSystemSetting('registration_open'),
       getSystemSetting('login_rules'),
+      getSystemSetting('upload_settings'),
       getThemeOptions(),
       getCurrentTheme(),
     ])
     if (reg) Object.assign(regSettings, reg.value as RegistrationSetting)
     if (login) Object.assign(loginRulesSettings, login.value as LoginRulesSetting)
+    if (upload) Object.assign(uploadSettings, normalizeUploadSettings(upload.value as UploadSetting))
     themeOptions.value = themes
     Object.assign(themeSettings, {
       themeKey: currentTheme.themeKey,
@@ -446,6 +473,11 @@ onMounted(async () => {
     applyTheme(currentTheme)
   } catch { /* 默认值 */ }
 })
+
+function normalizeUploadSettings(value?: Partial<UploadSetting>) {
+  const maxFileSizeMb = Math.max(1, Math.min(500, Number(value?.maxFileSizeMb || 100)))
+  return { maxFileSizeMb }
+}
 
 async function selectTheme(theme: ThemeOption) {
   if (!theme.isEnabled || theme.themeKey === themeSettings.themeKey) return
@@ -646,6 +678,19 @@ async function saveLoginRules() {
   } catch { MessagePlugin.error('保存失败，请稍后重试。') }
   finally { savingLogin.value = false }
 }
+
+async function saveUploadSettings() {
+  savingUpload.value = true
+  try {
+    Object.assign(uploadSettings, normalizeUploadSettings(uploadSettings))
+    await setSystemSetting('upload_settings', { ...uploadSettings }, authStore.username)
+    MessagePlugin.success('文件上传设置已保存')
+  } catch {
+    MessagePlugin.error('文件上传设置保存失败，请稍后重试。')
+  } finally {
+    savingUpload.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -658,6 +703,11 @@ async function saveLoginRules() {
 .page-desc { font-size: var(--text-sm); color: var(--text-secondary); margin: 0; }
 .settings-card { margin-bottom: var(--space-5); }
 .settings-form { padding-top: var(--space-2); }
+.settings-note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
 .switch-text { margin-left: var(--space-3); font-size: var(--text-sm); color: var(--text-secondary); }
 .theme-current {
   display: flex;

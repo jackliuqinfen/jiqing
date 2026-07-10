@@ -52,36 +52,21 @@
       <div class="stat-item stat-item--wide">
         <div class="stat-body">
           <span class="stat-label">总送审金额</span>
-          <div class="stat-amount-row">
-            <span class="stat-value">{{ formatAmount(stats.totalSubmittedAmount) }}</span>
-            <span class="stat-unit">万元</span>
-          </div>
+          <MoneyDisplay :value="stats.totalSubmittedAmount" mode="compact" />
         </div>
       </div>
 
       <div class="stat-item stat-item--wide">
         <div class="stat-body">
           <span class="stat-label">一审审减</span>
-          <div class="stat-amount-row">
-            <span
-              class="stat-value"
-              :style="{ color: stats.totalFirstCutAmount > 0 ? 'var(--color-warning)' : 'var(--text-primary)' }"
-            >{{ formatAmount(stats.totalFirstCutAmount) }}</span>
-            <span class="stat-unit">万元</span>
-          </div>
+          <MoneyDisplay :value="stats.totalFirstCutAmount" mode="compact" />
         </div>
       </div>
 
       <div class="stat-item stat-item--wide">
         <div class="stat-body">
           <span class="stat-label">二审审减</span>
-          <div class="stat-amount-row">
-            <span
-              class="stat-value"
-              :style="{ color: stats.totalSecondCutAmount > 0 ? 'var(--color-danger)' : 'var(--text-primary)' }"
-            >{{ formatAmount(stats.totalSecondCutAmount) }}</span>
-            <span class="stat-unit">万元</span>
-          </div>
+          <MoneyDisplay :value="stats.totalSecondCutAmount" mode="compact" />
         </div>
       </div>
     </div>
@@ -91,13 +76,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useKanbanStore } from '@/store/kanban'
+import MoneyDisplay from '@/components/MoneyDisplay.vue'
 
 const store = useKanbanStore()
 const stats = computed(() => store.statistics)
 
-function formatAmount(value: number): string {
-  return (value / 10000).toFixed(2)
-}
 </script>
 
 <style scoped>

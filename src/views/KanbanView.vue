@@ -9,48 +9,52 @@
         </div>
       </div>
       <div class="header-actions">
-        <div class="segmented">
-          <button
-            v-for="item in viewModes"
-            :key="item.value"
-            :aria-label="item.label"
-            :class="{ active: viewMode === item.value }"
-            @click="requestViewMode(item.value)"
-          >
-            <AIcon :name="item.icon" />
-            <span>{{ item.label }}</span>
-          </button>
-        </div>
-        <AButton v-if="authStore.isAdmin && viewMode === 'table'" variant="outline" size="small" @click="openTableSettings">
-          <template #icon><AIcon name="setting" /></template>
-          表格设置
-        </AButton>
-        <AButton
-          v-if="authStore.isAdmin && viewMode === 'table' && tableSettingsDirty"
-          theme="primary"
-          size="small"
-          :loading="tableSettingsSaving"
-          @click="requestSaveTableSettings()"
-        >
-          保存表格设置
-        </AButton>
-        <ASelect v-model="layoutMode" class="layout-select" aria-label="布局模式" :options="layoutOptions" />
-        <AButton theme="primary" size="small" @click="goProjectAuditSource">
-          <template #icon><AIcon name="add" /></template>
-          从项目发起审计
-        </AButton>
-        <AButton variant="outline" size="small" :loading="store.loading" @click="store.refreshAll">
-          <template #icon><AIcon name="refresh" /></template>
-          刷新
-        </AButton>
-        <template v-if="!embedded">
-          <AButton v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
+        <div class="header-action-row header-action-row--views">
+          <div class="segmented">
+            <button
+              v-for="item in viewModes"
+              :key="item.value"
+              :aria-label="item.label"
+              :class="{ active: viewMode === item.value }"
+              @click="requestViewMode(item.value)"
+            >
+              <AIcon :name="item.icon" />
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+          <AButton v-if="authStore.isAdmin && viewMode === 'table'" variant="outline" size="small" @click="openTableSettings">
             <template #icon><AIcon name="setting" /></template>
-            后台
+            表格设置
           </AButton>
-          <AButton v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</AButton>
-          <AButton v-else theme="primary" size="small" @click="router.push('/login')">登录</AButton>
-        </template>
+          <AButton
+            v-if="authStore.isAdmin && viewMode === 'table' && tableSettingsDirty"
+            theme="primary"
+            size="small"
+            :loading="tableSettingsSaving"
+            @click="requestSaveTableSettings()"
+          >
+            保存表格设置
+          </AButton>
+        </div>
+        <div class="header-action-row header-action-row--ops">
+          <ASelect v-model="layoutMode" class="layout-select" aria-label="布局模式" :options="layoutOptions" />
+          <AButton theme="primary" size="small" @click="goProjectAuditSource">
+            <template #icon><AIcon name="add" /></template>
+            从项目发起审计
+          </AButton>
+          <AButton variant="outline" size="small" :loading="store.loading" @click="store.refreshAll">
+            <template #icon><AIcon name="refresh" /></template>
+            刷新
+          </AButton>
+          <template v-if="!embedded">
+            <AButton v-if="authStore.isAdmin" variant="outline" size="small" @click="router.push('/admin')">
+              <template #icon><AIcon name="setting" /></template>
+              后台
+            </AButton>
+            <AButton v-if="authStore.isAuthenticated" variant="text" size="small" @click="logout">退出</AButton>
+            <AButton v-else theme="primary" size="small" @click="router.push('/login')">登录</AButton>
+          </template>
+        </div>
       </div>
     </header>
 
@@ -86,7 +90,7 @@
           :key="card.label"
           type="button"
           class="summary-card"
-          :class="{ 'summary-card--active': activeSummaryCard === card.key }"
+          :class="[`summary-card--${card.tone}`, { 'summary-card--active': activeSummaryCard === card.key, 'summary-card--amount': card.key === 'amount' }]"
           @click="applySummaryCard(card)"
         >
           <span>{{ card.label }}</span>
@@ -148,7 +152,7 @@
             </div>
             <strong>{{ stageCount(stage.code) }}</strong>
           </div>
-          <div class="column-body">
+          <div class="column-body" :class="{ 'column-body--compact': stageCount(stage.code) > 2 }">
             <button
               v-for="project in store.projectsByStage[stage.code]"
               :key="project.id"
@@ -160,15 +164,15 @@
                 <strong>{{ project.projectName }}</strong>
                 <span class="priority" :class="`priority-${project.priority}`">{{ project.priority }}</span>
               </div>
-              <div class="card-meta">{{ project.sectionBuilding }} · {{ project.settlementNo }}</div>
+              <div class="card-meta">{{ project.contractor.name || project.auditedUnit || '施工单位待确认' }}</div>
               <div class="card-fields">
                 <span v-for="field in visibleCardFields" :key="field.id">
                   {{ field.fieldLabel }}: {{ displayField(project, field) }}
                 </span>
               </div>
               <div class="card-footer">
-                <span>{{ money(project.amount.submittedAmount) }}</span>
-                <span :class="{ overdue: isOverdue(project) }">{{ project.deadline.auditDeadline || '未设期限' }}</span>
+                <MoneyDisplay :value="project.amount.contractAmount || project.amount.submittedAmount" mode="compact" />
+                <span v-if="deadlineText(project)" :class="{ overdue: isOverdue(project) }">{{ deadlineText(project) }}</span>
               </div>
             </button>
             <div v-if="stageCount(stage.code) === 0" class="empty-column">暂无项目</div>
@@ -296,10 +300,12 @@
               <div class="audit-card-keyline">
                 <span>负责人</span>
                 <strong>{{ project.managerName || '-' }}</strong>
-                <span>计划完成</span>
-                <strong>{{ project.deadline.auditDeadline || '未设期限' }}</strong>
+                <template v-if="deadlineText(project)">
+                  <span>计划完成</span>
+                  <strong>{{ deadlineText(project) }}</strong>
+                </template>
                 <span>送审金额</span>
-                <strong>{{ money(project.amount.submittedAmount) }}</strong>
+                <MoneyDisplay :value="project.amount.submittedAmount" mode="compact" />
               </div>
               <dl class="audit-card-fields">
                 <template v-for="field in stageTableFields(stage.code).slice(0, 6)" :key="field.id">
@@ -325,7 +331,7 @@
       </section>
 
       <section v-if="detailVisible" class="audit-detail-workspace" role="region" aria-labelledby="audit-detail-title">
-      <div class="audit-detail-panel">
+      <div class="audit-detail-panel" :class="editing ? 'audit-detail-panel--edit' : 'audit-detail-panel--view'">
         <div class="audit-detail-head">
           <div>
             <h2 id="audit-detail-title">{{ editing ? '从项目主档案发起审计' : '审计详情' }}</h2>
@@ -335,8 +341,8 @@
         </div>
 
         <form v-if="editing" class="project-form" @submit.prevent="saveProject">
-          <label v-for="field in store.formFields" :key="field.id" class="form-field">
-            <span>{{ field.fieldLabel }}<b v-if="field.required">*</b></span>
+          <div v-for="field in store.formFields" :key="field.id" class="form-field">
+            <span class="form-field-label">{{ field.fieldLabel }}<b v-if="field.required">*</b></span>
             <ASelect v-if="field.fieldType === 'select'" v-model="formValues[field.fieldKey]" allow-clear placeholder="请选择" :options="formFieldOptions(field)" />
             <ATextarea v-else-if="field.fieldType === 'textarea'" v-model="formValues[field.fieldKey]" :auto-size="{ minRows: 3, maxRows: 5 }" />
             <AInput v-else-if="field.fieldType === 'number'" v-model="formValues[field.fieldKey]" />
@@ -346,7 +352,7 @@
               <AInput v-model="customOptionValues[field.fieldKey]" placeholder="录入新选项" />
               <AButton size="small" variant="outline" @click.prevent="saveCustomOption(field)">保存到选项库</AButton>
             </div>
-          </label>
+          </div>
           <div class="drawer-actions">
             <AButton variant="outline" @click="editing = false">取消</AButton>
             <AButton theme="primary" html-type="submit" :loading="store.saving">保存</AButton>
@@ -379,7 +385,7 @@
             </article>
             <article>
               <span>送审金额</span>
-              <strong>{{ money(store.selectedProject.amount.submittedAmount) }}</strong>
+              <MoneyDisplay :value="store.selectedProject.amount.submittedAmount" mode="full" />
             </article>
             <article>
               <span>资料状态</span>
@@ -414,7 +420,7 @@
                 :key="stage.code"
                 :class="{ active: stage.code === store.selectedProject.stage }"
                 type="button"
-                @click="moveProject(stage.code)"
+                @click="requestMoveProject(stage.code)"
               >
                 {{ stage.title }}
               </button>
@@ -466,7 +472,7 @@
           </div>
           <div class="log-box">
             <h3>操作记录</h3>
-            <p v-for="log in store.selectedProject.logs || []" :key="log.id">{{ formatDateTime(log.created_at) }} · {{ log.operator || '系统' }} · {{ auditLogText(log.note || log.action) }}</p>
+            <p v-for="log in store.selectedProject.logs || []" :key="log.id">{{ formatDateTime(log.created_at) }} · {{ displayOperatorName(log.operator) }} · {{ auditLogText(log.note || log.action) }}</p>
             <div v-if="(store.selectedProject.logs || []).length === 0" class="detail-empty-action">
               <strong>暂无操作记录</strong>
               <span>编辑项目信息、上传附件或更新阶段后，会自动形成操作记录。</span>
@@ -568,34 +574,36 @@
       </div>
     </div>
 
-    <div v-if="attachmentPreview.visible" class="preview-mask" role="presentation">
-      <div
-        ref="attachmentPreviewPanelRef"
-        class="preview-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="attachment-preview-title"
-        tabindex="-1"
-        @keydown.esc.stop.prevent="closeAttachmentPreview"
-      >
-        <div class="preview-head">
-          <div>
-            <h3 id="attachment-preview-title">{{ attachmentPreview.title }}</h3>
-            <p>{{ attachmentPreview.hint }}</p>
+    <Teleport to="body">
+      <div v-if="attachmentPreview.visible" class="preview-mask" role="presentation">
+        <div
+          ref="attachmentPreviewPanelRef"
+          class="preview-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="attachment-preview-title"
+          tabindex="-1"
+          @keydown.esc.stop.prevent="closeAttachmentPreview"
+        >
+          <div class="preview-head">
+            <div>
+              <h3 id="attachment-preview-title">{{ attachmentPreview.title }}</h3>
+              <p>{{ attachmentPreview.hint }}</p>
+            </div>
+            <button class="icon-button" type="button" aria-label="关闭附件预览" title="关闭附件预览" @click="closeAttachmentPreview"><AIcon name="close" /></button>
           </div>
-          <button class="icon-button" type="button" aria-label="关闭附件预览" title="关闭附件预览" @click="closeAttachmentPreview"><AIcon name="close" /></button>
-        </div>
-        <div class="preview-body">
-          <p v-if="attachmentPreview.loading" class="preview-message">正在加载预览...</p>
-          <img v-else-if="attachmentPreview.kind === 'image'" :src="attachmentPreview.url" alt="附件预览" />
-          <iframe v-else-if="attachmentPreview.kind === 'pdf'" :src="attachmentPreview.url" title="PDF 预览" />
-          <pre v-else-if="attachmentPreview.kind === 'text'">{{ attachmentPreview.text }}</pre>
-          <video v-else-if="attachmentPreview.kind === 'video'" :src="attachmentPreview.url" controls />
-          <audio v-else-if="attachmentPreview.kind === 'audio'" :src="attachmentPreview.url" controls />
-          <p v-else class="preview-message">{{ attachmentPreview.error || '该文件类型暂不支持在线预览，请下载查看' }}</p>
+          <div class="preview-body">
+            <p v-if="attachmentPreview.loading" class="preview-message">正在加载预览...</p>
+            <img v-else-if="attachmentPreview.kind === 'image'" :src="attachmentPreview.url" alt="附件预览" />
+            <iframe v-else-if="attachmentPreview.kind === 'pdf'" :src="attachmentPreview.url" title="PDF 预览" />
+            <pre v-else-if="attachmentPreview.kind === 'text'">{{ attachmentPreview.text }}</pre>
+            <video v-else-if="attachmentPreview.kind === 'video'" :src="attachmentPreview.url" controls />
+            <audio v-else-if="attachmentPreview.kind === 'audio'" :src="attachmentPreview.url" controls />
+            <p v-else class="preview-message">{{ attachmentPreview.error || '该文件类型暂不支持在线预览，请下载查看' }}</p>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -605,9 +613,12 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { fetchAttachmentDownloadBlob, fetchAttachmentPreviewBlob, saveFieldConfig } from '@/api/audit'
 import { fetchWorkItems } from '@/api/projects'
+import { getAdminUsers } from '@/api/system'
 import { useAuditStore } from '@/store/audit'
 import { useAuthStore } from '@/store/auth'
+import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import { friendlyErrorMessage } from '@/utils/errors'
+import { amountToChineseUpper, formatWan } from '@/utils/format'
 import {
   auditStageOptions,
   businessLabel,
@@ -623,6 +634,7 @@ type AuditSummaryCard = {
   label: string
   value: string | number
   hint: string
+  tone: 'primary' | 'info' | 'success' | 'danger' | 'warning' | 'amount'
   filters: Partial<AuditFilters>
 }
 type AuditFilterChip = {
@@ -653,6 +665,7 @@ const attachmentPreviewPanelRef = ref<HTMLElement | null>(null)
 const attachmentUploading = ref(false)
 const workItems = ref<WorkItem[]>([])
 const workItemStripFocused = ref(false)
+const userDisplayNameMap = ref<Record<string, string>>({})
 const attachmentPreview = reactive({
   visible: false,
   loading: false,
@@ -781,18 +794,20 @@ const auditActionHints = computed(() => {
   return items.slice(0, 3)
 })
 const summaryCards = computed<AuditSummaryCard[]>(() => [
-  { key: 'all', label: '总项目', value: store.summary.totalProjects, hint: '当前项目合计', filters: {} },
-  { key: 'active', label: '在审项目', value: store.summary.inAuditProjects, hint: '一审 + 二审', filters: { status: 'active' } },
-  { key: 'completed', label: '已完成', value: store.summary.completedProjects, hint: '已完成/归档', filters: { stage: 'archived' } },
-  { key: 'overdue', label: '超期督办', value: store.summary.overdueProjects, hint: '未归档且过期', filters: { onlyOverdue: true, sort: 'plannedEndDate' } },
-  { key: 'monthly', label: '本月新增', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', filters: { onlyMonthlyNew: true, sort: 'updatedAt' } },
-  { key: 'upcoming', label: '即将到期', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', filters: { onlyUpcomingDue: true, sort: 'plannedEndDate' } },
-  { key: 'amount', label: '送审金额', value: money(store.summary.totalSubmittedAmount), hint: '全部项目合计', filters: { sort: 'amount' } },
+  { key: 'all', label: '总项目', value: store.summary.totalProjects, hint: '当前项目合计', tone: 'primary', filters: {} },
+  { key: 'active', label: '在审项目', value: store.summary.inAuditProjects, hint: '一审 + 二审', tone: 'info', filters: { status: 'active' } },
+  { key: 'completed', label: '已完成', value: store.summary.completedProjects, hint: '已完成/归档', tone: 'success', filters: { stage: 'archived' } },
+  { key: 'overdue', label: '超期督办', value: store.summary.overdueProjects, hint: '未归档且过期', tone: 'danger', filters: { onlyOverdue: true, sort: 'plannedEndDate' } },
+  { key: 'monthly', label: '本月新增', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', tone: 'primary', filters: { onlyMonthlyNew: true, sort: 'updatedAt' } },
+  { key: 'upcoming', label: '即将到期', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', tone: 'warning', filters: { onlyUpcomingDue: true, sort: 'plannedEndDate' } },
+  { key: 'amount', label: '送审金额', value: formatWan(store.summary.totalSubmittedAmount), hint: amountToChineseUpper(store.summary.totalSubmittedAmount), tone: 'amount', filters: { sort: 'amount' } },
 ])
 
 onMounted(async () => {
   applyRouteFilters()
+  syncViewModeFromRoute()
   await store.refreshAll()
+  loadUserDisplayNames()
   try {
     workItems.value = await fetchWorkItems(20)
   } catch {
@@ -801,6 +816,7 @@ onMounted(async () => {
   await focusWorkItemsFromRoute()
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleAuditKeyboard)
+  window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
   await openAuditProjectFromRoute()
 })
 
@@ -899,6 +915,11 @@ watch(
 )
 
 watch(
+  () => route.query.mode,
+  () => syncViewModeFromRoute(),
+)
+
+watch(
   () => confirmState.visible,
   (visible) => {
     if (visible) nextTick(() => confirmPanelRef.value?.focus())
@@ -915,6 +936,7 @@ watch(
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleAuditKeyboard)
+  window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
   removeColumnResizeListeners()
 })
 
@@ -933,10 +955,7 @@ onBeforeRouteLeave((to) => {
 })
 
 function money(value: number) {
-  if (!value) return '0'
-  if (value >= 100000000) return `${(value / 100000000).toFixed(2)} 亿`
-  if (value >= 10000) return `${(value / 10000).toFixed(1)} 万`
-  return value.toLocaleString('zh-CN')
+  return `${formatWan(Number(value || 0))} / ${amountToChineseUpper(Number(value || 0))}`
 }
 
 function formatDateTime(value: string) {
@@ -955,12 +974,46 @@ function auditLogText(value: string) {
   return value
 }
 
+async function loadUserDisplayNames() {
+  const currentUsername = authStore.username
+  const currentDisplayName = authStore.displayName
+  if (currentUsername && currentDisplayName) {
+    userDisplayNameMap.value = { ...userDisplayNameMap.value, [currentUsername]: currentDisplayName }
+  }
+  try {
+    const users = await getAdminUsers()
+    userDisplayNameMap.value = Object.fromEntries(users.map((user) => [user.username, user.displayName || user.username]))
+  } catch {
+    // Non-admin users may not be able to read the user list; keep the current user mapping.
+  }
+}
+
+function displayOperatorName(operator?: string) {
+  const value = String(operator || '').trim()
+  if (!value) return '系统'
+  return userDisplayNameMap.value[value] || value
+}
+
 function displayField(project: AuditProject, field: AuditFieldConfig) {
   const value = store.readField(project, field)
-  if (field.fieldType === 'number') return money(Number(value))
   if (typeof value === 'boolean') return value ? '是' : '否'
   if (value === null || value === undefined || value === '') return '-'
+  if (field.fieldType === 'percent' || field.fieldKey === 'progress_percent' || field.bindField === 'progressPercent') return `${Number(value || 0)}%`
+  if (field.fieldType === 'number') return isMoneyField(field) ? money(Number(value)) : String(value)
   return optionValueTitle(field, value)
+}
+
+function isMoneyField(field: AuditFieldConfig) {
+  const moneyFields = new Set([
+    'contract_amount',
+    'submitted_amount',
+    'first_audit_amount',
+    'second_audit_amount',
+    'audit_difference',
+    'final_payable',
+    'paid_amount',
+  ])
+  return moneyFields.has(field.fieldKey) || field.bindField.startsWith('amount.')
 }
 
 function stageTitle(code: string) {
@@ -1267,12 +1320,33 @@ function requestViewMode(nextMode: AuditViewMode) {
   if (nextMode === viewMode.value) return
   if (!tableSettingsDirty.value) {
     viewMode.value = nextMode
+    updateViewModeRoute(nextMode)
     return
   }
   pendingLeaveAction.value = () => {
     viewMode.value = nextMode
+    updateViewModeRoute(nextMode)
   }
   showUnsavedTableSettingsPrompt()
+}
+
+function isAuditViewMode(value: unknown): value is AuditViewMode {
+  return typeof value === 'string' && viewModes.some((item) => item.value === value)
+}
+
+function updateViewModeRoute(nextMode: AuditViewMode) {
+  if (route.path !== '/audit' || route.query.mode === nextMode) return
+  router.replace({ path: '/audit', query: { ...route.query, mode: nextMode } }).catch(() => {})
+}
+
+function syncViewModeFromRoute() {
+  const mode = route.query.mode
+  if (isAuditViewMode(mode)) requestViewMode(mode)
+}
+
+function handleSidebarAction(event: Event) {
+  const action = (event as CustomEvent<{ action?: string }>).detail?.action
+  if (action === 'audit:start-from-project') goProjectAuditSource()
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -1347,6 +1421,10 @@ function openWorkItem(item: WorkItem) {
 
 function isOverdue(project: AuditProject) {
   return Boolean(project.deadline.auditDeadline && project.deadline.auditDeadline < new Date().toISOString().slice(0, 10) && project.stage !== 'archived')
+}
+
+function deadlineText(project: AuditProject) {
+  return (project.deadline.auditDeadline || '').trim()
 }
 
 function applyFilters() {
@@ -1461,10 +1539,13 @@ function valuesToProject(): Partial<AuditProject> {
   const normalizedValues = Object.fromEntries(
     Object.entries(formValues).map(([key, value]) => [key, value === '__custom' ? (customOptionValues[key] || '') : value])
   )
+  const existing = store.selectedProject
   const knownFields = new Set([
     'project_code', 'project_name', 'audited_unit', 'audit_type', 'section_building', 'settlement_no',
     'category', 'priority', 'manager_name', 'contractor_name', 'start_date', 'planned_end_date',
     'actual_end_date', 'progress_percent', 'status', 'is_delayed', 'delay_days', 'submitted_amount',
+    'first_audit_amount', 'second_audit_amount', 'audit_difference', 'final_payable', 'paid_amount',
+    'first_audit_company', 'first_auditor_name', 'second_audit_department', 'second_auditor_name',
     'current_stage', 'doc_status', 'description', 'remark_coordination',
   ])
   const customFields = Object.fromEntries(
@@ -1481,16 +1562,22 @@ function valuesToProject(): Partial<AuditProject> {
     category: normalizedValues.category,
     priority: normalizedValues.priority,
     contractor: { name: normalizedValues.contractor_name || '', phone: '' },
-    firstAudit: { companyName: '', auditor: { name: '' } },
-    secondAudit: { department: '', auditor: { name: '' } },
+    firstAudit: {
+      companyName: normalizedValues.first_audit_company || existing?.firstAudit?.companyName || '',
+      auditor: { name: normalizedValues.first_auditor_name || existing?.firstAudit?.auditor?.name || '' },
+    },
+    secondAudit: {
+      department: normalizedValues.second_audit_department || existing?.secondAudit?.department || '',
+      auditor: { name: normalizedValues.second_auditor_name || existing?.secondAudit?.auditor?.name || '' },
+    },
     amount: {
-      contractAmount: 0,
-      submittedAmount: Number(normalizedValues.submitted_amount || 0),
-      firstAuditAmount: 0,
-      secondAuditAmount: 0,
-      auditDifference: 0,
-      finalPayable: 0,
-      paidAmount: 0,
+      contractAmount: existing?.amount?.contractAmount || 0,
+      submittedAmount: Number(normalizedValues.submitted_amount || existing?.amount?.submittedAmount || 0),
+      firstAuditAmount: Number(normalizedValues.first_audit_amount || existing?.amount?.firstAuditAmount || 0),
+      secondAuditAmount: Number(normalizedValues.second_audit_amount || existing?.amount?.secondAuditAmount || 0),
+      auditDifference: Number(normalizedValues.audit_difference || existing?.amount?.auditDifference || 0),
+      finalPayable: Number(normalizedValues.final_payable || existing?.amount?.finalPayable || 0),
+      paidAmount: Number(normalizedValues.paid_amount || existing?.amount?.paidAmount || 0),
     },
     deadline: { submitDate: normalizedValues.start_date || new Date().toISOString().slice(0, 10), auditDeadline: normalizedValues.planned_end_date || normalizedValues.audit_deadline || '' },
     startDate: normalizedValues.start_date || new Date().toISOString().slice(0, 10),
@@ -1524,6 +1611,21 @@ async function moveProject(stageCode: AuditStageCode) {
   if (!store.selectedProject || store.selectedProject.stage === stageCode) return
   await store.moveProject(store.selectedProject, stageCode, authStore.displayName || '前端用户')
   MessagePlugin.success('进度已更新')
+}
+
+function requestMoveProject(stageCode: AuditStageCode) {
+  if (!store.selectedProject || store.selectedProject.stage === stageCode) return
+  const currentStage = stageTitle(store.selectedProject.stage)
+  const nextStage = stageTitle(stageCode)
+  openConfirm({
+    title: '确认切换审计进度？',
+    message: `将「${store.selectedProject.projectName}」从「${currentStage}」切换到「${nextStage}」。系统会保留阶段记录，确认后立即生效。`,
+    confirmText: '确认切换',
+    cancelText: '暂不切换',
+    onConfirm: async () => {
+      await moveProject(stageCode)
+    },
+  })
 }
 
 function attachmentName(file: AuditProjectAttachment) {
@@ -1705,7 +1807,7 @@ async function logout() {
   box-shadow: none;
 }
 
-.brand, .header-actions, .segmented, .card-title-row, .card-footer, .detail-status, .drawer-actions, .stage-actions, .section-title-row, .attachment-actions {
+.brand, .header-actions, .header-action-row, .segmented, .card-title-row, .card-footer, .detail-status, .drawer-actions, .stage-actions, .section-title-row, .attachment-actions {
   display: flex;
   align-items: center;
 }
@@ -1721,7 +1823,31 @@ async function logout() {
 }
 .brand h1 { font-size: var(--text-xl); margin: 0; }
 .brand p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0; }
-.header-actions { gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.header-actions {
+  min-width: 0;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.header-action-row {
+  gap: var(--space-2);
+  justify-content: flex-end;
+  min-width: 0;
+}
+.audit-header--embedded .header-actions {
+  width: min(560px, 100%);
+  display: grid;
+  justify-items: end;
+}
+.audit-header--embedded .header-action-row {
+  width: 100%;
+}
+.header-action-row--views {
+  justify-content: flex-end;
+}
+.header-action-row--ops {
+  justify-content: flex-end;
+}
 
 .segmented {
   border: 1px solid var(--border-color);
@@ -1809,27 +1935,55 @@ async function logout() {
   margin-bottom: var(--space-4);
 }
 .summary-card {
+  --summary-color: var(--color-brand-500);
+  --summary-bg: var(--color-brand-50);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-left: 4px solid var(--summary-color);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   box-shadow: var(--shadow-elevated);
   text-align: left;
   cursor: pointer;
   font: inherit;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast), background var(--duration-fast);
 }
 .summary-card:hover,
 .summary-card:focus-visible,
 .summary-card--active {
-  border-color: var(--color-brand-300);
+  border-color: color-mix(in srgb, var(--summary-color) 46%, var(--border-color));
   box-shadow: var(--shadow-overlay);
   outline: none;
+  transform: translateY(-1px);
 }
 .summary-card--active {
-  background: var(--color-brand-50);
+  background: var(--summary-bg);
 }
 .summary-card span, .summary-card em { display: block; color: var(--text-secondary); font-size: var(--text-xs); font-style: normal; }
-.summary-card strong { display: block; margin: 4px 0; font-size: var(--text-2xl); }
+.summary-card strong {
+  display: block;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+  color: var(--summary-color);
+  font-size: var(--text-2xl);
+  line-height: 1.18;
+}
+.summary-card--primary { --summary-color: var(--color-brand-500); --summary-bg: var(--color-brand-50); }
+.summary-card--info { --summary-color: #168CFF; --summary-bg: #E8F7FF; }
+.summary-card--success { --summary-color: var(--color-success); --summary-bg: #E8FFF3; }
+.summary-card--danger { --summary-color: var(--color-danger); --summary-bg: #FFF1F0; }
+.summary-card--warning { --summary-color: var(--color-warning); --summary-bg: #FFF7E8; }
+.summary-card--amount { --summary-color: #7A5AF8; --summary-bg: #F3F0FF; }
+.summary-card--amount strong {
+  font-size: var(--text-xl);
+}
+.summary-card--amount em {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+}
 
 .toolbar {
   display: grid;
@@ -1932,13 +2086,35 @@ async function logout() {
   border-top: 4px solid;
   border-bottom: 1px solid var(--border-color);
   padding: var(--space-3);
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  background: linear-gradient(180deg, #fff, var(--bg-muted));
 }
-.column-head h2 { font-size: var(--text-md); margin: 0; }
+.column-head h2 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .column-head span { font-size: var(--text-xs); color: var(--text-tertiary); }
-.column-head strong { font-size: var(--text-xl); }
+.column-head strong {
+  min-width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 8px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: var(--text-md);
+  line-height: 1;
+}
 .column-body { padding: var(--space-2); overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-2); }
 
 .project-card {
@@ -1972,6 +2148,31 @@ async function logout() {
 .card-meta { margin-top: 6px; }
 .card-fields { display: grid; gap: 3px; margin-top: var(--space-2); }
 .card-footer { justify-content: space-between; margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border-color); }
+.column-body--compact .project-card {
+  padding: 10px 12px;
+}
+.column-body--compact .card-title-row strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.column-body--compact .priority,
+.column-body--compact .card-fields,
+.column-body--compact .card-footer span {
+  display: none;
+}
+.column-body--compact .card-meta {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.column-body--compact .card-footer {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+}
 .overdue { color: var(--color-danger); font-weight: 600; }
 .empty-column { padding: var(--space-5); text-align: center; color: var(--text-tertiary); font-size: var(--text-sm); }
 
@@ -2029,7 +2230,7 @@ async function logout() {
 }
 .stage-table-card {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 112px minmax(0, 1fr);
   gap: var(--space-3);
   align-items: stretch;
   min-width: 0;
@@ -2040,39 +2241,49 @@ async function logout() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: var(--space-2);
   min-height: 100%;
-  padding: var(--space-3) 0;
+  padding: var(--space-3);
   color: var(--stage-color, var(--color-brand-500));
+  background: color-mix(in srgb, var(--stage-color, var(--color-brand-500)) 9%, white);
+  border: 1px solid color-mix(in srgb, var(--stage-color, var(--color-brand-500)) 24%, white);
+  border-radius: var(--radius-lg);
 }
 .stage-table-rail__line {
-  width: 2px;
-  flex: 1 1 auto;
-  min-height: 36px;
+  width: 100%;
+  height: 3px;
+  flex: 0 0 auto;
+  min-height: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--stage-color, var(--color-brand-500)) 72%, white);
   opacity: .9;
 }
 .stage-table-rail__text {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  display: inline-block;
+  writing-mode: horizontal-tb;
+  text-orientation: initial;
+  display: block;
   font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: 0;
-  white-space: nowrap;
-  transform: rotate(180deg);
-  transform-origin: center;
+  line-height: 1.35;
+  text-align: center;
+  transform: none;
 }
 .stage-table-rail__count {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  display: inline-block;
+  writing-mode: horizontal-tb;
+  text-orientation: initial;
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--stage-color, var(--color-brand-500)) 28%, white);
+  border-radius: 999px;
   font-size: var(--text-xs);
   color: var(--text-secondary);
   white-space: nowrap;
-  transform: rotate(180deg);
-  transform-origin: center;
+  transform: none;
 }
 .stage-table-panel {
   min-width: 0;
@@ -2371,11 +2582,13 @@ async function logout() {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  padding-bottom: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
 }
 
-.audit-detail-head h2 { font-size: var(--text-xl); margin: 0; }
+.audit-detail-head h2 { font-size: var(--text-xl); margin: 0; color: var(--text-primary); }
 .audit-detail-head p { font-size: var(--text-sm); color: var(--text-secondary); margin: 3px 0 0; }
 
 .audit-detail-workspace {
@@ -2387,6 +2600,7 @@ async function logout() {
   justify-items: center;
   padding: var(--space-6);
   background: rgba(15, 23, 42, .36);
+  backdrop-filter: blur(2px);
 }
 
 .audit-detail-panel {
@@ -2394,17 +2608,18 @@ async function logout() {
   max-height: calc(100vh - 64px);
   overflow: auto;
   display: grid;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
+  gap: 0;
+  padding: 0;
+  background: var(--color-gray-20);
+  border: 1px solid var(--color-brand-100);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-elevated);
+  box-shadow: 0 18px 48px rgba(29, 33, 41, .18);
 }
 
 .audit-detail-workspace .detail-view {
   display: grid;
   gap: var(--space-4);
+  padding: var(--space-5);
 }
 
 .audit-detail-hero {
@@ -2412,9 +2627,12 @@ async function logout() {
   justify-content: space-between;
   gap: var(--space-4);
   align-items: flex-start;
-  padding: var(--space-4);
-  background: linear-gradient(135deg, var(--color-brand-50), var(--bg-surface) 64%);
-  border: 1px solid var(--color-brand-200);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--color-brand-100);
+  border-left: 4px solid var(--color-brand-500);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .audit-detail-hero h3 {
@@ -2444,9 +2662,13 @@ async function logout() {
 .audit-detail-kpis article {
   display: grid;
   gap: 6px;
-  padding: var(--space-3);
-  background: var(--bg-muted);
+  min-height: 112px;
+  align-content: center;
+  padding: var(--space-4);
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .audit-detail-kpis span {
@@ -2468,6 +2690,8 @@ async function logout() {
   padding: var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .next-action-list {
@@ -2482,9 +2706,10 @@ async function logout() {
   min-width: 0;
   padding: var(--space-3);
   text-align: left;
-  background: var(--bg-muted);
+  background: var(--color-gray-20);
   border: 1px solid var(--border-color);
   border-left: 3px solid var(--color-brand-500);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -2518,7 +2743,11 @@ async function logout() {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
   margin: 0;
+  overflow: hidden;
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .audit-detail-workspace .detail-grid dt,
@@ -2530,7 +2759,7 @@ async function logout() {
 
 .audit-detail-workspace .detail-grid dt {
   color: var(--text-secondary);
-  background: var(--bg-muted);
+  background: var(--color-gray-50);
   font-size: var(--text-xs);
 }
 
@@ -2579,14 +2808,34 @@ async function logout() {
 .icon-button {
   width: 32px;
   height: 32px;
+  display: inline-grid;
+  place-items: center;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: #fff;
+  color: var(--text-secondary);
   cursor: pointer;
 }
-.project-form, .detail-view { padding: var(--space-5); }
-.project-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.form-field { display: grid; gap: 6px; font-size: var(--text-sm); color: var(--text-secondary); }
+.icon-button:hover,
+.icon-button:focus-visible {
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+  border-color: var(--color-brand-200);
+  outline: none;
+}
+.project-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-5);
+  background: var(--bg-surface);
+}
+.form-field { display: grid; gap: 6px; min-width: 0; font-size: var(--text-sm); color: var(--text-secondary); }
+.form-field-label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
 .form-field b { color: var(--color-danger); margin-left: 2px; }
 .custom-option { display: flex; gap: var(--space-2); }
 .drawer-actions { grid-column: 1 / -1; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
@@ -2709,7 +2958,15 @@ async function logout() {
 .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; margin: var(--space-5) 0; }
 .detail-grid dt { color: var(--text-secondary); font-size: var(--text-sm); }
 .detail-grid dd { margin: 0; }
-.progress-box, .stage-history, .attachment-box, .log-box { border-top: 1px solid var(--border-color); padding-top: var(--space-4); margin-top: var(--space-4); }
+.progress-box, .stage-history, .attachment-box, .log-box {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
 .progress-box h3, .stage-history h3, .attachment-box h3, .log-box h3 { font-size: var(--text-md); margin: 0 0 var(--space-3); }
 .section-title-row { justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
 .section-title-row h3 { margin: 0; }
@@ -2717,8 +2974,17 @@ async function logout() {
 .stage-actions button {
   border: 1px solid var(--border-color-strong);
   background: #fff;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
+  color: var(--text-secondary);
   cursor: pointer;
+}
+.stage-actions button:hover,
+.stage-actions button:focus-visible {
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+  border-color: var(--color-brand-300);
+  outline: none;
 }
 .stage-actions button.active { background: var(--color-brand-500); border-color: var(--color-brand-500); color: var(--text-on-brand); }
 .stage-history p, .attachment-box p, .log-box p { font-size: var(--text-xs); color: var(--text-secondary); margin: 0 0 6px; }
@@ -2728,8 +2994,9 @@ async function logout() {
   justify-items: start;
   padding: var(--space-4);
   color: var(--text-secondary);
-  background: var(--bg-muted);
+  background: var(--color-gray-20);
   border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
 }
 .detail-empty-action strong {
   color: var(--text-primary);
@@ -2775,7 +3042,7 @@ async function logout() {
 .preview-mask {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 5000;
   display: grid;
   place-items: center;
   padding: var(--space-5);
@@ -2838,25 +3105,19 @@ async function logout() {
 .layout-vertical .kanban-column { max-height: none; }
 .layout-vertical .column-head {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-3);
 }
 .layout-vertical .column-head h2 {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
   margin: 0;
   line-height: 1.1;
   white-space: nowrap;
 }
 .layout-vertical .column-head span {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
   white-space: nowrap;
 }
 .layout-vertical .column-head strong {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
   white-space: nowrap;
 }
 .layout-vertical .column-body { min-height: 180px; }

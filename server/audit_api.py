@@ -14,7 +14,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT / "audit-kanban.sqlite3"
@@ -260,11 +260,40 @@ def upload_root():
     return Path(os.environ.get("UPLOAD_ROOT", ROOT / "uploads")).resolve()
 
 
+DEFAULT_MAX_UPLOAD_SIZE_MB = 100
+MIN_UPLOAD_SIZE_MB = 1
+MAX_UPLOAD_SIZE_MB = 500
+
+
+def clamp_upload_size_mb(value):
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        size = DEFAULT_MAX_UPLOAD_SIZE_MB
+    return max(MIN_UPLOAD_SIZE_MB, min(MAX_UPLOAD_SIZE_MB, size))
+
+
+def upload_settings_payload(conn):
+    row = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'upload_settings'").fetchone()
+    if not row:
+        return {"maxFileSizeMb": DEFAULT_MAX_UPLOAD_SIZE_MB}
+    try:
+        value = json.loads(row["setting_value"] or "{}")
+    except (TypeError, ValueError):
+        value = {}
+    return {"maxFileSizeMb": clamp_upload_size_mb(value.get("maxFileSizeMb"))}
+
+
 def max_upload_size():
     try:
-        return int(os.environ.get("MAX_UPLOAD_SIZE", str(25 * 1024 * 1024)))
+        with connect() as conn:
+            return upload_settings_payload(conn)["maxFileSizeMb"] * 1024 * 1024
+    except Exception:
+        pass
+    try:
+        return int(os.environ.get("MAX_UPLOAD_SIZE", str(DEFAULT_MAX_UPLOAD_SIZE_MB * 1024 * 1024)))
     except ValueError:
-        return 25 * 1024 * 1024
+        return DEFAULT_MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 def row_get(row, key, default=""):
@@ -305,7 +334,7 @@ def parse_multipart_file(handler):
     if length <= 0:
         raise ValueError("上传内容为空")
     if length > limit:
-        raise ValueError(f"文件不能超过 {limit // 1024 // 1024}MB")
+        raise ValueError(f"文件超过上传大小限制，当前上限为 {limit // 1024 // 1024}MB")
     try:
         raw = handler.rfile.read(length)
     except TimeoutError as exc:
@@ -320,10 +349,9 @@ def parse_multipart_file(handler):
         header_blob, body = part.split(b"\r\n\r\n", 1)
         headers = header_blob.decode("iso-8859-1", errors="ignore")
         disposition = next((line for line in headers.split("\r\n") if line.lower().startswith("content-disposition:")), "")
-        if 'name="file"' not in disposition or "filename=" not in disposition:
+        if 'name="file"' not in disposition or "filename" not in disposition:
             continue
-        filename_match = re.search(r'filename="([^"]*)"', disposition)
-        filename = filename_match.group(1) if filename_match else ""
+        filename = multipart_filename(disposition)
         return filename, body.rstrip(b"\r\n")
     raise ValueError("未找到上传文件")
 
@@ -339,7 +367,7 @@ def parse_multipart_form(handler):
     if length <= 0:
         raise ValueError("上传内容为空")
     if length > limit:
-        raise ValueError(f"文件不能超过 {limit // 1024 // 1024}MB")
+        raise ValueError(f"文件超过上传大小限制，当前上限为 {limit // 1024 // 1024}MB")
     raw = handler.rfile.read(length)
     if len(raw) != length:
         raise ValueError("上传内容不完整，请重试")
@@ -358,14 +386,35 @@ def parse_multipart_form(handler):
         if not name_match:
             continue
         field_name = name_match.group(1)
-        filename_match = re.search(r'filename="([^"]*)"', disposition)
-        if filename_match:
-            file_part = (filename_match.group(1), body.rstrip(b"\r\n"))
+        filename = multipart_filename(disposition)
+        if filename:
+            file_part = (filename, body.rstrip(b"\r\n"))
         else:
             fields[field_name] = body.rstrip(b"\r\n").decode("utf-8", errors="replace").strip()
     if not file_part:
         raise ValueError("未找到上传文件")
     return fields, file_part
+
+
+def repair_mojibake_filename(value):
+    if not value:
+        return value
+    try:
+        repaired = value.encode("iso-8859-1").decode("utf-8")
+    except UnicodeError:
+        return value
+    return repaired or value
+
+
+def multipart_filename(disposition):
+    filename_star = re.search(r"filename\*=([^']*)''([^;]+)", disposition)
+    if filename_star:
+        try:
+            return unquote(filename_star.group(2), encoding=filename_star.group(1) or "utf-8")
+        except LookupError:
+            return unquote(filename_star.group(2))
+    filename_match = re.search(r'filename="([^"]*)"', disposition)
+    return repair_mojibake_filename(filename_match.group(1)) if filename_match else ""
 
 
 def attachment_payload(row):
@@ -559,7 +608,7 @@ def category_payload(row):
 
 
 def project_file_payload(row):
-    original_name = row_get(row, "original_name") or row_get(row, "display_name")
+    original_name = repair_mojibake_filename(row_get(row, "original_name") or row_get(row, "display_name"))
     mime_type = row_get(row, "mime_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
     file_ext = row_get(row, "file_ext") or Path(original_name).suffix.lower()
     can_preview = mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES
@@ -605,6 +654,76 @@ def settlement_payload(row):
         "remark": row["remark"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def settlement_finance_payload(row, payment_nodes=None):
+    return {
+        **settlement_payload(row),
+        "ownerUnit": row_get(row, "owner_unit"),
+        "constructionUnit": row_get(row, "construction_unit"),
+        "managerName": row_get(row, "manager_name"),
+        "projectStatus": row_get(row, "project_status"),
+        "contractName": row_get(row, "contract_name"),
+        "contractNo": row_get(row, "contract_no"),
+        "contractAmount": row_get(row, "contract_amount", 0),
+        "provisionalAmount": row_get(row, "provisional_amount", 0),
+        "estimatedAmount": row_get(row, "estimated_amount", 0),
+        "ownerSuppliedAmount": row_get(row, "owner_supplied_amount", 0),
+        "otherDeductionAmount": row_get(row, "other_deduction_amount", 0),
+        "paymentBaseAmount": row_get(row, "payment_base_amount", 0),
+        "taxRate": row_get(row, "tax_rate", 0),
+        "contractDate": row_get(row, "contract_date"),
+        "paymentTerms": row_get(row, "payment_terms"),
+        "acceptanceStatus": row_get(row, "acceptance_status"),
+        "acceptanceDate": row_get(row, "acceptance_date"),
+        "auditStatus": row_get(row, "audit_status"),
+        "submittedAmount": row_get(row, "submitted_amount", 0),
+        "firstAuditAmount": row_get(row, "first_audit_amount", 0),
+        "firstAuditDate": row_get(row, "first_audit_date"),
+        "secondAuditAmount": row_get(row, "second_audit_amount", 0),
+        "secondAuditDate": row_get(row, "second_audit_date"),
+        "finalAuditAmount": row_get(row, "final_audit_amount", 0),
+        "finalAuditDate": row_get(row, "final_audit_date"),
+        "hasInvoice": bool(row_get(row, "has_invoice", 0)),
+        "invoicedAmount": row_get(row, "invoiced_amount", 0),
+        "hasReceived": bool(row_get(row, "has_received", 0)),
+        "receivedAmount": row_get(row, "received_amount", 0),
+        "hasPayment": bool(row_get(row, "has_payment", 0)),
+        "historicalPaidAmount": row_get(row, "historical_paid_amount", 0),
+        "hasRetention": bool(row_get(row, "has_retention", 0)),
+        "retentionRatio": row_get(row, "retention_ratio", 0),
+        "retentionAmount": row_get(row, "retention_amount", 0),
+        "warrantyStartDate": row_get(row, "warranty_start_date"),
+        "warrantyEndDate": row_get(row, "warranty_end_date"),
+        "paymentTemplateId": row_get(row, "payment_template_id"),
+        "documentsMissing": bool(row_get(row, "documents_missing", 0)),
+        "documentNote": row_get(row, "document_note"),
+        "isDraft": bool(row_get(row, "is_draft", 0)),
+        "paymentNodes": payment_nodes or [],
+    }
+
+
+def settlement_payment_node_payload(row):
+    try:
+        required_documents = json.loads(row_get(row, "required_documents_json") or "[]")
+    except (TypeError, ValueError):
+        required_documents = []
+    return {
+        "id": row["id"],
+        "nodeName": row["node_name"],
+        "nodeOrder": row["node_order"],
+        "triggerCondition": row["trigger_condition"],
+        "baseType": row["base_type"],
+        "paymentRatio": row["payment_ratio"],
+        "baseAmount": row["base_amount"],
+        "calculatedAmount": row["calculated_amount"],
+        "isCumulative": bool(row["is_cumulative"]),
+        "deductExisting": bool(row["deduct_existing"]),
+        "requiredDocuments": required_documents,
+        "dueDays": row["due_days"],
+        "reminderEnabled": bool(row["reminder_enabled"]),
+        "nodeStatus": row["node_status"],
     }
 
 
@@ -1090,6 +1209,8 @@ def seed_system_settings(conn):
         ("registration_open", {"enabled": False, "requireApproval": True}, "auth", "是否开放注册"),
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
+        ("upload_settings", {"maxFileSizeMb": DEFAULT_MAX_UPLOAD_SIZE_MB}, "system", "文件上传设置"),
+        ("sidebar_nav_order", {"order": ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]}, "system", "侧边栏模块顺序"),
         ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
@@ -1101,6 +1222,19 @@ def seed_system_settings(conn):
             """,
             (key, json.dumps(value, ensure_ascii=False), group, desc, ts, ts),
         )
+    nav_row = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'sidebar_nav_order'").fetchone()
+    if nav_row:
+        try:
+            nav_value = json.loads(nav_row["setting_value"] or "{}")
+        except (TypeError, ValueError):
+            nav_value = {}
+        old_default = ["/", "/project-management", "/materials", "/audit", "/bidding", "/finance"]
+        new_default = ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]
+        if nav_value.get("order") == old_default:
+            conn.execute(
+                "UPDATE system_settings SET setting_value = ?, updated_by = 'system', updated_at = ? WHERE setting_key = 'sidebar_nav_order'",
+                (json.dumps({"order": new_default}, ensure_ascii=False), ts),
+            )
 
 
 def seed_theme_configs(conn):
@@ -1242,6 +1376,42 @@ def ensure_compatible_columns(conn):
             "is_deleted": "INTEGER DEFAULT 0",
         },
         "project_settlements": {
+            "contract_name": "TEXT DEFAULT ''",
+            "contract_no": "TEXT DEFAULT ''",
+            "contract_amount": "REAL DEFAULT 0",
+            "provisional_amount": "REAL DEFAULT 0",
+            "estimated_amount": "REAL DEFAULT 0",
+            "owner_supplied_amount": "REAL DEFAULT 0",
+            "other_deduction_amount": "REAL DEFAULT 0",
+            "payment_base_amount": "REAL DEFAULT 0",
+            "tax_rate": "REAL DEFAULT 0",
+            "contract_date": "TEXT DEFAULT ''",
+            "payment_terms": "TEXT DEFAULT ''",
+            "acceptance_status": "TEXT DEFAULT ''",
+            "acceptance_date": "TEXT DEFAULT ''",
+            "audit_status": "TEXT DEFAULT ''",
+            "submitted_amount": "REAL DEFAULT 0",
+            "first_audit_amount": "REAL DEFAULT 0",
+            "first_audit_date": "TEXT DEFAULT ''",
+            "second_audit_amount": "REAL DEFAULT 0",
+            "second_audit_date": "TEXT DEFAULT ''",
+            "final_audit_amount": "REAL DEFAULT 0",
+            "final_audit_date": "TEXT DEFAULT ''",
+            "has_invoice": "INTEGER DEFAULT 0",
+            "invoiced_amount": "REAL DEFAULT 0",
+            "has_received": "INTEGER DEFAULT 0",
+            "received_amount": "REAL DEFAULT 0",
+            "has_payment": "INTEGER DEFAULT 0",
+            "historical_paid_amount": "REAL DEFAULT 0",
+            "has_retention": "INTEGER DEFAULT 0",
+            "retention_ratio": "REAL DEFAULT 0",
+            "retention_amount": "REAL DEFAULT 0",
+            "warranty_start_date": "TEXT DEFAULT ''",
+            "warranty_end_date": "TEXT DEFAULT ''",
+            "payment_template_id": "TEXT DEFAULT ''",
+            "documents_missing": "INTEGER DEFAULT 0",
+            "document_note": "TEXT DEFAULT ''",
+            "is_draft": "INTEGER DEFAULT 0",
             "deleted_at": "TEXT DEFAULT ''",
             "is_deleted": "INTEGER DEFAULT 0",
         },
@@ -1257,6 +1427,7 @@ def ensure_compatible_columns(conn):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_projects_project_id ON audit_projects(project_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_project_records_audit_project_id ON project_records(audit_project_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_settlement_payment_nodes_settlement ON settlement_payment_nodes(settlement_id, node_order)")
 
 
 def backfill_derived_fields(conn):
@@ -1299,6 +1470,8 @@ def seed_field_configs(conn):
         ("project_name", "项目名称", "text", "", "projectName", 1, 1, 1, 1, 1, 0, 10),
         ("audited_unit", "被审计单位", "select", "audited_unit", "auditedUnit", 0, 1, 1, 1, 1, 0, 20),
         ("audit_type", "审计类型", "select", "audit_type", "auditType", 1, 1, 1, 1, 1, 0, 30),
+        ("first_audit_company", "一审审计单位名称", "select", "audit_unit", "firstAudit.companyName", 0, 0, 1, 1, 1, 0, 32),
+        ("first_auditor_name", "一审负责人", "select", "manager", "firstAudit.auditor.name", 0, 0, 1, 1, 1, 0, 34),
         ("section_building", "分部/楼栋", "text", "", "sectionBuilding", 0, 0, 0, 1, 1, 0, 40),
         ("settlement_no", "结算编号", "text", "", "settlementNo", 0, 0, 1, 1, 1, 0, 50),
         ("category", "工程分类", "select", "category", "category", 1, 0, 0, 1, 1, 0, 60),
@@ -2093,6 +2266,7 @@ class Handler(BaseHTTPRequestHandler):
                 "auditStatuses": [{"label": label, "value": value} for value, label in AUDIT_STATUSES.items() if value != "deleted"],
                 "evidenceStatuses": [{"label": label, "value": value} for value, label in EVIDENCE_STATUSES.items()],
                 "riskLevels": [{"label": label, "value": value} for value, label in RISK_LEVELS.items()],
+                "uploadSettings": upload_settings_payload(conn),
             },
         })
 
@@ -2112,6 +2286,38 @@ class Handler(BaseHTTPRequestHandler):
                 "variationAmount": sum(float(row["variation_amount"] or 0) for row in rows),
             },
         })
+
+    def update_project_document_category(self, conn, category_key, data):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        row = conn.execute("SELECT * FROM project_document_categories WHERE category_key = ?", (category_key,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        required = 1 if bool(data.get("required")) else 0
+        conn.execute(
+            """
+            UPDATE project_document_categories
+            SET required = ?, updated_at = ?
+            WHERE category_key = ?
+            """,
+            (required, now_iso(), category_key),
+        )
+        project_ids = [item["id"] for item in conn.execute("SELECT id FROM project_records WHERE COALESCE(is_deleted, 0) = 0").fetchall()]
+        for project_id in project_ids:
+            refresh_project_rollups(conn, project_id)
+        self.write_operation_log(
+            conn,
+            "project_document_category.update",
+            user,
+            "project_document_category",
+            category_key,
+            detail={"required": bool(required)},
+        )
+        conn.commit()
+        updated = conn.execute("SELECT * FROM project_document_categories WHERE category_key = ?", (category_key,)).fetchone()
+        self.respond(200, {"success": True, "data": category_payload(updated)})
 
     def create_project_dictionary_option(self, conn, data):
         user = self.require_role(conn, {"admin", "editor"})
@@ -2680,8 +2886,9 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             self.not_found()
             return
-        mime_type = row["mime_type"] or mimetypes.guess_type(row["original_name"])[0] or "application/octet-stream"
-        file_ext = row["file_ext"] or Path(row["original_name"]).suffix.lower()
+        original_name = repair_mojibake_filename(row["original_name"])
+        mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        file_ext = row["file_ext"] or Path(original_name).suffix.lower()
         if not (mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES):
             self.respond(415, {"success": False, "error": "该文件暂不支持在线预览，请下载后查看"})
             return
@@ -2691,7 +2898,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if file_ext in TEXT_PREVIEW_SUFFIXES and not mime_type.startswith("text/"):
             mime_type = "text/plain; charset=utf-8"
-        self.respond_file(path, mime_type, row["original_name"], inline=True)
+        self.respond_file(path, mime_type, original_name, inline=True)
 
     def download_project_file(self, conn, file_id):
         if not self.require_user(conn):
@@ -2704,8 +2911,9 @@ class Handler(BaseHTTPRequestHandler):
         if not path.exists():
             self.not_found()
             return
-        mime_type = row["mime_type"] or mimetypes.guess_type(row["original_name"])[0] or "application/octet-stream"
-        self.respond_file(path, mime_type, row["original_name"], inline=False)
+        original_name = repair_mojibake_filename(row["original_name"])
+        mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        self.respond_file(path, mime_type, original_name, inline=False)
 
     def rename_project_file(self, conn, file_id, data):
         user = self.require_role(conn, {"admin", "editor"})
@@ -2740,6 +2948,357 @@ class Handler(BaseHTTPRequestHandler):
         self.write_operation_log(conn, "project_file.delete", user, "project_file", file_id)
         conn.commit()
         self.respond(200, {"success": True, "data": None})
+
+    def settlement_finance_rows(self, conn):
+        return conn.execute(
+            """
+            SELECT s.*, p.project_name, p.project_code, p.owner_unit, p.construction_unit,
+                   p.manager_name, p.project_status
+            FROM project_settlements s
+            JOIN project_records p ON p.id = s.project_id
+            WHERE COALESCE(s.is_deleted, 0) = 0 AND COALESCE(p.is_deleted, 0) = 0
+            ORDER BY s.updated_at DESC
+            """
+        ).fetchall()
+
+    def settlement_nodes(self, conn, settlement_id):
+        return [
+            settlement_payment_node_payload(row)
+            for row in conn.execute(
+                "SELECT * FROM settlement_payment_nodes WHERE settlement_id = ? ORDER BY node_order, created_at",
+                (settlement_id,),
+            ).fetchall()
+        ]
+
+    def list_settlement_finance_projects(self, conn):
+        if not self.require_user(conn):
+            return
+        rows = self.settlement_finance_rows(conn)
+        self.respond(200, {
+            "success": True,
+            "data": [settlement_finance_payload(row, self.settlement_nodes(conn, row["id"])) for row in rows],
+        })
+
+    def settlement_boss_dashboard(self, conn):
+        if not self.require_user(conn):
+            return
+        rows = [row for row in self.settlement_finance_rows(conn) if not row_get(row, "is_draft", 0)]
+        contract_total = sum(float(row_get(row, "contract_amount", 0) or 0) for row in rows)
+        audited_total = sum(float(row_get(row, "final_audit_amount", 0) or row_get(row, "approved_amount", 0) or 0) for row in rows)
+        invoice_total = sum(float(row_get(row, "invoiced_amount", 0) or 0) for row in rows)
+        received_total = sum(float(row_get(row, "received_amount", 0) or 0) for row in rows)
+        retention_total = sum(float(row_get(row, "retention_amount", 0) or 0) for row in rows)
+        collectible = conn.execute(
+            """
+            SELECT COALESCE(SUM(n.calculated_amount), 0) AS total
+            FROM settlement_payment_nodes n
+            JOIN project_settlements s ON s.id = n.settlement_id
+            WHERE COALESCE(s.is_deleted, 0) = 0 AND COALESCE(s.is_draft, 0) = 0
+              AND n.node_status IN ('待开票', '待收款', '部分收款', '逾期')
+            """
+        ).fetchone()["total"]
+        self.respond(200, {"success": True, "data": {
+            "contractTotalAmount": contract_total,
+            "auditedTotalAmount": audited_total,
+            "invoiceTotalAmount": invoice_total,
+            "receivedTotalAmount": received_total,
+            "receivableAmount": max((audited_total or contract_total) - received_total, 0),
+            "overdueReceivableAmount": None,
+            "retentionAmount": retention_total,
+            "collectibleAmount": collectible,
+            "settlementProjectCount": len(rows),
+            "riskProjectCount": sum(1 for row in rows if row_get(row, "documents_missing", 0)),
+        }})
+
+    def settlement_finance_workbench(self, conn):
+        if not self.require_user(conn):
+            return
+        items = []
+        for row in self.settlement_finance_rows(conn):
+            if row_get(row, "is_draft", 0):
+                continue
+            nodes = self.settlement_nodes(conn, row["id"])
+            pending = next((node for node in nodes if node["nodeStatus"] != "已完成"), None)
+            if not pending and not row_get(row, "documents_missing", 0):
+                continue
+            action = "补齐结算资料" if row_get(row, "documents_missing", 0) else pending["nodeStatus"]
+            items.append({
+                "id": pending["id"] if pending else f"{row['id']}-documents",
+                "projectId": row["project_id"],
+                "projectName": row_get(row, "project_name"),
+                "ownerUnit": row_get(row, "owner_unit"),
+                "currentNode": pending["nodeName"] if pending else "结算资料",
+                "amount": pending["calculatedAmount"] if pending else 0,
+                "paidAmount": row_get(row, "received_amount", 0),
+                "remainingAmount": max((pending["calculatedAmount"] if pending else 0) - float(row_get(row, "received_amount", 0) or 0), 0),
+                "invoiceStatus": "已开票" if row_get(row, "has_invoice", 0) else "未开票",
+                "documentStatus": "资料缺失" if row_get(row, "documents_missing", 0) else "资料已确认",
+                "dueDate": "",
+                "isOverdue": pending["nodeStatus"] == "逾期" if pending else False,
+                "action": action,
+                "managerName": row_get(row, "manager_name"),
+            })
+        self.respond(200, {"success": True, "data": items})
+
+    def settlement_invoice_records(self, conn):
+        if not self.require_user(conn):
+            return
+        data = []
+        for row in self.settlement_finance_rows(conn):
+            amount = float(row_get(row, "invoiced_amount", 0) or 0)
+            if amount <= 0:
+                continue
+            data.append({
+                "id": f"{row['id']}-invoice-summary",
+                "projectName": row_get(row, "project_name"),
+                "contractName": row_get(row, "contract_name"),
+                "invoiceAmount": amount,
+                "taxRate": row_get(row, "tax_rate", 0),
+                "invoiceStatus": "已开票",
+                "collectionStatus": "已收款" if float(row_get(row, "received_amount", 0) or 0) >= amount else "待收款",
+                "remark": "历史累计开票金额",
+            })
+        self.respond(200, {"success": True, "data": data})
+
+    def settlement_payment_records(self, conn):
+        if not self.require_user(conn):
+            return
+        data = []
+        for row in self.settlement_finance_rows(conn):
+            for record_type, amount_key in (("收款", "received_amount"), ("付款", "historical_paid_amount")):
+                amount = float(row_get(row, amount_key, 0) or 0)
+                if amount <= 0:
+                    continue
+                data.append({
+                    "id": f"{row['id']}-{amount_key}",
+                    "projectName": row_get(row, "project_name"),
+                    "contractName": row_get(row, "contract_name"),
+                    "recordType": record_type,
+                    "amount": amount,
+                    "remark": "纳入结算管理时录入的历史累计数据",
+                })
+        self.respond(200, {"success": True, "data": data})
+
+    def settlement_retention_records(self, conn):
+        if not self.require_user(conn):
+            return
+        today = date.today().isoformat()
+        data = []
+        for row in self.settlement_finance_rows(conn):
+            amount = float(row_get(row, "retention_amount", 0) or 0)
+            if amount <= 0:
+                continue
+            end_date = row_get(row, "warranty_end_date") or ""
+            data.append({
+                "id": f"{row['id']}-retention",
+                "projectName": row_get(row, "project_name"),
+                "contractName": row_get(row, "contract_name"),
+                "retentionRatio": row_get(row, "retention_ratio", 0),
+                "retentionAmount": amount,
+                "warrantyStartDate": row_get(row, "warranty_start_date"),
+                "warrantyEndDate": end_date,
+                "isDue": bool(end_date and end_date <= today),
+                "refundStatus": "待退还" if end_date and end_date <= today else "质保期内",
+            })
+        self.respond(200, {"success": True, "data": data})
+
+    def create_settlement_finance_project(self, conn, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        project_id = str(data.get("projectId") or "").strip()
+        project = conn.execute(
+            "SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (project_id,),
+        ).fetchone()
+        if not project:
+            self.respond(400, {"success": False, "error": "请选择项目管理中的真实项目"})
+            return
+        is_draft = bool(data.get("isDraft"))
+        existing = conn.execute(
+            "SELECT * FROM project_settlements WHERE project_id = ? AND COALESCE(is_deleted, 0) = 0 ORDER BY updated_at DESC LIMIT 1",
+            (project_id,),
+        ).fetchone()
+        if existing and not row_get(existing, "is_draft", 0):
+            self.respond(409, {"success": False, "error": "该项目已纳入结算管理，不能重复生成"})
+            return
+        contract_amount = float(data.get("contractAmount") or project["contract_amount"] or 0)
+        provisional = float(data.get("provisionalAmount") or 0)
+        estimated = float(data.get("estimatedAmount") or 0)
+        owner_supplied = float(data.get("ownerSuppliedAmount") or 0)
+        other_deduction = float(data.get("otherDeductionAmount") or 0)
+        payment_base = contract_amount - provisional - estimated - owner_supplied - other_deduction
+        if not is_draft and contract_amount <= 0:
+            self.respond(400, {"success": False, "error": "当前项目缺少有效合同金额，请先补充合同信息"})
+            return
+        if min(provisional, estimated, owner_supplied, other_deduction) < 0 or payment_base < 0:
+            self.respond(400, {"success": False, "error": "合同扣除项不能为负数，且付款基数不能小于 0"})
+            return
+        invoiced = float(data.get("invoicedAmount") or 0)
+        received = float(data.get("receivedAmount") or 0)
+        historical_paid = float(data.get("historicalPaidAmount") or 0)
+        retention_amount = float(data.get("retentionAmount") or 0)
+        audit_cap = float(data.get("finalAuditAmount") or contract_amount or 0)
+        if invoiced > audit_cap or historical_paid > contract_amount or retention_amount > contract_amount:
+            self.respond(400, {"success": False, "error": "历史开票、付款或质保金金额超过允许上限，请核对后再提交"})
+            return
+        if received > invoiced and not str(data.get("exceptionNote") or "").strip():
+            self.respond(400, {"success": False, "error": "已收款金额大于已开票金额时必须填写特殊情况说明"})
+            return
+        payment_nodes = data.get("paymentNodes") or []
+        if not is_draft and not payment_nodes:
+            self.respond(400, {"success": False, "error": "请先生成至少一个付款节点"})
+            return
+        ts = now_iso()
+        settlement_id = existing["id"] if existing else new_id()
+        columns = {
+            "project_id": project_id,
+            "settlement_name": (data.get("settlementName") or f"{project['project_name']}结算管理").strip(),
+            "settlement_type": "project_settlement",
+            "settlement_status": data.get("settlementStatus") or ("草稿" if is_draft else "资料准备中"),
+            "apply_amount": float(data.get("submittedAmount") or 0),
+            "approved_amount": float(data.get("finalAuditAmount") or data.get("secondAuditAmount") or data.get("firstAuditAmount") or 0),
+            "paid_amount": received,
+            "apply_date": data.get("acceptanceDate") or "",
+            "expected_pay_date": "",
+            "paid_date": "",
+            "remark": data.get("remark") or data.get("exceptionNote") or "",
+            "contract_name": data.get("contractName") or f"{project['project_name']}合同",
+            "contract_no": data.get("contractNo") or "",
+            "contract_amount": contract_amount,
+            "provisional_amount": provisional,
+            "estimated_amount": estimated,
+            "owner_supplied_amount": owner_supplied,
+            "other_deduction_amount": other_deduction,
+            "payment_base_amount": payment_base,
+            "tax_rate": float(data.get("taxRate") or 0),
+            "contract_date": data.get("contractDate") or project["contract_date"] or "",
+            "payment_terms": data.get("paymentTerms") or project["payment_terms"] or "",
+            "acceptance_status": data.get("acceptanceStatus") or "",
+            "acceptance_date": data.get("acceptanceDate") or "",
+            "audit_status": data.get("auditStatus") or "",
+            "submitted_amount": float(data.get("submittedAmount") or 0),
+            "first_audit_amount": float(data.get("firstAuditAmount") or 0),
+            "first_audit_date": data.get("firstAuditDate") or "",
+            "second_audit_amount": float(data.get("secondAuditAmount") or 0),
+            "second_audit_date": data.get("secondAuditDate") or "",
+            "final_audit_amount": float(data.get("finalAuditAmount") or 0),
+            "final_audit_date": data.get("finalAuditDate") or "",
+            "has_invoice": 1 if data.get("hasInvoice") else 0,
+            "invoiced_amount": invoiced,
+            "has_received": 1 if data.get("hasReceived") else 0,
+            "received_amount": received,
+            "has_payment": 1 if data.get("hasPayment") else 0,
+            "historical_paid_amount": historical_paid,
+            "has_retention": 1 if data.get("hasRetention") else 0,
+            "retention_ratio": float(data.get("retentionRatio") or 0),
+            "retention_amount": retention_amount,
+            "warranty_start_date": data.get("warrantyStartDate") or "",
+            "warranty_end_date": data.get("warrantyEndDate") or "",
+            "payment_template_id": data.get("paymentTemplateId") or "",
+            "documents_missing": 1 if data.get("documentsMissing") else 0,
+            "document_note": data.get("documentNote") or "",
+            "is_draft": 1 if is_draft else 0,
+            "updated_by": user["username"],
+            "updated_at": ts,
+        }
+        if existing:
+            assignments = ", ".join(f"{key} = ?" for key in columns)
+            conn.execute(f"UPDATE project_settlements SET {assignments} WHERE id = ?", (*columns.values(), settlement_id))
+        else:
+            columns["created_by"] = user["username"]
+            columns["created_at"] = ts
+            names = ", ".join(["id", *columns.keys()])
+            marks = ", ".join(["?"] * (len(columns) + 1))
+            conn.execute(f"INSERT INTO project_settlements ({names}) VALUES ({marks})", (settlement_id, *columns.values()))
+        conn.execute("DELETE FROM settlement_payment_nodes WHERE settlement_id = ?", (settlement_id,))
+        cumulative_amount = 0.0
+        invoice_remaining = invoiced
+        received_remaining = received
+        trigger_rank = {
+            "not_submitted": 0, "submitted": 1, "first_in_progress": 2, "first_completed": 3,
+            "second_in_progress": 4, "second_completed": 5, "government_audit": 6, "final": 7,
+        }
+        required_rank = {"ACCEPTANCE_COMPLETED": 0, "FIRST_AUDIT_COMPLETED": 3, "SECOND_AUDIT_COMPLETED": 5, "FINAL_AUDIT_COMPLETED": 7}
+        for index, node in enumerate(payment_nodes):
+            base_type = node.get("baseType") or "CONTRACT_PAYMENT_BASE"
+            base_amounts = {
+                "CONTRACT_PAYMENT_BASE": payment_base,
+                "FIRST_AUDIT_AMOUNT": float(data.get("firstAuditAmount") or 0),
+                "SECOND_AUDIT_AMOUNT": float(data.get("secondAuditAmount") or 0),
+                "FINAL_AUDIT_AMOUNT": float(data.get("finalAuditAmount") or 0),
+            }
+            base_amount = base_amounts.get(base_type, payment_base)
+            ratio = float(node.get("paymentRatio") or 0)
+            target_amount = max(base_amount * ratio, 0)
+            calculated = max(target_amount - cumulative_amount, 0) if node.get("isCumulative", True) else target_amount
+            if node.get("isCumulative", True):
+                cumulative_amount += calculated
+            trigger = node.get("triggerCondition") or ""
+            if trigger == "WARRANTY_EXPIRED":
+                triggered = bool(columns["warranty_end_date"] and columns["warranty_end_date"] <= date.today().isoformat())
+            elif trigger == "ACCEPTANCE_COMPLETED":
+                triggered = columns["acceptance_status"] == "accepted"
+            else:
+                triggered = trigger_rank.get(columns["audit_status"], 0) >= required_rank.get(trigger, 99)
+            invoice_used = min(invoice_remaining, calculated)
+            received_used = min(received_remaining, calculated)
+            invoice_remaining -= invoice_used
+            received_remaining -= received_used
+            if not triggered:
+                node_status = "未满足"
+            elif columns["documents_missing"]:
+                node_status = "待补资料"
+            elif invoice_used < calculated:
+                node_status = "待开票"
+            elif received_used <= 0:
+                node_status = "待收款"
+            elif received_used < calculated:
+                node_status = "部分收款"
+            else:
+                node_status = "已完成"
+            conn.execute(
+                """
+                INSERT INTO settlement_payment_nodes
+                (id, settlement_id, project_id, node_name, node_order, trigger_condition, base_type,
+                 payment_ratio, base_amount, calculated_amount, is_cumulative, deduct_existing,
+                 required_documents_json, due_days, reminder_enabled, node_status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_id(), settlement_id, project_id, str(node.get("nodeName") or f"付款节点 {index + 1}"),
+                    int(node.get("nodeOrder") or index + 1), trigger, base_type, ratio, base_amount, calculated,
+                    1 if node.get("isCumulative", True) else 0, 1 if node.get("deductExisting", True) else 0,
+                    json.dumps(node.get("requiredDocuments") or [], ensure_ascii=False), int(node.get("dueDays") or 30),
+                    1 if node.get("reminderEnabled", True) else 0, node_status, ts, ts,
+                ),
+            )
+        conn.execute(
+            "UPDATE project_records SET settlement_status = ?, updated_at = ? WHERE id = ?",
+            (columns["settlement_status"], ts, project_id),
+        )
+        refresh_project_rollups(conn, project_id)
+        project_log(
+            conn, project_id, "settlement_finance.draft" if is_draft else "settlement_finance.create",
+            "保存结算草稿" if is_draft else "纳入结算管理", user, after=columns,
+        )
+        self.write_operation_log(
+            conn, "settlement_finance.draft" if is_draft else "settlement_finance.create",
+            user, "project_settlement", settlement_id,
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT s.*, p.project_name, p.project_code, p.owner_unit, p.construction_unit,
+                   p.manager_name, p.project_status
+            FROM project_settlements s JOIN project_records p ON p.id = s.project_id WHERE s.id = ?
+            """,
+            (settlement_id,),
+        ).fetchone()
+        self.respond(200 if existing else 201, {
+            "success": True,
+            "data": settlement_finance_payload(row, self.settlement_nodes(conn, settlement_id)),
+        })
 
     def list_project_settlements(self, conn, params):
         if not self.require_user(conn):
@@ -3013,6 +3572,29 @@ class Handler(BaseHTTPRequestHandler):
         fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
         self.respond(200, {"success": True, "data": user_payload(fresh)})
 
+    def delete_user(self, conn, uid):
+        user = self.require_role(conn, {"admin"})
+        if not user:
+            return
+        if user["id"] == uid:
+            self.respond(400, {"success": False, "error": "不能删除当前登录账号"})
+            return
+        row = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
+        if not row:
+            self.not_found()
+            return
+        if row["role"] == "admin" and row["is_active"]:
+            active_admin_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM system_users WHERE role = 'admin' AND is_active = 1"
+            ).fetchone()["c"]
+            if active_admin_count <= 1:
+                self.respond(400, {"success": False, "error": "至少需要保留一个启用状态的管理员账号"})
+                return
+        conn.execute("DELETE FROM system_users WHERE id = ?", (uid,))
+        self.write_operation_log(conn, "user.delete", user, "system_user", uid, detail={"username": row["username"]})
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
     def admin_stats(self, conn):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -3037,11 +3619,34 @@ class Handler(BaseHTTPRequestHandler):
             for r in rows
         ]})
 
+    def system_sidebar_nav_order(self, conn):
+        if not self.require_user(conn):
+            return
+        allowed = ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]
+        row = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'sidebar_nav_order'").fetchone()
+        try:
+            value = json.loads(row["setting_value"] or "{}") if row else {}
+            submitted = value.get("order") if isinstance(value, dict) else []
+        except (TypeError, ValueError):
+            submitted = []
+        next_order = [item for item in submitted if item in allowed]
+        next_order.extend([item for item in allowed if item not in next_order])
+        self.respond(200, {"success": True, "data": {"order": next_order}})
+
     def set_system_setting(self, conn, key, data):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
         ts = now_iso()
+        value = data.get("value")
+        if key == "upload_settings":
+            value = {"maxFileSizeMb": clamp_upload_size_mb((value or {}).get("maxFileSizeMb"))}
+        if key == "sidebar_nav_order":
+            allowed = ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]
+            submitted = value.get("order") if isinstance(value, dict) else []
+            next_order = [item for item in submitted if item in allowed]
+            next_order.extend([item for item in allowed if item not in next_order])
+            value = {"order": next_order}
         conn.execute(
             """
             INSERT INTO system_settings
@@ -3050,7 +3655,7 @@ class Handler(BaseHTTPRequestHandler):
             ON CONFLICT(setting_key) DO UPDATE SET
               setting_value = excluded.setting_value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
             """,
-            (key, json.dumps(data.get("value"), ensure_ascii=False), user["username"], ts, ts),
+            (key, json.dumps(value, ensure_ascii=False), user["username"], ts, ts),
         )
         self.write_operation_log(conn, "system.setting_update", user, "system_setting", key)
         conn.commit()
@@ -3175,6 +3780,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.operation_logs(conn)
                 elif path == "/api/system/settings":
                     self.system_settings(conn)
+                elif path == "/api/system/sidebar-nav-order":
+                    self.system_sidebar_nav_order(conn)
                 elif path == "/api/system/theme/current":
                     self.theme_current(conn)
                 elif path == "/api/system/theme/options":
@@ -3200,6 +3807,18 @@ class Handler(BaseHTTPRequestHandler):
                     self.list_project_files(conn, params)
                 elif path == "/api/project-settlements":
                     self.list_project_settlements(conn, params)
+                elif path == "/api/settlement/dashboard/boss":
+                    self.settlement_boss_dashboard(conn)
+                elif path == "/api/settlement/workbench/finance":
+                    self.settlement_finance_workbench(conn)
+                elif path == "/api/settlement/projects":
+                    self.list_settlement_finance_projects(conn)
+                elif path == "/api/settlement/invoices":
+                    self.settlement_invoice_records(conn)
+                elif path == "/api/settlement/payment-records":
+                    self.settlement_payment_records(conn)
+                elif path == "/api/settlement/retentions":
+                    self.settlement_retention_records(conn)
                 elif path == "/api/project-variations":
                     self.list_project_variations(conn, params)
                 elif re.match(r"^/api/project-settlements/([^/]+)$", path):
@@ -3316,6 +3935,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.reset_theme(conn)
                 elif path == "/api/projects":
                     self.create_project_record(conn, data)
+                elif path == "/api/settlement/projects":
+                    self.create_settlement_finance_project(conn, data)
                 elif path == "/api/projects/dictionary-options":
                     self.create_project_dictionary_option(conn, data)
                 elif re.match(r"^/api/projects/([^/]+)/start-audit$", path):
@@ -3358,6 +3979,8 @@ class Handler(BaseHTTPRequestHandler):
                 project_match = re.match(r"^/api/projects/([^/]+)$", path)
                 if project_match:
                     self.update_project_record(conn, project_match.group(1), data)
+                elif re.match(r"^/api/project-document-categories/([^/]+)$", path):
+                    self.update_project_document_category(conn, re.match(r"^/api/project-document-categories/([^/]+)$", path).group(1), data)
                 elif re.match(r"^/api/project-files/([^/]+)$", path):
                     self.rename_project_file(conn, re.match(r"^/api/project-files/([^/]+)$", path).group(1), data)
                 elif re.match(r"^/api/project-settlements/([^/]+)$", path):
@@ -3396,6 +4019,8 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 if re.match(r"^/api/projects/([^/]+)$", path):
                     self.delete_project_record(conn, re.match(r"^/api/projects/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/admin/users/([^/]+)$", path):
+                    self.delete_user(conn, re.match(r"^/api/admin/users/([^/]+)$", path).group(1))
                 elif re.match(r"^/api/project-files/([^/]+)$", path):
                     self.delete_project_file(conn, re.match(r"^/api/project-files/([^/]+)$", path).group(1))
                 elif path.startswith("/api/audit/admin/field-configs/"):

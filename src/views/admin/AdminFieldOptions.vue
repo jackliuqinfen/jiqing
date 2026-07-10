@@ -28,6 +28,31 @@
       <AButton type="outline" @click="clearFilters">清除筛选</AButton>
     </section>
 
+    <section class="option-group-strip" aria-label="选项组概览">
+      <button
+        type="button"
+        class="option-group-card"
+        :class="{ active: activeGroup === '' }"
+        @click="setGroup('')"
+      >
+        <span>全部选项</span>
+        <strong>{{ rows.length }}</strong>
+        <em>查看所有业务字典</em>
+      </button>
+      <button
+        v-for="group in groupOverview"
+        :key="group.value"
+        type="button"
+        class="option-group-card"
+        :class="{ active: activeGroup === group.value }"
+        @click="setGroup(group.value)"
+      >
+        <span>{{ group.label }}</span>
+        <strong>{{ group.count }}</strong>
+        <em>{{ group.value }}</em>
+      </button>
+    </section>
+
     <StatePanel
       v-if="loading"
       state="loading"
@@ -48,6 +73,13 @@
     </StatePanel>
 
     <section v-else class="admin-table-card">
+      <div class="admin-table-head">
+        <div>
+          <strong>{{ activeGroup ? groupLabel(activeGroup) : '全部业务选项' }}</strong>
+          <span>当前显示 {{ filteredRows.length }} 条，按选项组和排序值维护。</span>
+        </div>
+        <AButton size="small" type="primary" @click="openCreate">新增选项</AButton>
+      </div>
       <ATable :data="filteredRows" :columns="tableColumns" :loading="loading" bordered hover>
         <template #group="{ row }">
           <div class="option-cell">
@@ -149,6 +181,18 @@ const groupOptions = computed(() => {
   return groups.map((group) => ({ label: groupLabel(group), value: group }))
 })
 
+const groupOverview = computed(() => {
+  const counts = new Map<string, number>()
+  rows.value.forEach((row) => {
+    if (!row.groupKey) return
+    counts.set(row.groupKey, (counts.get(row.groupKey) || 0) + 1)
+  })
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, count, label: groupLabel(value) }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-CN'))
+    .slice(0, 8)
+})
+
 const filteredRows = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   return rows.value.filter((row) => {
@@ -202,6 +246,11 @@ function clearFilters() {
   load()
 }
 
+function setGroup(group: string) {
+  activeGroup.value = group
+  load()
+}
+
 function groupLabel(value?: string) {
   return optionGroupLabel(value)
 }
@@ -228,10 +277,10 @@ async function save() {
 </script>
 
 <style scoped>
-.admin-page { max-width: 1180px; }
+.admin-page { max-width: 1240px; }
 .admin-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 220px minmax(260px, 1fr) auto;
   gap: var(--space-2);
   align-items: center;
   margin-bottom: var(--space-3);
@@ -240,14 +289,90 @@ async function save() {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
 }
+
+.option-group-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.option-group-card {
+  display: grid;
+  gap: 4px;
+  min-height: 88px;
+  padding: var(--space-3);
+  color: var(--text-primary);
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+.option-group-card:hover,
+.option-group-card.active {
+  border-color: var(--color-brand-300);
+  background: var(--color-brand-50);
+}
+
+.option-group-card span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.option-group-card strong {
+  font-size: var(--text-xl);
+  line-height: 1.1;
+}
+
+.option-group-card em {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .admin-table-card {
   overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
 }
+
+.admin-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.admin-table-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-table-head strong {
+  color: var(--text-primary);
+  font-size: var(--text-md);
+}
+
+.admin-table-head span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
 .option-cell { display: grid; gap: 2px; min-width: 0; }
-.option-cell strong { color: var(--text-primary); }
+.option-cell strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .option-cell span,
 .muted-text { color: var(--text-secondary); font-size: var(--text-xs); }
 .color-cell { display: inline-flex; align-items: center; gap: 8px; }
@@ -266,6 +391,13 @@ async function save() {
 .option-form__span { grid-column: 1 / -1; }
 .switch-help { margin-left: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
 @media (max-width: 760px) {
+  .admin-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .admin-table-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .option-form { grid-template-columns: 1fr; }
 }
 </style>

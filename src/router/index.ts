@@ -10,9 +10,19 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false },
   },
   {
+    path: '/m/project-management',
+    name: 'MobileProjectManagement',
+    component: () => import('@/views/MobileProjectManagementView.vue'),
+    meta: {
+      requiresAuth: true,
+      title: '移动项目管理',
+      subtitle: '随时查看和更新项目信息',
+    },
+  },
+  {
     path: '/',
     component: () => import('@/views/AppLayout.vue'),
-    meta: { requiresAuth: false, allowGuest: true },
+    meta: { requiresAuth: true },
     children: [
       {
         path: '',
@@ -52,23 +62,23 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'bidding',
         name: 'BiddingDashboard',
-        component: () => import('@/views/ModulePlaceholder.vue'),
+        component: () => import('@/views/BiddingDashboard.vue'),
         meta: {
           title: '招投标看板',
-          subtitle: '模块建设中',
+          subtitle: '机会发现 · 开标提醒 · 报价预测',
           icon: 'file-paste',
-          description: '招投标看板将用于跟踪招标计划、投标过程、合同归档和异常提醒。',
+          description: '招投标看板用于维护常用招投标网址、归纳机会、提醒待开标事项并分析预测报价区间。',
         },
       },
       {
         path: 'finance',
         name: 'FinanceDashboard',
-        component: () => import('@/views/ModulePlaceholder.vue'),
+        component: () => import('@/views/FinanceDashboard.vue'),
         meta: {
-          title: '财务看板',
-          subtitle: '模块建设中',
+          title: '结算财务中心',
+          subtitle: '老板看板 · 财务工作台 · 结算台账 · 发票收付款',
           icon: 'list',
-          description: '财务看板将聚合付款计划、审减金额、回款进度和经营分析指标。',
+          description: '结算财务中心围绕项目、合同付款节点、发票、收付款、结算资料和质保金进行真实业务管理。',
         },
       },
       {
@@ -132,7 +142,7 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
-    // 未匹配路由重定向到看板
+    // 未匹配路由统一回到首页，未登录时由路由守卫转到登录页
     path: '/:pathMatch(.*)*',
     redirect: '/',
   },
@@ -145,15 +155,26 @@ const router = createRouter({
 
 /**
  * 全局路由守卫
- * - 未登录 → 跳转登录页
+ * - 未登录访问业务页 → 跳转登录页
  * - 非管理员访问 /admin → 跳转看板
  * - 已登录访问登录页 → 跳转看板
  */
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
-  // 目标页需要认证但用户未登录 → 跳转登录页
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+  if (authStore.status === 'idle') {
+    await authStore.initAuth()
+  }
+
+  if (to.name === 'ProjectManagement' && typeof window !== 'undefined' && window.innerWidth <= 640) {
+    next({ name: 'MobileProjectManagement', query: to.query })
+    return
+  }
+
+  const isPublicRoute = to.meta.requiresAuth === false
+
+  // 未登录访问任意非公开页面 → 跳转登录页
+  if (!isPublicRoute && !authStore.isAuthenticated) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
     return
   }
@@ -166,7 +187,8 @@ router.beforeEach((to, _from, next) => {
 
   // 已登录用户访问登录页 → 重定向到看板
   if (to.name === 'Login' && authStore.isAuthenticated) {
-    next({ name: 'HomeDashboard' })
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
+    next(redirect || { name: 'HomeDashboard' })
     return
   }
 

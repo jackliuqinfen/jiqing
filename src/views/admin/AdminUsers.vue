@@ -99,7 +99,7 @@
         <span class="date-cell">{{ formatDate(row.createdAt) }}</span>
       </template>
       <template #operation="{ row }">
-        <ASpace size="small">
+        <div class="table-actions">
           <AButton variant="text" size="small" theme="primary" @click="openEdit(row)">编辑</AButton>
           <APopconfirm
             :content="row.isActive ? '确定禁用该用户？' : '确定启用该用户？'"
@@ -109,7 +109,13 @@
               {{ row.isActive ? '禁用' : '启用' }}
             </AButton>
           </APopconfirm>
-        </ASpace>
+          <APopconfirm
+            content="删除后该账号将无法登录，确定删除？"
+            @confirm="deleteUser(row)"
+          >
+            <AButton variant="text" size="small" theme="danger" :disabled="isSelf(row)">删除</AButton>
+          </APopconfirm>
+        </div>
       </template>
     </ATable>
 
@@ -119,23 +125,23 @@
       :header="modalMode === 'create' ? '添加用户' : '编辑用户'"
       :confirm-btn="{ content: modalMode === 'create' ? '创建' : '保存', loading: modalLoading }"
       :close-on-overlay-click="false"
-      width="480px"
+      width="560px"
       @confirm="handleSubmit"
     >
-      <AForm ref="formRef" :model="formData" :rules="validationRules" label-align="left" label-width="72px">
-        <AFormItem label="账号" name="username">
+      <AForm ref="formRef" :model="formData" :rules="validationRules" layout="vertical" class="user-form">
+        <AFormItem label="账号" field="username">
           <AInput v-model="formData.username" placeholder="登录账号" :disabled="modalMode === 'edit'" />
         </AFormItem>
-        <AFormItem label="姓名" name="displayName">
+        <AFormItem label="姓名" field="displayName">
           <AInput v-model="formData.displayName" placeholder="真实姓名" />
         </AFormItem>
-        <AFormItem label="邮箱" name="email">
+        <AFormItem label="邮箱" field="email" class="user-form__span">
           <AInput v-model="formData.email" placeholder="用于密码找回" />
         </AFormItem>
-        <AFormItem v-if="modalMode === 'create'" label="密码" name="password">
+        <AFormItem v-if="modalMode === 'create'" label="密码" field="password" class="user-form__span">
           <AInput v-model="formData.password" type="password" placeholder="请输入密码" />
         </AFormItem>
-        <AFormItem label="角色" name="role">
+        <AFormItem label="角色" field="role" class="user-form__span">
           <ASelect v-model="formData.role" :options="roleOptions" placeholder="选择角色" />
         </AFormItem>
       </AForm>
@@ -145,7 +151,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
+import { deleteAdminUser, getAdminUsers, updateAdminUser, signUpWithProfile } from '@/api/system'
+import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import type { AdminUser, AdminRole, CreateAdminUserDto, UpdateAdminUserDto } from '@/types'
 import type { AppFormInstance, AppValidationRule } from '@/ui/arcoAppComponents'
@@ -159,8 +166,9 @@ const tableColumns = [
   { colKey: 'role', title: '角色', width: 90 },
   { colKey: 'isActive', title: '状态', width: 70 },
   { colKey: 'createdAt', title: '创建时间', width: 130 },
-  { colKey: 'operation', title: '操作', width: 130, fixed: 'right' as const },
+  { colKey: 'operation', title: '操作', width: 180, fixed: 'right' as const },
 ]
+const authStore = useAuthStore()
 
 const roleOptions = [
   { label: '管理员', value: 'admin' },
@@ -211,6 +219,10 @@ async function fetchUsers() {
 function resetFilters() {
   searchKeyword.value = ''
   roleFilter.value = ''
+}
+
+function isSelf(user: AdminUser) {
+  return authStore.user?.id === user.id
 }
 
 onMounted(fetchUsers)
@@ -281,6 +293,18 @@ async function toggleUser(user: AdminUser) {
     await fetchUsers()
   } catch (err) { MessagePlugin.error(err instanceof Error ? err.message : '操作失败') }
 }
+
+async function deleteUser(user: AdminUser) {
+  if (isSelf(user)) {
+    MessagePlugin.warning('不能删除当前登录账号')
+    return
+  }
+  try {
+    await deleteAdminUser(user.id)
+    MessagePlugin.success('用户已删除')
+    await fetchUsers()
+  } catch (err) { MessagePlugin.error(err instanceof Error ? err.message : '删除失败') }
+}
 </script>
 
 <style scoped>
@@ -310,6 +334,48 @@ async function toggleUser(user: AdminUser) {
 .user-count { margin-left: auto; font-size: var(--text-xs); color: var(--text-tertiary); }
 .username-cell { font-weight: 500; }
 .date-cell { font-size: var(--text-xs); color: var(--text-secondary); }
+
+.admin-users :deep(.arco-table) {
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.user-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+.user-form :deep(.arco-form-item) {
+  margin-bottom: 0;
+}
+
+.user-form :deep(.arco-input-wrapper),
+.user-form :deep(.arco-select-view-single) {
+  width: 100%;
+}
+
+.user-form__span {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .user-toolbar,
+  .table-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .user-count { margin-left: 0; }
+  .user-form { grid-template-columns: 1fr; }
+}
 </style>
 
 

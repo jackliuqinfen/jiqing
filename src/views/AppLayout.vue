@@ -68,7 +68,7 @@
         <router-link
           v-for="item in currentSideNav"
           :key="item.key"
-          :to="item.path"
+          :to="sideNavTarget(item)"
           class="module-link"
           :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
           :title="item.description || item.label"
@@ -87,6 +87,12 @@
           <span>{{ activeSideNav?.label || '总览' }}</span>
         </div>
       </div>
+
+      <section v-if="activeSideNav" class="sidebar-context-card" aria-label="当前功能说明">
+        <p>当前工作</p>
+        <strong>{{ activeSideNav.label }}</strong>
+        <span>{{ activeSideNav.description || activeModuleDescription }}</span>
+      </section>
 
       <div class="sidebar-foot">
         <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
@@ -157,6 +163,8 @@ type NavItem = {
   path: string
   label: string
   icon: string
+  query?: Record<string, string>
+  action?: string
   badge?: string
   status?: string
   description?: string
@@ -180,11 +188,11 @@ const shellStyle = computed(() => (
 
 const mainNav: NavItem[] = [
   { key: 'home', path: '/', label: '工作台', icon: 'dashboard', badge: '总览', status: 'live' },
+  { key: 'bidding', path: '/bidding', label: '招投标', icon: 'file-paste', badge: '建设中', status: 'pending' },
   { key: 'project', path: '/project-management', label: '项目管理', icon: 'task', badge: '已启用', status: 'enabled' },
-  { key: 'materials', path: '/materials', label: '资料中心', icon: 'folder', badge: '已启用', status: 'enabled' },
-  { key: 'audit', path: '/audit', label: '审计看板', icon: 'view-module', badge: '已启用', status: 'enabled' },
-  { key: 'bidding', path: '/bidding', label: '招投标看板', icon: 'file-paste', badge: '建设中', status: 'pending' },
-  { key: 'finance', path: '/finance', label: '财务看板', icon: 'list', badge: '建设中', status: 'pending' },
+  { key: 'audit', path: '/audit', label: '审计', icon: 'view-module', badge: '已启用', status: 'enabled' },
+  { key: 'materials', path: '/materials', label: '资料', icon: 'folder', badge: '已启用', status: 'enabled' },
+  { key: 'finance', path: '/finance', label: '结算', icon: 'list', badge: '已启用', status: 'enabled' },
 ]
 
 const defaultNavOrder = mainNav.map((item) => item.path)
@@ -207,7 +215,11 @@ const currentSideNav = computed(() => {
 })
 const activeSideNav = computed(() => currentSideNav.value.find((item) => isSideNavActive(item)))
 const activeSideNavKey = computed(() => {
-  const exact = currentSideNav.value.find((item) => !item.disabled && route.path === item.path)
+  const withQuery = currentSideNav.value.find((item) => !item.disabled && item.query && matchesSideNavQuery(item))
+  if (withQuery) return withQuery.key
+  const actionFallback = currentSideNav.value.find((item) => !item.disabled && item.action && route.path === item.path)
+  if (actionFallback && !currentSideNav.value.some((item) => !item.disabled && item.query && route.path === item.path)) return actionFallback.key
+  const exact = currentSideNav.value.find((item) => !item.disabled && !item.query && !item.action && route.path === item.path)
   if (exact) return exact.key
   const nested = currentSideNav.value.find((item) => !item.disabled && item.path !== '/' && route.path.startsWith(`${item.path}/`))
   if (nested) return nested.key
@@ -221,7 +233,7 @@ const moduleDescriptions: Record<string, string> = {
   '/materials': '项目资料、证据与归档',
   '/audit': '审计流程、阶段与附件',
   '/bidding': '机会、开标与报价分析',
-  '/finance': '收款、发票与付款资料',
+  '/finance': '结算、发票与收付款',
   '/admin/field-configs': '字段、选项、用户与系统规则',
 }
 const sideNavMap: Record<string, NavItem[]> = {
@@ -231,32 +243,39 @@ const sideNavMap: Record<string, NavItem[]> = {
     { key: 'home-shortcut', path: '/', label: '快捷入口', icon: 'view-module', badge: '规划中', disabled: true },
   ],
   '/project-management': [
-    { key: 'project-ledger', path: '/project-management', label: '项目台账', icon: 'task', description: '统一查看项目主档案' },
-    { key: 'project-create', path: '/project-management', label: '新建向导', icon: 'add', description: '问卷式创建项目' },
-    { key: 'project-docs', path: '/project-management', label: '资料节点', icon: 'folder', description: '查看项目资料目录和缺口' },
-    { key: 'project-audit', path: '/project-management', label: '审计联动', icon: 'view-module', description: '从项目主档案发起审计' },
+    { key: 'project-ledger', path: '/project-management', query: { view: 'ledger' }, label: '项目台账', icon: 'task', description: '统一查看项目主档案' },
+    { key: 'project-create', path: '/project-management', label: '新建向导', icon: 'add', action: 'project:create', description: '问卷式创建项目' },
+    { key: 'project-docs', path: '/project-management', query: { onlyMissingDocuments: '1', sort: 'updatedAt' }, label: '资料缺口', icon: 'folder', description: '筛选仍需补齐资料的项目' },
+    { key: 'project-audit', path: '/project-management', query: { view: 'audit' }, label: '审计联动', icon: 'view-module', description: '查看已进入审计流程的项目' },
   ],
   '/materials': [
-    { key: 'materials-library', path: '/materials', label: '资料库', icon: 'folder', description: '按项目、类型和阶段检索文件' },
-    { key: 'materials-upload', path: '/materials', label: '上传资料', icon: 'upload', description: '选择项目和资料类型上传' },
-    { key: 'materials-rules', path: '/materials', label: '目录规则', icon: 'list', badge: '管理', disabled: !authStore.isAdmin },
+    { key: 'materials-library', path: '/materials', query: { view: 'library' }, label: '资料库', icon: 'folder', description: '按项目、类型和阶段检索文件' },
+    { key: 'materials-pdf', path: '/materials', query: { fileType: 'pdf' }, label: 'PDF 资料', icon: 'file-paste', description: '快速查看可预览的 PDF 资料' },
+    { key: 'materials-upload', path: '/materials', label: '上传资料', icon: 'upload', action: 'materials:upload', description: '选择项目和资料类型上传' },
+    { key: 'materials-rules', path: '/admin/settings', label: '上传规则', icon: 'list', badge: '管理', description: '配置资料上传限制和系统参数', disabled: !authStore.isAdmin },
   ],
   '/audit': [
-    { key: 'audit-board', path: '/audit', label: '阶段看板', icon: 'view-module', description: '按审计阶段推进项目' },
-    { key: 'audit-table', path: '/audit', label: '审计台账', icon: 'list', description: '查看表格和字段配置后的数据' },
-    { key: 'audit-start', path: '/audit', label: '发起审计', icon: 'add', description: '从项目主档案进入审计流程' },
-    { key: 'audit-attachments', path: '/audit', label: '附件与记录', icon: 'file-paste', description: '查看审计附件和操作记录' },
+    { key: 'audit-board', path: '/audit', query: { mode: 'kanban' }, label: '阶段看板', icon: 'view-module', description: '按审计阶段推进项目' },
+    { key: 'audit-table', path: '/audit', query: { mode: 'table' }, label: '审计台账', icon: 'list', description: '查看表格和字段配置后的数据' },
+    { key: 'audit-gantt', path: '/audit', query: { mode: 'gantt' }, label: '甘特视图', icon: 'list', description: '按计划时间查看审计排期' },
+    { key: 'audit-start', path: '/audit', label: '发起审计', icon: 'add', action: 'audit:start-from-project', description: '从项目主档案进入审计流程' },
+    { key: 'audit-attachments', path: '/audit', query: { focus: 'work-items' }, label: '附件与待办', icon: 'file-paste', description: '聚焦审计待办、附件和操作记录' },
   ],
   '/bidding': [
-    { key: 'bidding-opportunities', path: '/bidding', label: '机会发现', icon: 'dashboard', description: '聚合常用招投标网站采集结果' },
-    { key: 'bidding-opening', path: '/bidding', label: '待开标提醒', icon: 'list', badge: '规划中', disabled: true },
-    { key: 'bidding-records', path: '/bidding', label: '开标记录', icon: 'file-paste', badge: '规划中', disabled: true },
-    { key: 'bidding-price', path: '/bidding', label: '报价预测', icon: 'line-chart', badge: '规划中', disabled: true },
+    { key: 'bidding-opportunities', path: '/bidding', query: { view: 'opportunities' }, label: '机会发现', icon: 'dashboard', description: '聚合常用招投标网站采集结果' },
+    { key: 'bidding-opening', path: '/bidding', query: { view: 'opening' }, label: '待开标提醒', icon: 'list', description: '围绕真实开标日期形成提醒看板' },
+    { key: 'bidding-records', path: '/bidding', query: { view: 'records' }, label: '开标记录', icon: 'file-paste', description: '沉淀开标记录并用于报价分析' },
+    { key: 'bidding-price', path: '/bidding', query: { view: 'price' }, label: '报价预测', icon: 'list', description: '基于真实开标记录预测报价区间' },
   ],
   '/finance': [
-    { key: 'finance-project', path: '/finance', label: '项目收款', icon: 'list', description: '按合同阶段管理应收和实收' },
-    { key: 'finance-invoice', path: '/finance', label: '发票管理', icon: 'file-paste', badge: '规划中', disabled: true },
-    { key: 'finance-payment-docs', path: '/finance', label: '付款资料', icon: 'folder', badge: '规划中', disabled: true },
+    { key: 'finance-dashboard', path: '/finance', query: { view: 'boss' }, label: '老板财务看板', icon: 'dashboard', description: '查看结算财务核心指标' },
+    { key: 'finance-workbench', path: '/finance', query: { view: 'workbench' }, label: '财务工作台', icon: 'list', description: '处理发票、收付款和风险待办' },
+    { key: 'finance-ledger', path: '/finance', query: { view: 'ledger' }, label: '项目结算台账', icon: 'file-paste', description: '按项目查看结算状态和金额' },
+    { key: 'finance-invoice', path: '/finance', query: { view: 'invoice' }, label: '发票管理', icon: 'file-paste', description: '管理每个项目的发票开具状态' },
+    { key: 'finance-payment', path: '/finance', query: { view: 'payment' }, label: '收付款管理', icon: 'list', description: '登记项目收款、付款和银行回单' },
+    { key: 'finance-documents', path: '/finance', query: { view: 'documents' }, label: '结算资料', icon: 'folder', description: '管理付款流程资料和结算留痕' },
+    { key: 'finance-retention', path: '/finance', query: { view: 'retention' }, label: '质保金管理', icon: 'folder', description: '跟踪质保金到期和退还状态' },
+    { key: 'finance-existing-project', path: '/finance', label: '纳入结算管理', icon: 'add', action: 'finance:add-existing-project', description: '从项目管理选择真实项目并生成结算台账', disabled: !authStore.isEditor },
   ],
   '/admin/field-configs': [
     { key: 'admin-fields', path: '/admin/field-configs', label: '字段配置', icon: 'edit-1', description: '配置审计详情和表单字段' },
@@ -288,10 +307,25 @@ function isSideNavActive(item: NavItem) {
   return item.key === activeSideNavKey.value
 }
 
+function sideNavTarget(item: NavItem) {
+  return item.query ? { path: item.path, query: item.query } : item.path
+}
+
+function matchesSideNavQuery(item: NavItem) {
+  if (route.path !== item.path || !item.query) return false
+  return Object.entries(item.query).every(([key, value]) => route.query[key] === value)
+}
+
 function handleSideNavClick(item: NavItem, event: MouseEvent) {
-  if (!item.disabled) return
-  event.preventDefault()
-  MessagePlugin.info(`${item.label}正在规划中`)
+  if (item.disabled) {
+    event.preventDefault()
+    MessagePlugin.info(`${item.label}正在规划中`)
+    return
+  }
+  if (item.action) {
+    event.preventDefault()
+    window.dispatchEvent(new CustomEvent('jiqing-sidebar-action', { detail: { action: item.action, key: item.key } }))
+  }
 }
 
 function setSidebarMode(mode: SidebarMode) {
@@ -493,7 +527,7 @@ async function logout() {
 }
 
 .topbar-brand img {
-  width: 186px;
+  width: 216px;
   height: auto;
   display: block;
 }
@@ -781,6 +815,7 @@ async function logout() {
 .system-shell--icon .module-link small,
 .system-shell--icon .nav-group p,
 .system-shell--icon .route-sense,
+.system-shell--icon .sidebar-context-card,
 .system-shell--icon .sidebar-action span,
 .system-shell--icon .sidebar-collapse-actions span,
 .system-shell--icon .system-status strong,
@@ -952,6 +987,42 @@ async function logout() {
 .route-sense span {
   color: var(--text-tertiary);
   font-size: var(--text-xs);
+}
+
+.sidebar-context-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(128, 158, 210, 0.16);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .74), rgba(239, 247, 255, .46));
+  box-shadow: 0 10px 24px rgba(61, 105, 185, 0.06);
+}
+
+.sidebar-context-card p,
+.sidebar-context-card strong,
+.sidebar-context-card span {
+  margin: 0;
+}
+
+.sidebar-context-card p {
+  color: #8492a8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+
+.sidebar-context-card strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.sidebar-context-card span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .module-status-dot {
@@ -1190,6 +1261,7 @@ async function logout() {
   .module-link small,
   .nav-group p,
   .route-sense,
+  .sidebar-context-card,
   .sidebar-action span,
   .system-status strong,
   .system-status em { display: none; }
@@ -1259,6 +1331,7 @@ async function logout() {
     margin-left: auto;
   }
   .nav-group,
+  .sidebar-context-card,
   .sidebar-foot { display: none; }
   .system-main { min-height: auto; }
 }

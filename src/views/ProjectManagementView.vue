@@ -217,7 +217,7 @@
               </template>
               <template #amount="{ row }">
                 <div class="amount-cell">
-                  <strong>{{ formatWan(row.contractAmount || row.submittedAmount || 0) }}</strong>
+                  <MoneyDisplay :value="row.contractAmount || row.submittedAmount || 0" mode="compact" />
                   <span>合同 / 送审</span>
                 </div>
               </template>
@@ -251,6 +251,7 @@
         header="项目详情"
         :confirm-btn="null"
         width="1120px"
+        modal-class="project-detail-modal"
         destroy-on-close
       >
       <section class="detail-panel detail-panel--dialog" aria-label="项目详情">
@@ -287,6 +288,25 @@
             </div>
           </div>
 
+          <div v-if="filePreview.visible" class="inline-preview-shell" aria-label="资料预览">
+            <div class="inline-preview-shell__head">
+              <div>
+                <span class="mini-label">资料预览</span>
+                <strong>{{ repairedFileName(filePreview.name) }}</strong>
+              </div>
+              <button type="button" class="icon-text-button" @click="closeFilePreview">关闭预览</button>
+            </div>
+            <div class="inline-preview-frame">
+              <img v-if="filePreview.kind === 'image'" :src="filePreview.url" :alt="filePreview.name" />
+              <iframe v-else-if="filePreview.kind === 'frame'" :src="filePreview.url" :title="filePreview.name" />
+              <pre v-else-if="filePreview.kind === 'text'">{{ filePreview.text }}</pre>
+              <div v-else class="preview-unavailable">
+                <strong>当前格式暂不支持在线预览</strong>
+                <span>可先下载后使用本机应用查看。</span>
+              </div>
+            </div>
+          </div>
+
           <div class="project-detail-brief">
             <article>
               <span>项目负责人</span>
@@ -312,7 +332,7 @@
             </article>
             <article>
               <span>合同金额</span>
-              <strong>{{ formatWan(currentProject.contractAmount || 0) }}</strong>
+              <MoneyDisplay :value="currentProject.contractAmount || 0" mode="compact" />
             </article>
             <article>
               <span>变更签证</span>
@@ -322,6 +342,29 @@
               <span>联动审计</span>
               <strong>{{ currentProject.auditProjectId ? '已关联' : '未关联' }}</strong>
             </article>
+          </div>
+
+          <div class="business-flow-panel" aria-label="项目业务闭环">
+            <div class="section-head">
+              <strong>项目业务闭环</strong>
+              <span>基于当前项目真实数据展示，不生成模拟节点</span>
+            </div>
+            <div class="business-flow-list">
+              <button
+                v-for="step in projectLifecycleSteps"
+                :key="step.key"
+                type="button"
+                :data-state="step.state"
+                @click="handleLifecycleAction(step.key)"
+              >
+                <i aria-hidden="true" />
+                <div>
+                  <strong>{{ step.label }}</strong>
+                  <span>{{ step.description }}</span>
+                </div>
+                <em>{{ step.status }}</em>
+              </button>
+            </div>
           </div>
 
           <div class="next-action-panel">
@@ -423,7 +466,18 @@
                     <strong>{{ category.categoryName }}</strong>
                     <span>{{ category.description }}</span>
                   </div>
-                  <ATag v-if="category.required" variant="light" theme="primary">必填</ATag>
+                  <div class="doc-card__tools">
+                    <ATag variant="light" :theme="category.required ? 'primary' : 'default'">{{ category.required ? '必填' : '按需' }}</ATag>
+                    <button
+                      v-if="authStore.isAdmin"
+                      type="button"
+                      class="doc-required-toggle"
+                      :disabled="categorySavingKey === category.categoryKey"
+                      @click="toggleCategoryRequired(category)"
+                    >
+                      {{ category.required ? '设为按需' : '设为必填' }}
+                    </button>
+                  </div>
                 </div>
                 <div class="doc-card__body">
                   <div class="doc-files">
@@ -434,7 +488,7 @@
                       class="file-pill"
                       @click="previewFile(file)"
                     >
-                      <span>{{ file.displayName }}</span>
+                      <span>{{ repairedFileName(file.displayName) }}</span>
                       <small>V{{ file.versionNo }}</small>
                     </button>
                     <button
@@ -465,7 +519,7 @@
               <template #name="{ row }">
                 <div class="file-cell">
                   <strong>{{ row.displayName }}</strong>
-                  <span>{{ row.originalName }} · V{{ row.versionNo }}</span>
+                  <span>{{ repairedFileName(row.originalName) }} · V{{ row.versionNo }}</span>
                 </div>
               </template>
               <template #category="{ row }">
@@ -504,7 +558,7 @@
               <template #status="{ row }">
                 <ATag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</ATag>
               </template>
-              <template #amount="{ row }">{{ formatWan(row.approvedAmount || row.applyAmount || 0) }}</template>
+              <template #amount="{ row }"><MoneyDisplay :value="row.approvedAmount || row.applyAmount || 0" mode="compact" /></template>
               <template #actions="{ row }">
                 <div class="action-cell">
                   <button type="button" @click="openSettlementDialog(row)">编辑</button>
@@ -533,7 +587,7 @@
               <template #status="{ row }">
                 <ATag variant="light" :theme="statusTheme(row.variationStatus)">{{ variationStatusLabel(row.variationStatus) }}</ATag>
               </template>
-              <template #amount="{ row }">{{ formatWan(row.amount || 0) }}</template>
+              <template #amount="{ row }"><MoneyDisplay :value="row.amount || 0" mode="compact" /></template>
               <template #actions="{ row }">
                 <div class="action-cell">
                   <button type="button" @click="openVariationDialog(row)">编辑</button>
@@ -570,23 +624,350 @@
 
     <AModal
       :visible="projectDialog.visible"
-      :title="projectDialog.mode === 'create' ? '新建项目' : '编辑项目'"
-      :confirm-btn="{ content: projectDialog.mode === 'create' ? '保存项目' : '保存修改', loading: projectDialog.saving }"
+      :title="projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目'"
+      :confirm-btn="{ content: projectDialog.mode === 'create' ? projectWizardConfirmText : '保存修改', loading: projectDialog.saving }"
       cancel-text="取消"
       :mask-closable="false"
       :esc-to-close="false"
-      :width="920"
+      :width="projectDialog.mode === 'create' ? 1040 : 920"
       unmount-on-close
       modal-class="project-form-modal"
-      @confirm="saveProject"
+      @confirm="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
       @cancel="requestCloseProjectDialog"
     >
-      <AForm ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
+      <div v-if="projectDialog.mode === 'create'" class="project-create-wizard">
+        <nav class="wizard-stepper" aria-label="新建项目步骤">
+          <button
+            v-for="(step, index) in projectWizardSteps"
+            :key="step.key"
+            type="button"
+            class="wizard-stepper__item"
+            :class="{ 'is-active': projectWizardStepIndex === index, 'is-done': projectWizardStepIndex > index }"
+            @click="jumpProjectWizardStep(index)"
+          >
+            <span>{{ index + 1 }}</span>
+            <strong>{{ step.title }}</strong>
+          </button>
+        </nav>
+
+        <AForm ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
+          <section v-if="projectWizardStepKey === 'base'" class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">基础信息</span>
+              <h3>先建立项目主档案</h3>
+              <p>项目编号由系统按合同日期、施工单位核心字号和序号生成。施工单位可搜索选择，也可直接输入新单位并沉淀到字典。</p>
+            </div>
+            <div class="dialog-grid">
+              <AFormItem
+                field="projectCode"
+                label="项目编号"
+                help="保存时由系统生成，不允许人工填写。"
+              >
+                <AInput :model-value="projectCodePreview" readonly placeholder="填写合同日期和施工单位后自动预览" />
+              </AFormItem>
+              <AFormItem
+                field="contractDate"
+                label="工程合同签订日期"
+                required
+                :validate-status="projectFormErrors.contractDate ? 'error' : undefined"
+                :help="projectFormErrors.contractDate"
+              >
+                <ADatePicker v-model="projectForm.contractDate" data-project-field="contractDate" allow-clear placeholder="请选择合同签订日期" @change="clearProjectFieldError('contractDate')" />
+              </AFormItem>
+              <AFormItem
+                field="projectName"
+                label="项目名称"
+                required
+                :validate-status="projectFormErrors.projectName ? 'error' : undefined"
+                :help="projectFormErrors.projectName"
+              >
+                <AInput v-model="projectForm.projectName" data-project-field="projectName" placeholder="请输入项目名称" allow-clear @input="clearProjectFieldError('projectName')" />
+              </AFormItem>
+              <AFormItem
+                field="constructionUnit"
+                label="施工单位"
+                required
+                :validate-status="projectFormErrors.constructionUnit ? 'error' : undefined"
+                :help="projectFormErrors.constructionUnit || '如江苏XX建设工程有限公司，编号会优先取核心字号 XX。'"
+              >
+                <ASelect
+                  v-model="projectForm.constructionUnit"
+                  data-project-field="constructionUnit"
+                  placeholder="搜索或输入施工单位"
+                  :options="dictionarySelectOptions('construction_unit')"
+                  allow-clear
+                  allow-search
+                  allow-create
+                  @change="handleProjectDictionaryChange('constructionUnit')"
+                />
+              </AFormItem>
+              <AFormItem field="ownerUnit" label="建设单位">
+                <ASelect
+                  v-model="projectForm.ownerUnit"
+                  data-project-field="ownerUnit"
+                  placeholder="搜索或输入建设单位"
+                  :options="dictionarySelectOptions('owner_unit')"
+                  allow-clear
+                  allow-search
+                  allow-create
+                  @change="handleProjectDictionaryChange('ownerUnit')"
+                />
+              </AFormItem>
+              <AFormItem field="contractorName" label="施工联系人/负责人">
+                <ASelect
+                  v-model="projectForm.contractorName"
+                  data-project-field="contractorName"
+                  placeholder="搜索或输入负责人姓名"
+                  :options="dictionarySelectOptions('contractor_name')"
+                  allow-clear
+                  allow-search
+                  allow-create
+                  @change="handleProjectDictionaryChange('contractorName')"
+                />
+              </AFormItem>
+              <AFormItem
+                field="contractorContact"
+                label="联系电话"
+                :validate-status="projectFormErrors.contractorContact ? 'error' : undefined"
+                :help="projectFormErrors.contractorContact"
+              >
+                <AInput v-model="projectForm.contractorContact" data-project-field="contractorContact" placeholder="请输入联系电话" allow-clear @input="clearProjectFieldError('contractorContact')" />
+              </AFormItem>
+              <AFormItem field="managerName" label="项目负责人">
+                <ASelect
+                  v-model="projectForm.managerName"
+                  data-project-field="managerName"
+                  placeholder="搜索或输入项目负责人"
+                  :options="dictionarySelectOptions('manager_name')"
+                  allow-clear
+                  allow-search
+                  allow-create
+                  @change="handleProjectDictionaryChange('managerName')"
+                />
+              </AFormItem>
+              <AFormItem field="companyRole" label="我方角色">
+                <ASelect
+                  v-model="projectForm.companyRole"
+                  data-project-field="companyRole"
+                  placeholder="搜索或输入我方角色"
+                  :options="dictionarySelectOptions('company_role')"
+                  allow-clear
+                  allow-search
+                  allow-create
+                  @change="handleProjectDictionaryChange('companyRole')"
+                />
+              </AFormItem>
+              <AFormItem field="projectType" label="项目类型">
+                <AInput v-model="projectCreationFlow.projectType" placeholder="如：学校维修、道路改造、市政配套" allow-clear />
+              </AFormItem>
+              <AFormItem field="projectLocation" label="项目地点">
+                <AInput v-model="projectCreationFlow.projectLocation" placeholder="请输入项目所在区域或详细地点" allow-clear />
+              </AFormItem>
+              <AFormItem
+                field="contractAmount"
+                label="合同金额"
+                :validate-status="projectFormErrors.contractAmount ? 'error' : undefined"
+                :help="projectFormErrors.contractAmount"
+              >
+                <AInputNumber v-model="projectForm.contractAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('contractAmount')" />
+              </AFormItem>
+              <AFormItem
+                field="paidAmount"
+                label="已付款金额"
+                :validate-status="projectFormErrors.paidAmount ? 'error' : undefined"
+                :help="projectFormErrors.paidAmount"
+              >
+                <AInputNumber v-model="projectForm.paidAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('paidAmount')" />
+              </AFormItem>
+            </div>
+          </section>
+
+          <section v-else-if="projectWizardStepKey === 'stage'" class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">项目阶段</span>
+              <h3>确认项目当前处于哪个业务阶段</h3>
+              <p>系统会根据项目阶段统一展示状态颜色、进度，并判断是否需要提示资料和审计事项。</p>
+            </div>
+            <div class="wizard-option-grid wizard-option-grid--status">
+              <button
+                v-for="option in projectStatusOptions"
+                :key="option.value"
+                type="button"
+                class="wizard-option-card"
+                :class="{ 'is-selected': projectForm.projectStatus === option.value }"
+                @click="selectProjectStatus(option.value)"
+              >
+                <span :class="`status-dot status-dot--${businessColor(projectStatusDict, option.value, 'arcoblue')}`"></span>
+                <strong>{{ option.label }}</strong>
+                <em>{{ projectStatusHint(option.value) }}</em>
+              </button>
+            </div>
+            <div class="dialog-grid wizard-money-grid">
+              <AFormItem field="settlementStatus" label="结算状态">
+                <ASelect v-model="projectForm.settlementStatus" :options="settlementStatusOptions" placeholder="请选择结算状态" />
+              </AFormItem>
+              <AFormItem field="plannedStartDate" label="计划开始日期">
+                <ADatePicker v-model="projectForm.plannedStartDate" data-project-field="plannedStartDate" allow-clear placeholder="请选择计划开始日期" @change="clearProjectFieldError('plannedStartDate')" />
+              </AFormItem>
+              <AFormItem
+                field="plannedEndDate"
+                label="计划完成日期"
+                :validate-status="projectFormErrors.plannedEndDate ? 'error' : undefined"
+                :help="projectFormErrors.plannedEndDate"
+              >
+                <ADatePicker v-model="projectForm.plannedEndDate" data-project-field="plannedEndDate" allow-clear placeholder="请选择计划完成日期" @change="clearProjectFieldError('plannedEndDate')" />
+              </AFormItem>
+            </div>
+          </section>
+
+          <section v-else-if="projectWizardStepKey === 'auditGate'" class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">审计判断</span>
+              <h3>该项目是否已经进入审计流程？</h3>
+              <p>选择“是”后，系统会继续采集审计信息，并在创建完成时自动同步到审计看板。</p>
+            </div>
+            <div class="wizard-choice-row">
+              <button
+                type="button"
+                class="wizard-choice-card"
+                :class="{ 'is-selected': projectCreationFlow.hasAudit === 'yes' }"
+                @click="setProjectAuditGate('yes')"
+              >
+                <strong>是，已进入或即将进入审计</strong>
+                <span>继续填写报审金额、一审/二审信息和审计备注，创建后自动进入审计看板。</span>
+              </button>
+              <button
+                type="button"
+                class="wizard-choice-card"
+                :class="{ 'is-selected': projectCreationFlow.hasAudit === 'no' }"
+                @click="setProjectAuditGate('no')"
+              >
+                <strong>否，先创建普通工程项目</strong>
+                <span>暂不展示审计字段，后续可在项目详情中发起审计流程。</span>
+              </button>
+            </div>
+          </section>
+
+          <section v-else-if="projectWizardStepKey === 'auditInfo'" class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">审计信息</span>
+              <h3>一次填写，自动同步到审计看板</h3>
+              <p>这里录入的是审计维度信息，保存后将随项目主档案一起进入审计模块。</p>
+            </div>
+            <div class="dialog-grid">
+              <AFormItem
+                field="submittedAmount"
+                label="报审金额"
+                :validate-status="projectFormErrors.submittedAmount ? 'error' : undefined"
+                :help="projectFormErrors.submittedAmount"
+              >
+                <AInputNumber v-model="projectForm.submittedAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('submittedAmount')" />
+              </AFormItem>
+              <AFormItem field="auditSubmitDate" label="送审日期">
+                <ADatePicker v-model="projectCreationFlow.auditSubmitDate" allow-clear placeholder="请选择送审日期" />
+              </AFormItem>
+              <AFormItem field="firstAuditStatus" label="一审资料状态">
+                <ASelect v-model="projectCreationFlow.firstAuditStatus" :options="auditMaterialStatusOptions" placeholder="请选择一审资料状态" />
+              </AFormItem>
+              <AFormItem field="firstAuditUnit" label="一审单位">
+                <AInput v-model="projectCreationFlow.firstAuditUnit" placeholder="请输入一审单位" allow-clear />
+              </AFormItem>
+              <AFormItem field="firstAuditOwner" label="一审负责人">
+                <AInput v-model="projectCreationFlow.firstAuditOwner" placeholder="请输入一审负责人" allow-clear />
+              </AFormItem>
+              <AFormItem field="secondAuditStatus" label="二审资料状态">
+                <ASelect v-model="projectCreationFlow.secondAuditStatus" :options="auditMaterialStatusOptions" placeholder="请选择二审资料状态" />
+              </AFormItem>
+              <AFormItem field="secondAuditUnit" label="二审单位">
+                <AInput v-model="projectCreationFlow.secondAuditUnit" placeholder="请输入二审单位" allow-clear />
+              </AFormItem>
+              <AFormItem field="secondAuditOwner" label="二审负责人">
+                <AInput v-model="projectCreationFlow.secondAuditOwner" placeholder="请输入二审负责人" allow-clear />
+              </AFormItem>
+              <AFormItem field="finalAmount" label="定案金额">
+                <AInputNumber v-model="projectCreationFlow.finalAmount" :min="0" :precision="2" hide-button />
+              </AFormItem>
+              <AFormItem class="dialog-span-2" field="auditRemark" label="审计备注">
+                <ATextarea v-model="projectCreationFlow.auditRemark" :auto-size="{ minRows: 3, maxRows: 5 }" placeholder="如：已提交一审资料，二审资料待补充盖章件" allow-clear />
+              </AFormItem>
+            </div>
+          </section>
+
+          <section v-else-if="projectWizardStepKey === 'materials'" class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">资料目录</span>
+              <h3>系统将初始化项目资料节点</h3>
+              <p>创建后无需手动建目录，员工只需进入项目详情按节点上传资料。</p>
+            </div>
+            <div class="material-directory-grid">
+              <article v-for="item in projectInitialDirectories" :key="item.key" class="material-directory-card">
+                <span>{{ item.required ? '必填' : '按需' }}</span>
+                <strong>{{ item.label }}</strong>
+                <em>{{ item.hint }}</em>
+              </article>
+            </div>
+            <AAlert type="info" show-icon>创建完成后，系统会根据当前阶段自动生成待办，例如补充合同资料、上传竣工验收证明、提交一审材料或完善二审资料。</AAlert>
+          </section>
+
+          <section v-else class="wizard-panel">
+            <div class="wizard-panel__header">
+              <span class="mini-label">确认生成</span>
+              <h3>请确认项目创建信息</h3>
+              <p>确认后系统将创建项目主档案、资料节点、待办事项；如已进入审计流程，会自动生成审计看板记录。</p>
+            </div>
+            <div class="wizard-review">
+              <article>
+                <h4>基础信息</h4>
+                <dl>
+                  <dt>项目编号</dt><dd>{{ projectCodePreview }}</dd>
+                  <dt>项目名称</dt><dd>{{ projectForm.projectName || '未填写' }}</dd>
+                  <dt>施工单位</dt><dd>{{ projectForm.constructionUnit || '未填写' }}</dd>
+                  <dt>建设单位</dt><dd>{{ projectForm.ownerUnit || '未填写' }}</dd>
+                  <dt>合同日期</dt><dd>{{ projectForm.contractDate || '未选择' }}</dd>
+                </dl>
+              </article>
+              <article>
+                <h4>业务状态</h4>
+                <dl>
+                  <dt>项目状态</dt><dd>{{ projectStatusLabel(projectForm.projectStatus) }}</dd>
+                  <dt>结算状态</dt><dd>{{ settlementStatusLabel(projectForm.settlementStatus) }}</dd>
+                  <dt>合同金额</dt><dd><MoneyDisplay :value="projectForm.contractAmount" mode="full" /></dd>
+                  <dt>已付款金额</dt><dd><MoneyDisplay :value="projectForm.paidAmount" mode="full" /></dd>
+                  <dt>审计流程</dt><dd>{{ projectCreationFlow.hasAudit === 'yes' ? '创建后同步到审计看板' : '暂不进入审计流程' }}</dd>
+                </dl>
+              </article>
+              <article v-if="projectCreationFlow.hasAudit === 'yes'">
+                <h4>审计信息</h4>
+                <dl>
+                  <dt>报审金额</dt><dd><MoneyDisplay :value="projectForm.submittedAmount" mode="full" /></dd>
+                  <dt>送审日期</dt><dd>{{ projectCreationFlow.auditSubmitDate || '未选择' }}</dd>
+                  <dt>一审资料</dt><dd>{{ materialStatusLabel(projectCreationFlow.firstAuditStatus) }}</dd>
+                  <dt>二审资料</dt><dd>{{ materialStatusLabel(projectCreationFlow.secondAuditStatus) }}</dd>
+                  <dt>定案金额</dt><dd><MoneyDisplay :value="projectCreationFlow.finalAmount" mode="full" /></dd>
+                </dl>
+              </article>
+              <article>
+                <h4>资料目录</h4>
+                <div class="review-tags">
+                  <ATag v-for="item in projectInitialDirectories" :key="item.key">{{ item.label }}</ATag>
+                </div>
+              </article>
+            </div>
+          </section>
+        </AForm>
+
+        <div class="wizard-footer-extra">
+          <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
+          <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
+        </div>
+      </div>
+
+      <AForm v-else ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
         <div class="dialog-grid">
           <AFormItem
             field="projectCode"
             label="项目编号"
-            :help="projectDialog.mode === 'create' ? '保存时由系统按合同日期、施工单位核心字号和序号生成。' : '系统编号不可人工修改。'"
+            help="系统编号不可人工修改。"
           >
             <AInput :model-value="projectCodePreview" readonly placeholder="填写合同日期和施工单位后自动预览" />
           </AFormItem>
@@ -746,6 +1127,8 @@
       :confirm-btn="{ content: '开始上传', loading: fileDialog.saving }"
       width="620px"
       @confirm="saveFile"
+      @cancel="closeFileDialog"
+      @close="closeFileDialog"
     >
       <AForm :model="fileDialog" layout="vertical" class="file-upload-form">
         <AFormItem field="categoryKey" label="资料分类">
@@ -761,6 +1144,28 @@
         <AFormItem field="file" label="文件">
           <input ref="fileInputRef" type="file" class="native-file" @change="onFilePicked" />
         </AFormItem>
+        <div v-if="fileDialog.file" class="upload-preview-card">
+          <div class="upload-preview-card__head">
+            <div>
+              <strong>{{ fileDialog.file.name }}</strong>
+              <span>{{ uploadPreviewMeta }}</span>
+            </div>
+            <button type="button" @click="clearPickedFile">移除</button>
+          </div>
+          <div class="upload-preview-window">
+            <img v-if="uploadPreview.kind === 'image'" :src="uploadPreview.url" :alt="fileDialog.file.name" />
+            <iframe v-else-if="uploadPreview.kind === 'frame'" :src="uploadPreview.url" :title="fileDialog.file.name" />
+            <pre v-else-if="uploadPreview.kind === 'text'">{{ uploadPreview.text }}</pre>
+            <div v-else>
+              <strong>{{ uploadPreviewTitle }}</strong>
+              <span>点击“开始上传”后系统会保存文件并作为资料版本归档。</span>
+            </div>
+          </div>
+          <div v-if="fileDialog.saving || fileDialog.progress > 0" class="upload-progress" aria-label="上传进度">
+            <span :style="{ width: `${fileDialog.progress}%` }" />
+            <em>{{ fileDialog.progress }}%</em>
+          </div>
+        </div>
         <p class="dialog-hint">同一项目、同一分类、同一资料名称再次上传时会自动作为新版本处理。</p>
       </AForm>
     </AModal>
@@ -873,10 +1278,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
-import { formatWan } from '@/utils/format'
+import { amountToChineseUpper, formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
+import { useAuthStore } from '@/store/auth'
 import {
   businessColor,
   businessLabel,
@@ -901,18 +1308,31 @@ import {
   saveProjectSettlement,
   saveProjectVariation,
   startProjectAudit,
+  updateProjectDocumentCategory,
   updateProjectRecord,
   updateProjectSettlement,
   updateProjectVariation,
   uploadProjectFile,
   renameProjectFile,
 } from '@/api/projects'
+import { fetchAuditProject, updateAuditProject } from '@/api/audit'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
+type ProjectWizardStepKey = 'base' | 'stage' | 'auditGate' | 'auditInfo' | 'materials' | 'confirm'
+type ProjectAuditGate = 'yes' | 'no'
+type ProjectLifecycleStepKey = 'base' | 'documents' | 'audit' | 'settlement' | 'archive'
+type ProjectLifecycleStep = {
+  key: ProjectLifecycleStepKey
+  label: string
+  status: string
+  description: string
+  state: 'complete' | 'active' | 'warning' | 'pending'
+}
 type ProjectFilterChip = {
   key: string
   label: string
@@ -1022,6 +1442,29 @@ function selectDetailTab(tab: DetailTab, focusTab = false) {
   nextTick(() => document.getElementById(detailTabId(tab))?.focus())
 }
 
+function handleLifecycleAction(key: ProjectLifecycleStepKey) {
+  const project = currentProject.value
+  if (!project) return
+  if (key === 'documents') {
+    selectDetailTab('files', true)
+    return
+  }
+  if (key === 'audit') {
+    if (project.auditProjectId) goAudit(project.auditProjectId)
+    else startAudit(project)
+    return
+  }
+  if (key === 'settlement') {
+    selectDetailTab('settlements', true)
+    return
+  }
+  if (key === 'archive') {
+    selectDetailTab('logs', true)
+    return
+  }
+  selectDetailTab('overview', true)
+}
+
 function handleDetailTabKeydown(event: KeyboardEvent, tab: DetailTab) {
   const currentIndex = tabs.findIndex((item) => item.value === tab)
   if (currentIndex < 0) return
@@ -1056,6 +1499,7 @@ const meta = reactive<ProjectMeta>({
   settlementStatuses: [],
   dictionaryOptions: {},
   auditStages: [],
+  uploadSettings: { maxFileSizeMb: 100 },
 })
 
 const summary = reactive<ProjectSummary>({
@@ -1090,6 +1534,7 @@ const pageSize = ref(10)
 const activeTab = ref<DetailTab>('overview')
 const activeSummaryKey = ref('')
 const canDelete = true
+const categorySavingKey = ref('')
 
 const projectDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, initialSnapshot: '' })
 const filterViewDialog = reactive({ visible: false, name: '', error: '' })
@@ -1106,16 +1551,31 @@ const confirmState = reactive({
 const fileDialog = reactive({
   visible: false,
   saving: false,
+  progress: 0,
   projectId: '',
   categoryKey: '',
   displayName: '',
   file: null as File | null,
+})
+const uploadPreview = reactive({
+  kind: 'none' as 'none' | 'image' | 'frame' | 'text',
+  url: '',
+  text: '',
+})
+const filePreview = reactive({
+  visible: false,
+  loading: false,
+  kind: 'none' as 'none' | 'image' | 'frame' | 'text',
+  url: '',
+  text: '',
+  name: '',
 })
 const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const renameDialog = reactive({ visible: false, saving: false, id: '', displayName: '' })
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const projectFormRef = ref<AppFormInstance | null>(null)
+const projectWizardStepIndex = ref(0)
 
 const projectForm = reactive({
   id: '',
@@ -1145,6 +1605,21 @@ type ProjectTextFormKey = 'projectName' | 'constructionUnit' | 'ownerUnit' | 'co
 type ProjectDictionaryGroup = 'construction_unit' | 'owner_unit' | 'contractor_name' | 'manager_name' | 'company_role'
 type ProjectFormErrors = Partial<Record<ProjectFormKey, string>>
 const projectFormErrors = reactive<ProjectFormErrors>({})
+
+const projectCreationFlow = reactive({
+  hasAudit: 'no' as ProjectAuditGate,
+  projectType: '',
+  projectLocation: '',
+  auditSubmitDate: '',
+  firstAuditStatus: 'missing',
+  firstAuditUnit: '',
+  firstAuditOwner: '',
+  secondAuditStatus: 'missing',
+  secondAuditUnit: '',
+  secondAuditOwner: '',
+  finalAmount: 0,
+  auditRemark: '',
+})
 
 const settlementForm = reactive({
   settlementName: '',
@@ -1183,9 +1658,46 @@ const projectFieldsRight: Array<{ key: ProjectTextFormKey; label: string; placeh
 ]
 
 const categoryOptions = computed(() => meta.categories.map((item) => ({ label: item.categoryName, value: item.categoryKey })))
+const uploadPreviewMeta = computed(() => fileDialog.file ? `${formatSize(fileDialog.file.size)} · ${fileDialog.file.type || fileExtension(fileDialog.file.name) || '未知格式'}` : '')
+const uploadPreviewTitle = computed(() => {
+  if (!fileDialog.file) return ''
+  const ext = fileExtension(fileDialog.file.name)
+  if (['.doc', '.docx'].includes(ext)) return 'Word 文档已选择'
+  if (['.xls', '.xlsx', '.csv'].includes(ext)) return 'Excel 表格已选择'
+  return '文件已选择'
+})
 const projectStatusOptions = computed(() => meta.projectStatuses.length ? meta.projectStatuses : defaultProjectStatuses)
 const settlementStatusOptions = computed(() => meta.settlementStatuses.length ? meta.settlementStatuses : defaultSettlementStatuses)
+const auditMaterialStatusOptions = computed(() => materialStatusDict.map((item) => ({ label: item.label, value: item.value })))
 const projectCodePreview = computed(() => projectForm.projectCode || buildProjectCodePreview(projectForm.contractDate, projectForm.constructionUnit))
+const projectWizardSteps = computed(() => {
+  const steps: Array<{ key: ProjectWizardStepKey; title: string }> = [
+    { key: 'base', title: '基础信息' },
+    { key: 'stage', title: '项目阶段' },
+    { key: 'auditGate', title: '审计判断' },
+  ]
+  if (projectCreationFlow.hasAudit === 'yes') steps.push({ key: 'auditInfo', title: '审计信息' })
+  steps.push({ key: 'materials', title: '资料目录' }, { key: 'confirm', title: '确认生成' })
+  return steps
+})
+const projectWizardStepKey = computed<ProjectWizardStepKey>(() => projectWizardSteps.value[projectWizardStepIndex.value]?.key || 'base')
+const projectWizardConfirmText = computed(() => projectWizardStepIndex.value >= projectWizardSteps.value.length - 1 ? '生成项目' : '下一步')
+const projectInitialDirectories = computed(() => {
+  const base = [
+    { key: 'bid_notice', label: '中标通知书', required: ['awarded', 'contract_signed', 'under_construction', 'completed_acceptance', 'pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '用于确认项目来源与中标事实' },
+    { key: 'contract_file', label: '合同文件', required: ['contract_signed', 'under_construction', 'completed_acceptance', 'pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '合同、补充协议、合同清单等' },
+    { key: 'completion_acceptance', label: '竣工验收证明', required: ['completed_acceptance', 'pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '进入结算和审计前的重要节点资料' },
+    { key: 'settlement_book', label: '竣工结算书', required: ['pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '用于报审、核价和后续定案' },
+    { key: 'variation', label: '变更签证', required: false, hint: '涉及变更、签证、洽商时按需补充' },
+  ]
+  if (projectCreationFlow.hasAudit === 'yes') {
+    base.push(
+      { key: 'first_audit_materials', label: '一审材料', required: ['first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '一审送审资料、往来意见和确认件' },
+      { key: 'second_audit_materials', label: '二审材料', required: ['second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '二审补充资料、核减说明和确认件' },
+    )
+  }
+  return base
+})
 const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
 const configurableColumns = computed(() => baseTableColumns.filter((column) => !['select', 'project', 'actions'].includes(String(column.colKey))))
 const displayRecords = computed(() => records.value)
@@ -1304,6 +1816,52 @@ const projectTimeline = computed(() => {
     },
   ]
 })
+const projectLifecycleSteps = computed<ProjectLifecycleStep[]>(() => {
+  const project = currentProject.value
+  if (!project) return []
+  const documentReady = Number(project.missingRequiredCount || 0) === 0
+  const hasFiles = Boolean(project.files?.length)
+  const hasSettlements = Boolean(project.settlements?.length)
+  const isSettled = project.settlementStatus === 'settled'
+  const isArchived = project.projectStatus === 'archived'
+  return [
+    {
+      key: 'base',
+      label: '项目建档',
+      status: project.projectCode || '待确认',
+      description: `${projectStatusLabel(project.projectStatus)} · ${project.managerName || '未分配负责人'}`,
+      state: 'complete',
+    },
+    {
+      key: 'documents',
+      label: '资料归集',
+      status: documentReady ? '资料齐备' : `缺 ${project.missingRequiredCount} 类`,
+      description: hasFiles ? `已上传 ${project.files?.length || 0} 份资料` : '尚未上传项目资料',
+      state: documentReady ? 'complete' : 'warning',
+    },
+    {
+      key: 'audit',
+      label: '审计联动',
+      status: project.auditProjectId ? '已进入审计' : '未发起',
+      description: project.auditProjectId ? '可查看审计阶段和附件记录' : '需要时可从项目主档案发起审计',
+      state: project.auditProjectId ? 'active' : 'pending',
+    },
+    {
+      key: 'settlement',
+      label: '结算付款',
+      status: settlementStatusLabel(project.settlementStatus),
+      description: hasSettlements ? `已维护 ${project.settlements?.length || 0} 条结算记录` : '尚未维护结算记录',
+      state: isSettled ? 'complete' : hasSettlements ? 'active' : 'pending',
+    },
+    {
+      key: 'archive',
+      label: '归档闭环',
+      status: isArchived ? '已归档' : '未归档',
+      description: isArchived ? '项目已完成归档闭环' : '归档前请核对资料、审计和结算记录',
+      state: isArchived ? 'complete' : 'pending',
+    },
+  ]
+})
 
 const summaryCards = computed(() => [
   { key: 'all', label: '项目总数', value: summary.totalProjects, hint: '全部项目主数据' },
@@ -1311,7 +1869,7 @@ const summaryCards = computed(() => [
   { key: 'settlement', label: '付款未清', value: summary.settlementProjects, hint: '已付款但部分未结清' },
   { key: 'audit', label: '已联动审计', value: summary.auditLinkedProjects, hint: '已进入审计流程的项目' },
   { key: 'missing', label: '资料不齐', value: summary.missingDocuments, hint: '需要补资料的项目' },
-  { key: 'variation', label: '变更签证金额', value: formatWan(summary.variationAmount || 0), hint: '汇总已维护的签证金额' },
+  { key: 'variation', label: '变更签证金额', value: formatWan(summary.variationAmount || 0), hint: amountToChineseUpper(summary.variationAmount || 0) },
 ])
 
 const recentProjects = computed(() => [...records.value]
@@ -1386,6 +1944,133 @@ function materialStatusLabel(value: string) {
   return businessLabel(materialStatusDict, value, '未设置')
 }
 
+function projectStatusHint(value: string) {
+  const hints: Record<string, string> = {
+    awarded: '已确定中标，待签订正式合同',
+    contract_signed: '合同已签，项目主数据应完整',
+    under_construction: '现场施工中，关注进度和变更签证',
+    completed_acceptance: '已竣工验收，准备结算资料',
+    pending_submission: '准备送审，需要补齐报审资料',
+    first_audit: '一审处理中，关注资料往来',
+    second_audit: '二审处理中，关注核定差异',
+    conclusion: '已形成定案结论，进入结清或归档',
+    archived: '资料归档，项目闭环',
+  }
+  return hints[value] || '按当前业务阶段管理项目'
+}
+
+function projectStageToAuditStage(status: string) {
+  if (status === 'first_audit') return 'first_audit'
+  if (status === 'second_audit') return 'second_audit'
+  if (status === 'conclusion') return 'conclusion'
+  if (status === 'archived') return 'archived'
+  if (status === 'pending_submission') return 'submitted'
+  return projectCreationFlow.hasAudit === 'yes' ? 'submitted' : 'not_linked'
+}
+
+function selectProjectStatus(value: string) {
+  projectForm.projectStatus = value
+  projectForm.auditStage = projectStageToAuditStage(value)
+  if (['pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(value)) {
+    setProjectAuditGate('yes')
+  }
+}
+
+function setProjectAuditGate(value: ProjectAuditGate) {
+  projectCreationFlow.hasAudit = value
+  projectForm.auditStage = value === 'yes' ? projectStageToAuditStage(projectForm.projectStatus) : 'not_linked'
+  if (value === 'no' && projectWizardStepKey.value === 'auditInfo') {
+    projectWizardStepIndex.value = projectWizardSteps.value.findIndex((item) => item.key === 'materials')
+  }
+}
+
+function resetProjectCreationFlow() {
+  Object.assign(projectCreationFlow, {
+    hasAudit: 'no',
+    projectType: '',
+    projectLocation: '',
+    auditSubmitDate: '',
+    firstAuditStatus: 'missing',
+    firstAuditUnit: '',
+    firstAuditOwner: '',
+    secondAuditStatus: 'missing',
+    secondAuditUnit: '',
+    secondAuditOwner: '',
+    finalAmount: 0,
+    auditRemark: '',
+  })
+  projectWizardStepIndex.value = 0
+}
+
+function appendProjectCreationNotes(description: string) {
+  const notes = [
+    projectCreationFlow.projectType ? `项目类型：${projectCreationFlow.projectType}` : '',
+    projectCreationFlow.projectLocation ? `项目地点：${projectCreationFlow.projectLocation}` : '',
+    projectCreationFlow.hasAudit === 'yes' ? `审计备注：${projectCreationFlow.auditRemark || '已在新建阶段确认进入审计流程'}` : '',
+    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.firstAuditUnit ? `一审单位：${projectCreationFlow.firstAuditUnit}` : '',
+    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.firstAuditOwner ? `一审负责人：${projectCreationFlow.firstAuditOwner}` : '',
+    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.secondAuditUnit ? `二审单位：${projectCreationFlow.secondAuditUnit}` : '',
+    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.secondAuditOwner ? `二审负责人：${projectCreationFlow.secondAuditOwner}` : '',
+  ].filter(Boolean)
+  if (!notes.length) return description
+  const existing = String(description || '').trim()
+  return [existing, notes.join('\n')].filter(Boolean).join('\n')
+}
+
+function validateProjectWizardStep() {
+  const key = projectWizardStepKey.value
+  resetProjectFormErrors()
+  if (key === 'base') {
+    if (!projectForm.projectName.trim()) projectFormErrors.projectName = '请填写项目名称，便于后续资料、结算和审计流转。'
+    if (!projectForm.contractDate) projectFormErrors.contractDate = '请选择工程合同签订日期，系统将据此生成项目编号。'
+    if (!projectForm.constructionUnit.trim()) projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
+    if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
+      projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
+    }
+    if (Number(projectForm.contractAmount || 0) > 0 && Number(projectForm.paidAmount || 0) > Number(projectForm.contractAmount || 0)) {
+      projectFormErrors.paidAmount = '已付款金额不能大于合同金额，请核对付款记录。'
+    }
+  }
+  if (key === 'stage' && projectForm.plannedStartDate && projectForm.plannedEndDate && projectForm.plannedStartDate > projectForm.plannedEndDate) {
+    projectFormErrors.plannedEndDate = '计划完成日期不能早于计划开始日期。'
+  }
+  if (key === 'auditInfo') {
+    const contractAmount = Number(projectForm.contractAmount || 0)
+    const submittedAmount = Number(projectForm.submittedAmount || 0)
+    if (contractAmount > 0 && submittedAmount > contractAmount) {
+      projectFormErrors.submittedAmount = '报审金额不能大于合同金额，请核对金额口径。'
+    }
+  }
+  const firstErrorKey = Object.keys(projectFormErrors)[0] as ProjectFormKey | undefined
+  if (firstErrorKey) {
+    focusProjectField(firstErrorKey)
+    return false
+  }
+  return true
+}
+
+function jumpProjectWizardStep(index: number) {
+  if (index <= projectWizardStepIndex.value) {
+    projectWizardStepIndex.value = index
+  }
+}
+
+function prevProjectWizardStep() {
+  if (projectWizardStepIndex.value > 0) projectWizardStepIndex.value -= 1
+}
+
+async function handleProjectWizardConfirm() {
+  if (!validateProjectWizardStep()) {
+    MessagePlugin.error('请先完善当前步骤中的提示项')
+    return
+  }
+  if (projectWizardStepIndex.value < projectWizardSteps.value.length - 1) {
+    projectWizardStepIndex.value += 1
+    return
+  }
+  await saveProject()
+}
+
 function projectGroupKey(record: ProjectRecord) {
   if (groupBy.value === 'status') return record.projectStatus || 'unassigned'
   if (groupBy.value === 'owner') return record.managerName || record.contractorName || 'unassigned'
@@ -1420,6 +2105,41 @@ function formatSize(size: number) {
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+const uploadLimitMb = computed(() => {
+  const size = Number(meta.uploadSettings?.maxFileSizeMb || 100)
+  return Math.max(1, size)
+})
+
+function validateUploadFileSize(file: File) {
+  const limitBytes = uploadLimitMb.value * 1024 * 1024
+  if (file.size <= limitBytes) return true
+  MessagePlugin.error(`当前文件 ${formatSize(file.size)}，超过单文件上传上限 ${uploadLimitMb.value}MB。请压缩文件后重新上传，或联系管理员在后台调整最大上传大小。`)
+  return false
+}
+
+function repairedFileName(value: string) {
+  if (!value) return ''
+  try {
+    const repaired = decodeURIComponent(escape(value))
+    return repaired || value
+  } catch {
+    return value
+  }
+}
+
+function fileExtension(name: string) {
+  const match = name.toLowerCase().match(/\.[^.]+$/)
+  return match?.[0] || ''
+}
+
+function filePreviewKind(mimeType: string, fileName: string): 'none' | 'image' | 'frame' | 'text' {
+  const ext = fileExtension(fileName)
+  if (mimeType.startsWith('image/')) return 'image'
+  if (mimeType === 'application/pdf' || ext === '.pdf') return 'frame'
+  if (mimeType.startsWith('text/') || ['.txt', '.csv', '.json', '.md', '.log'].includes(ext)) return 'text'
+  return 'none'
 }
 
 function formatDate(iso: string) {
@@ -1552,6 +2272,8 @@ function projectFormSnapshot() {
     plannedEndDate: projectForm.plannedEndDate,
     description: projectForm.description,
     auditProjectId: projectForm.auditProjectId,
+    creationFlow: { ...projectCreationFlow },
+    wizardStep: projectWizardStepIndex.value,
   })
 }
 
@@ -1604,6 +2326,35 @@ function validateProjectForm() {
     return false
   }
   return true
+}
+
+function buildAuditProjectUpdatePayload(auditProject: Awaited<ReturnType<typeof fetchAuditProject>>) {
+  const stage = projectStageToAuditStage(projectForm.projectStatus)
+  return {
+    ...auditProject,
+    currentStage: stage,
+    stage,
+    amount: {
+      ...auditProject.amount,
+      submittedAmount: Number(projectForm.submittedAmount || auditProject.amount?.submittedAmount || 0),
+      finalPayable: Number(projectCreationFlow.finalAmount || auditProject.amount?.finalPayable || 0),
+    },
+    deadline: {
+      ...auditProject.deadline,
+      submitDate: projectCreationFlow.auditSubmitDate || auditProject.deadline?.submitDate || projectForm.contractDate,
+    },
+    firstAudit: {
+      ...auditProject.firstAudit,
+      companyName: projectCreationFlow.firstAuditUnit,
+      auditor: { ...(auditProject.firstAudit?.auditor || {}), name: projectCreationFlow.firstAuditOwner },
+    },
+    secondAudit: {
+      ...auditProject.secondAudit,
+      department: projectCreationFlow.secondAuditUnit,
+      auditor: { ...(auditProject.secondAudit?.auditor || {}), name: projectCreationFlow.secondAuditOwner },
+    },
+    description: appendProjectCreationNotes(projectForm.description),
+  }
 }
 
 function isProjectFormDirty() {
@@ -2112,11 +2863,13 @@ function openProjectForm(record?: ProjectRecord | null) {
   projectDialog.saving = false
   resetProjectFormErrors()
   if (!record) {
+    resetProjectCreationFlow()
     detailDialogVisible.value = false
     currentProject.value = null
     activeTab.value = 'overview'
   }
   fillProjectForm(record || null)
+  if (record) resetProjectCreationFlow()
   projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
 }
@@ -2147,20 +2900,65 @@ function requestCloseProjectDialog() {
 
 function openFileDialog(category?: ProjectDocumentCategory | null) {
   if (!currentProject.value) return
+  resetUploadPreview()
   fileDialog.projectId = currentProject.value.id
   fileDialog.categoryKey = category?.categoryKey || meta.categories[0]?.categoryKey || ''
   fileDialog.displayName = ''
   fileDialog.file = null
+  fileDialog.progress = 0
   fileDialog.visible = true
 }
 
-function onFilePicked(event: Event) {
+async function onFilePicked(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] || null
+  resetUploadPreview()
+  if (file && !validateUploadFileSize(file)) {
+    input.value = ''
+    fileDialog.file = null
+    fileDialog.progress = 0
+    return
+  }
   fileDialog.file = file
   if (file && !fileDialog.displayName) {
     fileDialog.displayName = file.name.replace(/\.[^.]+$/, '')
   }
+  if (file) await prepareUploadPreview(file)
+}
+
+function closeFileDialog() {
+  if (fileDialog.saving) return
+  fileDialog.visible = false
+  clearPickedFile()
+}
+
+function clearPickedFile() {
+  fileDialog.file = null
+  fileDialog.progress = 0
+  resetUploadPreview()
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
+
+function resetUploadPreview() {
+  if (uploadPreview.url) URL.revokeObjectURL(uploadPreview.url)
+  uploadPreview.kind = 'none'
+  uploadPreview.url = ''
+  uploadPreview.text = ''
+}
+
+async function prepareUploadPreview(file: File) {
+  const kind = filePreviewKind(file.type, file.name)
+  if (kind === 'image' || kind === 'frame') {
+    uploadPreview.kind = kind
+    uploadPreview.url = URL.createObjectURL(file)
+    return
+  }
+  if (kind === 'text') {
+    uploadPreview.kind = 'text'
+    uploadPreview.text = (await file.text()).slice(0, 5000)
+    return
+  }
+  uploadPreview.kind = 'none'
 }
 
 function openSettlementDialog(record?: ProjectSettlement | null) {
@@ -2185,6 +2983,23 @@ function openRenameDialog(file: ProjectFile) {
   renameDialog.visible = true
 }
 
+async function toggleCategoryRequired(category: ProjectDocumentCategory) {
+  if (!authStore.isAdmin || categorySavingKey.value) return
+  categorySavingKey.value = category.categoryKey
+  try {
+    const updated = await updateProjectDocumentCategory(category.categoryKey, { required: !category.required })
+    const index = meta.categories.findIndex((item) => item.categoryKey === updated.categoryKey)
+    if (index >= 0) meta.categories[index] = updated
+    MessagePlugin.success(updated.required ? '已设为必填资料' : '已设为按需资料')
+    if (currentProject.value) await loadCurrentProject(currentProject.value.id)
+    await Promise.all([loadSummary(), loadRecords()])
+  } catch (err) {
+    MessagePlugin.error(friendlyErrorMessage(err, '资料必填设置保存失败，请稍后重试'))
+  } finally {
+    categorySavingKey.value = ''
+  }
+}
+
 async function loadMeta() {
   const value = await fetchProjectMeta()
   meta.categories = value.categories || []
@@ -2192,6 +3007,7 @@ async function loadMeta() {
   meta.settlementStatuses = value.settlementStatuses || []
   meta.dictionaryOptions = value.dictionaryOptions || {}
   meta.auditStages = value.auditStages || []
+  meta.uploadSettings = value.uploadSettings || { maxFileSizeMb: 100 }
 }
 
 async function loadSummary() {
@@ -2285,6 +3101,7 @@ function closeProjectDetail() {
   detailDialogVisible.value = false
   currentProject.value = null
   activeTab.value = 'overview'
+  closeFilePreview()
 }
 
 async function saveProject() {
@@ -2294,16 +3111,36 @@ async function saveProject() {
   }
   projectDialog.saving = true
   try {
+    const shouldCreateAudit = projectDialog.mode === 'create' && projectCreationFlow.hasAudit === 'yes'
     const payload = {
       ...projectForm,
+      auditStage: shouldCreateAudit ? projectStageToAuditStage(projectForm.projectStatus) : projectForm.auditStage,
       contractAmount: Number(projectForm.contractAmount || 0),
       submittedAmount: Number(projectForm.submittedAmount || 0),
       paidAmount: Number(projectForm.paidAmount || 0),
+      firstAuditMaterialStatus: shouldCreateAudit ? projectCreationFlow.firstAuditStatus : undefined,
+      secondAuditMaterialStatus: shouldCreateAudit ? projectCreationFlow.secondAuditStatus : undefined,
+      settlementBookStatus: shouldCreateAudit ? 'submitted' : undefined,
+      description: projectDialog.mode === 'create' ? appendProjectCreationNotes(projectForm.description) : projectForm.description,
     }
     const result = projectDialog.mode === 'create'
       ? await createProjectRecord(payload)
       : await updateProjectRecord(projectForm.id, payload)
-    MessagePlugin.success('项目已保存')
+    let auditSyncWarning = ''
+    if (shouldCreateAudit) {
+      try {
+        const auditProject = await startProjectAudit(result.id)
+        const auditDetail = await fetchAuditProject(auditProject.id)
+        await updateAuditProject(auditProject.id, buildAuditProjectUpdatePayload(auditDetail) as any)
+      } catch (err) {
+        auditSyncWarning = friendlyErrorMessage(err, '审计看板同步失败，请在项目详情中重新发起或补充审计信息')
+      }
+    }
+    if (auditSyncWarning) {
+      MessagePlugin.warning(`项目已保存，但${auditSyncWarning}`)
+    } else {
+      MessagePlugin.success(shouldCreateAudit ? '项目已保存，并已同步到审计看板' : '项目已保存')
+    }
     closeProjectDialog(true)
     await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
     await selectProject(result)
@@ -2360,17 +3197,20 @@ async function saveFile() {
     MessagePlugin.error('请先选择要上传的文件')
     return
   }
+  if (!validateUploadFileSize(fileDialog.file)) {
+    return
+  }
   fileDialog.saving = true
+  fileDialog.progress = 1
   try {
     await uploadProjectFile(fileDialog.projectId, {
       categoryKey: fileDialog.categoryKey,
       displayName: fileDialog.displayName,
       file: fileDialog.file,
-    })
+    }, (percent) => { fileDialog.progress = percent })
     MessagePlugin.success('资料已上传')
     fileDialog.visible = false
-    fileDialog.file = null
-    if (fileInputRef.value) fileInputRef.value.value = ''
+    clearPickedFile()
     await loadCurrentProject(fileDialog.projectId)
     await loadRecords()
   } catch (err) {
@@ -2447,12 +3287,30 @@ async function saveRename() {
 async function previewFile(file: ProjectFile) {
   try {
     const blob = await fetchProjectFilePreviewBlob(file.id)
-    const url = URL.createObjectURL(blob)
-    window.open(url, '_blank', 'noopener,noreferrer')
-    window.setTimeout(() => URL.revokeObjectURL(url), 5000)
+    closeFilePreview()
+    filePreview.name = repairedFileName(file.originalName || file.displayName)
+    filePreview.kind = filePreviewKind(blob.type || file.mimeType, file.originalName || file.displayName)
+    if (filePreview.kind === 'text') {
+      filePreview.text = (await blob.text()).slice(0, 20000)
+    } else if (filePreview.kind === 'image' || filePreview.kind === 'frame') {
+      filePreview.url = URL.createObjectURL(blob)
+    }
+    filePreview.visible = true
+    await nextTick()
+    document.querySelector<HTMLElement>('.inline-preview-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch (err) {
     MessagePlugin.error(friendlyErrorMessage(err, '预览失败，请下载后查看'))
   }
+}
+
+function closeFilePreview() {
+  if (filePreview.url) URL.revokeObjectURL(filePreview.url)
+  filePreview.visible = false
+  filePreview.loading = false
+  filePreview.kind = 'none'
+  filePreview.url = ''
+  filePreview.text = ''
+  filePreview.name = ''
 }
 
 async function downloadFile(file: ProjectFile) {
@@ -2517,14 +3375,23 @@ function goAudit(id: string) {
   router.push({ path: '/audit', query: { projectId: id } })
 }
 
+function handleSidebarAction(event: Event) {
+  const action = (event as CustomEvent<{ action?: string }>).detail?.action
+  if (action === 'project:create') openProjectForm()
+}
+
 onMounted(() => {
   loadSavedFilterViews()
   window.addEventListener('keydown', handleProjectKeyboard)
+  window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
   loadAll()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleProjectKeyboard)
+  window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
+  closeFilePreview()
+  resetUploadPreview()
 })
 
 watch(
@@ -2539,6 +3406,7 @@ watch(detailDialogVisible, (visible) => {
   if (!visible) {
     currentProject.value = null
     activeTab.value = 'overview'
+    closeFilePreview()
   }
 })
 </script>
@@ -3306,9 +4174,26 @@ watch(detailDialogVisible, (visible) => {
 .detail-panel--dialog {
   max-height: calc(100vh - 180px);
   overflow: auto;
-  padding: 0;
-  background: transparent;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-gray-20);
   border: 0;
+}
+
+.project-management :deep(.project-detail-modal .arco-modal-body) {
+  padding: 0;
+  background: var(--color-gray-20);
+}
+
+.detail-panel--dialog .detail-head {
+  align-items: flex-start;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--color-brand-100);
+  border-left: 4px solid var(--color-brand-500);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .detail-metrics {
@@ -3321,15 +4206,18 @@ watch(detailDialogVisible, (visible) => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
-  margin-top: var(--space-4);
 }
 
 .project-detail-brief article {
   display: grid;
   gap: 4px;
-  padding: var(--space-3);
-  background: var(--bg-muted);
+  min-height: 88px;
+  align-content: center;
+  padding: var(--space-4);
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .project-detail-brief span,
@@ -3349,9 +4237,11 @@ watch(detailDialogVisible, (visible) => {
 
 .detail-metrics article,
 .info-grid article {
-  padding: var(--space-3);
-  background: var(--bg-muted);
+  padding: var(--space-4);
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .detail-metrics span,
@@ -3368,13 +4258,108 @@ watch(detailDialogVisible, (visible) => {
   font-size: var(--text-md);
 }
 
-.next-action-panel {
+.business-flow-panel {
   display: grid;
   gap: var(--space-3);
-  margin-top: var(--space-4);
   padding: var(--space-4);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.business-flow-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.business-flow-list button {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  min-height: 112px;
+  padding: var(--space-3);
+  color: var(--text-primary);
+  text-align: left;
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--color-brand-50));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.business-flow-list button:hover,
+.business-flow-list button:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--color-brand-300);
+  box-shadow: var(--shadow-elevated);
+  outline: none;
+}
+
+.business-flow-list i {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+}
+
+.business-flow-list button[data-state='complete'] i {
+  background: var(--color-success);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 16%, transparent);
+}
+
+.business-flow-list button[data-state='active'] i {
+  background: var(--color-brand-500);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+}
+
+.business-flow-list button[data-state='warning'] i {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-warning) 16%, transparent);
+}
+
+.business-flow-list strong,
+.business-flow-list span,
+.business-flow-list em {
+  display: block;
+  min-width: 0;
+}
+
+.business-flow-list strong {
+  font-size: var(--text-sm);
+}
+
+.business-flow-list span {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.business-flow-list em {
+  grid-column: 2;
+  align-self: end;
+  margin-top: 8px;
+  color: var(--color-brand-600);
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.next-action-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
 }
 
 .next-action-list {
@@ -3389,9 +4374,10 @@ watch(detailDialogVisible, (visible) => {
   min-width: 0;
   padding: var(--space-3);
   text-align: left;
-  background: var(--bg-muted);
+  background: var(--color-gray-20);
   border: 1px solid var(--border-color);
   border-left: 3px solid var(--color-brand-500);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -3424,14 +4410,17 @@ watch(detailDialogVisible, (visible) => {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding-bottom: 2px;
-  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .detail-tabs button {
   flex: 0 0 auto;
   border: 1px solid var(--border-color);
-  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+  background: var(--color-gray-20);
   color: var(--text-secondary);
   cursor: pointer;
   padding: 8px 12px;
@@ -3443,7 +4432,15 @@ watch(detailDialogVisible, (visible) => {
   background: var(--color-brand-50);
 }
 
-.detail-section { display: grid; gap: var(--space-4); }
+.detail-section {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
 
 .info-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3456,8 +4453,9 @@ watch(detailDialogVisible, (visible) => {
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-4);
-  background: var(--bg-muted);
+  background: var(--color-gray-20);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .link-box p {
@@ -3536,9 +4534,10 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .doc-card {
-  padding: var(--space-3);
-  background: var(--bg-muted);
+  padding: var(--space-4);
+  background: var(--color-gray-20);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
 .doc-card__head,
@@ -3553,6 +4552,38 @@ watch(detailDialogVisible, (visible) => {
 
 .doc-card__head strong { display: block; font-size: var(--text-sm); }
 
+.doc-card__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.doc-required-toggle,
+.icon-text-button {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 5px 8px;
+}
+
+.doc-required-toggle:hover,
+.doc-required-toggle:focus-visible,
+.icon-text-button:hover,
+.icon-text-button:focus-visible {
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+  border-color: var(--color-brand-300);
+  outline: none;
+}
+
+.doc-required-toggle:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
 .doc-files {
   display: flex;
   flex-wrap: wrap;
@@ -3563,6 +4594,7 @@ watch(detailDialogVisible, (visible) => {
 .file-pill {
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   padding: 6px 8px;
   display: inline-flex;
@@ -3581,6 +4613,7 @@ watch(detailDialogVisible, (visible) => {
   text-align: left;
   background: var(--bg-surface);
   border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -3688,6 +4721,269 @@ watch(detailDialogVisible, (visible) => {
   margin-bottom: 0;
 }
 
+.project-create-wizard {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.wizard-stepper {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  background: #F7F8FA;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.wizard-stepper__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.wizard-stepper__item span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+}
+
+.wizard-stepper__item strong {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wizard-stepper__item.is-active {
+  color: var(--color-primary);
+  background: #fff;
+  border-color: var(--color-primary);
+  box-shadow: 0 6px 16px rgba(22, 93, 255, 0.08);
+}
+
+.wizard-stepper__item.is-active span,
+.wizard-stepper__item.is-done span {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.wizard-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.wizard-panel__header {
+  display: grid;
+  gap: 6px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wizard-panel__header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.wizard-panel__header p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+.wizard-option-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.wizard-option-card,
+.wizard-choice-card {
+  display: grid;
+  gap: 8px;
+  min-height: 96px;
+  padding: var(--space-3);
+  color: var(--text-primary);
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.wizard-option-card:hover,
+.wizard-choice-card:hover,
+.wizard-option-card.is-selected,
+.wizard-choice-card.is-selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 8px 20px rgba(22, 93, 255, 0.08);
+}
+
+.wizard-option-card.is-selected,
+.wizard-choice-card.is-selected {
+  background: #F2F6FF;
+}
+
+.wizard-option-card strong,
+.wizard-choice-card strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.wizard-option-card em,
+.wizard-choice-card span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.wizard-choice-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.wizard-money-grid {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-color);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.status-dot--green { background: #00A870; }
+.status-dot--red { background: #E34D59; }
+.status-dot--orange { background: #ED7B2F; }
+.status-dot--gold { background: #D89614; }
+.status-dot--purple { background: #722ED1; }
+.status-dot--magenta { background: #C41D7F; }
+.status-dot--arcoblue { background: var(--color-primary); }
+.status-dot--gray { background: #8C8C8C; }
+
+.material-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.material-directory-card {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: var(--space-3);
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.material-directory-card span {
+  width: fit-content;
+  padding: 2px 8px;
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  background: #F2F6FF;
+  border-radius: 999px;
+}
+
+.material-directory-card strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.material-directory-card em {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.wizard-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.wizard-review article {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.wizard-review h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.wizard-review dl {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.wizard-review dt,
+.wizard-review dd {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.wizard-review dt {
+  color: var(--text-tertiary);
+}
+
+.wizard-review dd {
+  color: var(--text-primary);
+}
+
+.review-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wizard-footer-extra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
 .file-upload-form {
   display: grid;
   gap: var(--space-3);
@@ -3700,6 +4996,145 @@ watch(detailDialogVisible, (visible) => {
 .file-upload-form :deep(.arco-select-view-single),
 .file-upload-form :deep(.arco-input-wrapper) {
   width: 100%;
+}
+
+.inline-preview-shell,
+.upload-preview-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--color-brand-100);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.inline-preview-shell__head,
+.upload-preview-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.inline-preview-shell__head strong,
+.upload-preview-card__head strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.upload-preview-card__head span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.upload-preview-card__head button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--color-danger);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.inline-preview-frame,
+.upload-preview-window {
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  background: var(--color-gray-20);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.upload-preview-window {
+  min-height: 180px;
+}
+
+.inline-preview-frame iframe,
+.upload-preview-window iframe {
+  width: 100%;
+  height: min(58vh, 620px);
+  border: 0;
+  background: #fff;
+}
+
+.upload-preview-window iframe {
+  height: 220px;
+}
+
+.inline-preview-frame img,
+.upload-preview-window img {
+  display: block;
+  max-width: 100%;
+  max-height: 58vh;
+  object-fit: contain;
+}
+
+.inline-preview-frame pre,
+.upload-preview-window pre {
+  width: 100%;
+  max-height: 58vh;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-4);
+  color: var(--text-primary);
+  background: #fff;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+}
+
+.preview-unavailable,
+.upload-preview-window > div {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: var(--space-5);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.preview-unavailable strong,
+.upload-preview-window strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.preview-unavailable span,
+.upload-preview-window span {
+  font-size: var(--text-xs);
+}
+
+.upload-progress {
+  position: relative;
+  overflow: hidden;
+  height: 26px;
+  background: var(--color-gray-100);
+  border-radius: var(--radius-sm);
+}
+
+.upload-progress span {
+  display: block;
+  height: 100%;
+  background: var(--color-brand-500);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.upload-progress em {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 600;
 }
 
 .modal-business-form :deep(.arco-form-item) {
@@ -3807,6 +5242,7 @@ watch(detailDialogVisible, (visible) => {
   .project-work-items--secondary .project-work-list {
     grid-template-columns: minmax(0, 1fr);
   }
+  .business-flow-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
@@ -3819,8 +5255,17 @@ watch(detailDialogVisible, (visible) => {
   .project-detail-brief,
   .project-timeline,
   .next-action-list,
+  .business-flow-list,
   .info-grid,
+  .wizard-stepper,
+  .wizard-option-grid,
+  .wizard-choice-row,
+  .material-directory-grid,
+  .wizard-review,
   .dialog-grid { grid-template-columns: 1fr; }
+  .wizard-stepper__item {
+    min-height: 38px;
+  }
   .project-empty-onboarding {
     align-items: stretch;
     flex-direction: column;

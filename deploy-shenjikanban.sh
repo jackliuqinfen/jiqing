@@ -3,6 +3,7 @@ set -euo pipefail
 
 ZIP_PATH="/tmp/shenjikanban-release.zip"
 WORK_DIR="/tmp/shenjikanban-release-current"
+RELEASE_REPO="/opt/shenjikanban/release-git"
 FRONTEND_ROOT="/www/wwwroot/shenjikanban"
 API_ROOT="/opt/shenjikanban/server"
 SERVICE_NAME="audit-kanban.service"
@@ -36,6 +37,39 @@ if [[ ! -f "$WORK_DIR/server/audit_api.py" ]]; then
   exit 1
 fi
 
+if ! command -v git >/dev/null 2>&1; then
+  echo "Git is required before deployment. Please install git on the server." >&2
+  exit 1
+fi
+
+mkdir -p "$RELEASE_REPO"
+if [[ ! -d "$RELEASE_REPO/.git" ]]; then
+  git -C "$RELEASE_REPO" init
+  git -C "$RELEASE_REPO" config user.name "Shenjikanban Deploy Bot"
+  git -C "$RELEASE_REPO" config user.email "deploy@shenjikanban.local"
+fi
+
+find "$RELEASE_REPO" -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+cp -a "$WORK_DIR/." "$RELEASE_REPO/"
+find "$RELEASE_REPO" -type d -name "__pycache__" -prune -exec rm -rf {} +
+find "$RELEASE_REPO" -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.sqlite3" -o -name "*.db" \) -delete
+cat > "$RELEASE_REPO/.gitignore" <<'EOF'
+__pycache__/
+*.pyc
+*.pyo
+*.sqlite3
+*.db
+uploads/
+node_modules/
+EOF
+git -C "$RELEASE_REPO" add -A
+if ! git -C "$RELEASE_REPO" diff --cached --quiet; then
+  git -C "$RELEASE_REPO" commit -m "deploy: $(date '+%Y-%m-%d %H:%M:%S %z')"
+else
+  echo "GIT_SYNC_NO_CHANGES"
+fi
+echo "GIT_SYNC_OK $(git -C "$RELEASE_REPO" rev-parse --short HEAD)"
+
 cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
 
 cp "$WORK_DIR/server/audit_api.py" "$API_ROOT/audit_api.py"
@@ -44,6 +78,10 @@ if [[ -f "$WORK_DIR/server/postgres_schema.sql" ]]; then
   cp "$WORK_DIR/server/postgres_schema.sql" "$API_ROOT/postgres_schema.sql"
 fi
 mkdir -p "$API_ROOT/uploads"
+mkdir -p /etc/nginx/conf.d
+cat > /etc/nginx/conf.d/shenjikanban-upload-size.conf <<'EOF'
+client_max_body_size 500m;
+EOF
 
 systemctl restart "$SERVICE_NAME"
 systemctl is-active --quiet "$SERVICE_NAME"

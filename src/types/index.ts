@@ -290,7 +290,7 @@ export interface AdminUser {
 }
 
 /** 系统设置键 */
-export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name' | 'current_theme'
+export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name' | 'current_theme' | 'upload_settings' | 'sidebar_nav_order'
 
 /** 系统设置值类型 */
 export interface RegistrationSetting {
@@ -315,6 +315,14 @@ export interface ThemeSetting {
   sidebarLogoVariant?: 'color' | 'white' | 'black'
 }
 
+export interface UploadSetting {
+  maxFileSizeMb: number
+}
+
+export interface SidebarNavOrderSetting {
+  order: string[]
+}
+
 export interface ThemeOption {
   id: string
   themeKey: string
@@ -332,7 +340,7 @@ export interface CurrentTheme extends ThemeSetting {
   theme: ThemeOption | null
 }
 
-export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | ThemeSetting | string
+export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | ThemeSetting | UploadSetting | SidebarNavOrderSetting | string
 
 /** 系统设置条目 */
 export interface SystemSetting {
@@ -528,6 +536,7 @@ export interface ProjectMeta {
   auditStatuses?: { label: string; value: string }[]
   evidenceStatuses?: { label: string; value: string }[]
   riskLevels?: { label: string; value: string }[]
+  uploadSettings?: UploadSetting
 }
 
 export interface ProjectSummary {

@@ -62,6 +62,63 @@
       </button>
     </section>
 
+    <section class="daily-workbench" aria-label="今日工作入口">
+      <article class="workbench-panel workbench-panel--primary">
+        <div class="panel-head">
+          <div>
+            <h3>今日优先处理</h3>
+            <p>来自真实待办接口，按风险和期限优先展示。</p>
+          </div>
+          <span>{{ priorityWorkItems.length }} 项</span>
+        </div>
+        <div class="action-list">
+          <button v-for="item in priorityWorkItems" :key="item.id" type="button" class="action-row" @click="openWorkItem(item)">
+            <i :data-level="item.level" />
+            <div>
+              <strong>{{ item.projectName || '未命名项目' }}</strong>
+              <span>{{ item.type || '待办' }} · {{ item.owner || '未分配' }}{{ item.dueDate ? ` · ${item.dueDate}` : '' }}</span>
+            </div>
+            <em>{{ item.action || '查看处理' }}</em>
+          </button>
+          <div v-if="priorityWorkItems.length === 0" class="action-empty">
+            <strong>暂无待办</strong>
+            <span>{{ workItemLoadFailed ? '待办接口暂未返回数据，请检查接口或权限。' : '当前没有待处理事项，可以从项目或资料开始补充业务数据。' }}</span>
+            <div>
+              <button type="button" @click="router.push('/project-management')">进入项目台账</button>
+              <button type="button" @click="router.push('/materials')">上传资料</button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="workbench-panel">
+        <div class="panel-head">
+          <div>
+            <h3>结算财务待办</h3>
+            <p>只展示结算财务接口返回的真实任务。</p>
+          </div>
+          <span>{{ financeWorkItems.length }} 项</span>
+        </div>
+        <div class="action-list">
+          <button v-for="item in financeWorkItems.slice(0, 4)" :key="item.id" type="button" class="action-row" @click="router.push('/finance')">
+            <i :data-level="item.isOverdue ? 'danger' : 'primary'" />
+            <div>
+              <strong>{{ item.projectName || '结算项目待补充' }}</strong>
+              <span>{{ item.currentNode || '付款节点待补充' }} · {{ item.managerName || '未分配' }}</span>
+            </div>
+            <em>{{ item.action || item.invoiceStatus || '查看' }}</em>
+          </button>
+          <div v-if="financeWorkItems.length === 0" class="action-empty">
+            <strong>暂无结算财务待办</strong>
+            <span>{{ financeLoadFailed ? '结算财务工作台接口暂未接入或无权限访问。' : '可以从已有项目补充结算信息，或新增结算项目。' }}</span>
+            <div>
+              <button type="button" @click="router.push('/finance')">进入结算中心</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
     <section class="kpi-grid" aria-label="核心指标">
       <button
         v-for="card in kpiCards"
@@ -77,9 +134,10 @@
           <em>{{ card.hint }}</em>
         </div>
         <strong>{{ card.value }}</strong>
-        <div class="sparkline" aria-hidden="true">
+        <div v-if="card.sparkline.length" class="sparkline" aria-hidden="true">
           <i v-for="(point, index) in card.sparkline" :key="index" :style="{ height: `${point}%` }" />
         </div>
+        <div v-else class="sparkline-empty">暂无趋势</div>
       </button>
     </section>
 
@@ -88,7 +146,7 @@
         <div class="panel-head">
           <div>
             <h3>项目状态构成</h3>
-            <p>未开始 / 进行中 / 延期 / 已完成 / 暂停</p>
+            <p>按工程项目生命周期状态统计</p>
           </div>
           <span>实时</span>
         </div>
@@ -183,6 +241,7 @@ import type { ISpec } from '@visactor/vchart/esm/core'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuditStore } from '@/store/audit'
 import { fetchWorkItems } from '@/api/projects'
+import { fetchSettlementFinanceWorkbench, type SettlementWorkbenchItem } from '@/api/settlementFinance'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 import type { WorkItem } from '@/types'
 
@@ -190,6 +249,9 @@ const store = useAuditStore()
 const router = useRouter()
 const selectedRange = ref('本月')
 const workItems = ref<WorkItem[]>([])
+const financeWorkItems = ref<SettlementWorkbenchItem[]>([])
+const workItemLoadFailed = ref(false)
+const financeLoadFailed = ref(false)
 const rangeOptions = ['本月', '本季度', '本年', '自定义日期']
 
 type DashboardTarget = { path: string; query?: Record<string, string | undefined> }
@@ -208,8 +270,17 @@ onMounted(async () => {
   await store.refreshAll()
   try {
     workItems.value = await fetchWorkItems(80)
+    workItemLoadFailed.value = false
   } catch {
     workItems.value = []
+    workItemLoadFailed.value = true
+  }
+  try {
+    financeWorkItems.value = await fetchSettlementFinanceWorkbench()
+    financeLoadFailed.value = false
+  } catch {
+    financeWorkItems.value = []
+    financeLoadFailed.value = true
   }
 })
 
@@ -232,16 +303,8 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(Math.max(value, min), max)
 }
 
-function sparkline(seed: number, points = 8) {
-  const base = Math.max(seed, 1)
-  return Array.from({ length: points }, (_, index) => {
-    const wave = Math.sin((index + 1) * 1.35 + base * 0.13)
-    return clamp(34 + wave * 18 + ((base + index * 7) % 26), 18, 92)
-  })
-}
-
-function overviewSparkline(key: string, defaultSeed: number) {
-  return store.overview.cardSparklines[key] || sparkline(defaultSeed)
+function overviewSparkline(key: string) {
+  return store.overview.cardSparklines[key] || []
 }
 
 const completionRate = computed(() => {
@@ -251,13 +314,20 @@ const completionRate = computed(() => {
 
 const overdueWorkItems = computed(() => workItems.value.filter((item) => item.type === '已逾期').length)
 
+const priorityWorkItems = computed(() => {
+  const weight: Record<string, number> = { danger: 0, warning: 1, primary: 2, normal: 3 }
+  return [...workItems.value]
+    .sort((a, b) => (weight[a.level] ?? 4) - (weight[b.level] ?? 4))
+    .slice(0, 5)
+})
+
 const kpiCards = computed<KpiCard[]>(() => [
-  { label: '审计项目总数', value: store.summary.totalProjects, hint: '当前项目合计', level: 'normal', sparkline: overviewSparkline('totalProjects', store.summary.totalProjects), target: { path: '/audit' } },
-  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: overviewSparkline('inAuditProjects', store.summary.inAuditProjects + 8), target: { path: '/audit', query: { status: 'active' } } },
-  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: overviewSparkline('completedProjects', store.summary.completedProjects + 16), target: { path: '/audit', query: { stage: 'archived' } } },
-  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: overviewSparkline('overdueProjects', store.summary.overdueProjects + 24), target: { path: '/audit', query: { onlyOverdue: '1', sort: 'plannedEndDate' } } },
-  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: overviewSparkline('monthlyNewProjects', store.summary.monthlyNewProjects + 32), target: { path: '/project-management', query: { onlyMonthlyNew: '1', sort: 'updatedAt' } } },
-  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: overviewSparkline('upcomingDueProjects', store.summary.upcomingDueProjects + 40), target: { path: '/project-management', query: { view: 'due', sort: 'plannedEndDate' } } },
+  { label: '审计项目总数', value: store.summary.totalProjects, hint: '当前项目合计', level: 'normal', sparkline: overviewSparkline('totalProjects'), target: { path: '/audit' } },
+  { label: '进行中项目数', value: store.summary.inAuditProjects, hint: '一审 / 二审推进中', level: 'active', sparkline: overviewSparkline('inAuditProjects'), target: { path: '/audit', query: { status: 'active' } } },
+  { label: '已完成项目数', value: store.summary.completedProjects, hint: `完成率 ${completionRate.value}%`, level: 'success', sparkline: overviewSparkline('completedProjects'), target: { path: '/audit', query: { stage: 'archived' } } },
+  { label: '延期项目数', value: store.summary.overdueProjects, hint: '需管理层关注', level: store.summary.overdueProjects ? 'danger' : 'normal', sparkline: overviewSparkline('overdueProjects'), target: { path: '/audit', query: { onlyOverdue: '1', sort: 'plannedEndDate' } } },
+  { label: '本月新增项目数', value: store.summary.monthlyNewProjects, hint: '按创建时间统计', level: 'normal', sparkline: overviewSparkline('monthlyNewProjects'), target: { path: '/project-management', query: { onlyMonthlyNew: '1', sort: 'updatedAt' } } },
+  { label: '即将到期项目数', value: store.summary.upcomingDueProjects, hint: '7 天内计划完成', level: store.summary.upcomingDueProjects ? 'warning' : 'normal', sparkline: overviewSparkline('upcomingDueProjects'), target: { path: '/project-management', query: { view: 'due', sort: 'plannedEndDate' } } },
 ])
 
 const missionItems = computed<MissionItem[]>(() => [
@@ -412,7 +482,7 @@ const moduleStatus: ModuleStatusItem[] = [
   { name: '审计看板', status: '已启用', enabled: true, target: { path: '/audit' } },
   { name: '项目管理', status: '已启用', enabled: true, target: { path: '/project-management' } },
   { name: '招投标看板', status: '建设中', enabled: false, target: { path: '/bidding' } },
-  { name: '财务看板', status: '建设中', enabled: false, target: { path: '/finance' } },
+  { name: '结算中心', status: '已启用', enabled: true, target: { path: '/finance' } },
   { name: '资料管理', status: '已启用', enabled: true, target: { path: '/materials' } },
 ]
 </script>
@@ -524,16 +594,18 @@ const moduleStatus: ModuleStatusItem[] = [
 .hero-signals small {
   display: block;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .hero-signal--amount {
   min-width: 0;
+  align-content: start;
+  min-height: 74px;
 }
 
 .hero-signal--amount strong {
@@ -625,6 +697,7 @@ const moduleStatus: ModuleStatusItem[] = [
 
 .mission-strip button,
 .kpi-card,
+.workbench-panel,
 .chart-panel,
 .module-panel {
   background: var(--bg-surface);
@@ -662,6 +735,114 @@ const moduleStatus: ModuleStatusItem[] = [
 .mission-strip strong {
   grid-row: span 2;
   font-size: var(--text-2xl);
+}
+
+.daily-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+  gap: var(--space-4);
+}
+
+.workbench-panel {
+  min-height: 260px;
+  padding: var(--space-4);
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.workbench-panel--primary {
+  border-color: rgba(22, 93, 255, .18);
+}
+
+.action-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.action-row {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+  color: inherit;
+  text-align: left;
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(71, 135, 240, .14);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.action-row > i {
+  width: 8px;
+  height: 32px;
+  background: var(--color-brand-500);
+  border-radius: 99px;
+}
+
+.action-row > i[data-level='danger'] {
+  background: var(--color-danger);
+}
+
+.action-row > i[data-level='warning'] {
+  background: var(--color-warning);
+}
+
+.action-row strong,
+.action-row span,
+.action-row em {
+  overflow-wrap: anywhere;
+}
+
+.action-row div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.action-row span,
+.action-row em,
+.action-empty span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.action-row em {
+  justify-self: end;
+  color: var(--color-brand-600);
+  font-weight: 700;
+}
+
+.action-empty {
+  min-height: 154px;
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  text-align: center;
+  background: rgba(255, 255, 255, .62);
+  border: 1px dashed rgba(71, 135, 240, .24);
+  border-radius: var(--radius-md);
+}
+
+.action-empty div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.action-empty button {
+  height: 32px;
+  padding: 0 var(--space-3);
+  color: var(--color-brand-600);
+  background: rgba(255, 255, 255, .84);
+  border: 1px solid rgba(22, 93, 255, .24);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
 .kpi-grid {
@@ -730,6 +911,14 @@ const moduleStatus: ModuleStatusItem[] = [
   min-width: 4px;
   background: var(--color-brand-100);
   border-top: 2px solid var(--color-brand-500);
+}
+
+.sparkline-empty {
+  min-height: 28px;
+  display: grid;
+  place-items: center start;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
 }
 
 .dashboard-grid {
@@ -893,6 +1082,7 @@ const moduleStatus: ModuleStatusItem[] = [
 
 @media (max-width: 1280px) {
   .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .daily-workbench,
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chart-panel--wide,
   .chart-panel--amount { grid-column: span 1; }
@@ -903,6 +1093,7 @@ const moduleStatus: ModuleStatusItem[] = [
   .hero-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero-signal--amount { grid-column: 1 / -1; }
   .mission-strip { grid-template-columns: 1fr; }
+  .daily-workbench,
   .dashboard-grid { grid-template-columns: 1fr; }
 }
 
@@ -919,6 +1110,15 @@ const moduleStatus: ModuleStatusItem[] = [
   .kpi-grid { grid-template-columns: 1fr; }
   .mission-strip button { grid-template-columns: 1fr; }
   .mission-strip strong { grid-row: auto; }
+  .action-row {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+
+  .action-row em {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .chart-panel,
   .module-panel { min-height: 320px; }
   .panel-head {

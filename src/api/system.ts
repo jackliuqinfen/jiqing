@@ -10,6 +10,7 @@ import type {
   SystemSettingValue,
   ThemeOption,
   ThemeSetting,
+  SidebarNavOrderSetting,
   UpdateAdminUserDto,
   UserProfile,
 } from '@/types'
@@ -161,6 +162,10 @@ export async function updateAdminUser(dto: UpdateAdminUserDto): Promise<void> {
   await request<AdminUser>(`/admin/users/${dto.id}`, { method: 'PUT', body: JSON.stringify(dto) })
 }
 
+export async function deleteAdminUser(id: string): Promise<void> {
+  await request<null>(`/admin/users/${id}`, { method: 'DELETE' })
+}
+
 export async function getAdminStats(): Promise<AdminStats> {
   return request<AdminStats>('/admin/stats')
 }
@@ -185,6 +190,10 @@ export async function setSystemSetting(
   _updatedBy: string
 ): Promise<void> {
   await request<null>(`/system/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) })
+}
+
+export async function getSidebarNavOrder(): Promise<SidebarNavOrderSetting> {
+  return request<SidebarNavOrderSetting>('/system/sidebar-nav-order')
 }
 
 export async function getThemeOptions(): Promise<ThemeOption[]> {

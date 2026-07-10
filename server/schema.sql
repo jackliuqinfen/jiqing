@@ -138,6 +138,29 @@ CREATE TABLE IF NOT EXISTS project_settlements (
   FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS settlement_payment_nodes (
+  id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  node_name TEXT NOT NULL,
+  node_order INTEGER DEFAULT 0,
+  trigger_condition TEXT DEFAULT '',
+  base_type TEXT DEFAULT '',
+  payment_ratio REAL DEFAULT 0,
+  base_amount REAL DEFAULT 0,
+  calculated_amount REAL DEFAULT 0,
+  is_cumulative INTEGER DEFAULT 1,
+  deduct_existing INTEGER DEFAULT 1,
+  required_documents_json TEXT DEFAULT '[]',
+  due_days INTEGER DEFAULT 30,
+  reminder_enabled INTEGER DEFAULT 1,
+  node_status TEXT DEFAULT '未满足',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (settlement_id) REFERENCES project_settlements(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS project_variations (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -356,6 +379,7 @@ CREATE INDEX IF NOT EXISTS idx_project_records_status ON project_records(project
 CREATE INDEX IF NOT EXISTS idx_project_records_updated ON project_records(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_project_files_project ON project_files(project_id, category_key, is_current);
 CREATE INDEX IF NOT EXISTS idx_project_settlements_project ON project_settlements(project_id, settlement_status);
+CREATE INDEX IF NOT EXISTS idx_settlement_payment_nodes_settlement ON settlement_payment_nodes(settlement_id, node_order);
 CREATE INDEX IF NOT EXISTS idx_project_variations_project ON project_variations(project_id, variation_status);
 CREATE INDEX IF NOT EXISTS idx_audit_field_configs_sort ON audit_field_configs(entity_type, sort_order);
 CREATE INDEX IF NOT EXISTS idx_audit_field_options_group ON audit_field_options(group_key, sort_order);

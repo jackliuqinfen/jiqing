@@ -7,6 +7,10 @@
         <ATag v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="light">已应用筛选</ATag>
       </template>
       <template #actions>
+        <AButton theme="primary" @click="openUploadDialog">
+          <template #icon><AIcon name="upload" /></template>
+          上传资料
+        </AButton>
         <AButton variant="outline" :loading="loading" @click="loadFiles">
           <template #icon><AIcon name="refresh" /></template>
           刷新
@@ -58,6 +62,10 @@
       :description="keyword || fileType || selectedProject || selectedStage || uploader ? '请调整筛选条件后再试，或清除筛选查看全部资料。' : '当前还没有归集到项目资料或审计证据。'"
     >
       <template #actions>
+        <AButton theme="primary" @click="openUploadDialog">
+          <template #icon><AIcon name="upload" /></template>
+          上传资料
+        </AButton>
         <AButton v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="outline" @click="clearFilters">清除筛选</AButton>
         <AButton theme="primary" :loading="loading" @click="loadFiles">
           <template #icon><AIcon name="refresh" /></template>
@@ -195,22 +203,70 @@
         </div>
       </div>
     </div>
+
+    <AModal
+      v-model:visible="uploadDialog.visible"
+      header="上传项目资料"
+      :confirm-btn="{ content: '开始上传', loading: uploadDialog.saving }"
+      width="640px"
+      :mask-closable="false"
+      @confirm="saveUpload"
+      @cancel="closeUploadDialog"
+    >
+      <AForm :model="uploadDialog" layout="vertical" class="upload-form">
+        <AFormItem field="projectId" label="选择项目" required>
+          <ASelect
+            v-model="uploadDialog.projectId"
+            :options="projectOptions"
+            placeholder="搜索或选择项目"
+            allow-search
+            allow-clear
+            :loading="projectsLoading"
+          />
+        </AFormItem>
+        <AFormItem field="categoryKey" label="资料类型" required>
+          <ASelect
+            v-model="uploadDialog.categoryKey"
+            :options="categoryOptions"
+            placeholder="请选择资料类型"
+            allow-search
+            allow-clear
+          />
+        </AFormItem>
+        <AFormItem field="displayName" label="资料名称" required>
+          <AInput v-model="uploadDialog.displayName" placeholder="请输入资料名称，如：合同文件、竣工验收证明" allow-clear />
+        </AFormItem>
+        <AFormItem field="file" label="文件" required>
+          <input ref="uploadInputRef" class="native-file" type="file" @change="onUploadFilePicked" />
+        </AFormItem>
+        <p class="dialog-hint">同一项目、同一资料类型、同一资料名称重复上传时，系统会按新版本处理。</p>
+      </AForm>
+    </AModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   fetchAttachmentDownloadBlob,
   fetchAttachmentPreviewBlob,
 } from '@/api/audit'
-import { fetchProjectEvidence, fetchProjectFileDownloadBlob, fetchProjectFilePreviewBlob } from '@/api/projects'
+import {
+  fetchProjectEvidence,
+  fetchProjectFileDownloadBlob,
+  fetchProjectFilePreviewBlob,
+  fetchProjectMeta,
+  fetchProjectRecords,
+  uploadProjectFile,
+} from '@/api/projects'
 import { MessagePlugin } from '@/ui/message'
-import type { ProjectEvidenceFile } from '@/types'
+import type { ProjectEvidenceFile, ProjectMeta, ProjectRecord } from '@/types'
 import { auditStageOptions } from '@/utils/businessDictionaries'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 
+const route = useRoute()
 const tableColumns = [
   { colKey: 'file', title: '文件', width: 320 },
   { colKey: 'project', title: '项目名称' },
@@ -231,13 +287,31 @@ const fileTypeOptions = [
 const stageOptions = auditStageOptions.map(({ label, value }) => ({ label, value }))
 
 const files = ref<ProjectEvidenceFile[]>([])
+const projects = ref<ProjectRecord[]>([])
+const meta = reactive<ProjectMeta>({
+  categories: [],
+  projectStatuses: [],
+  settlementStatuses: [],
+  auditStages: [],
+})
 const loading = ref(false)
+const projectsLoading = ref(false)
 const fetchError = ref('')
 const keyword = ref('')
 const fileType = ref('')
 const selectedProject = ref('')
 const selectedStage = ref('')
 const uploader = ref('')
+const uploadInputRef = ref<HTMLInputElement | null>(null)
+
+const uploadDialog = reactive({
+  visible: false,
+  saving: false,
+  projectId: '',
+  categoryKey: '',
+  displayName: '',
+  file: null as File | null,
+})
 
 const preview = reactive({
   visible: false,
@@ -288,10 +362,26 @@ const typeGroups = computed(() => {
 
 const totalSize = computed(() => filteredFiles.value.reduce((sum, file) => sum + Number(file.fileSize || 0), 0))
 const previewableCount = computed(() => filteredFiles.value.filter((file) => file.canPreview).length)
+const projectOptions = computed(() => projects.value.map((project) => ({
+  label: `${project.projectName}（${project.projectCode || '未编号'}）`,
+  value: project.id,
+})))
+const categoryOptions = computed(() => meta.categories.map((category) => ({
+  label: category.categoryName,
+  value: category.categoryKey,
+})))
 
 watch([keyword, fileType, selectedStage, uploader], () => {
   selectedProject.value = ''
 })
+
+watch(
+  () => route.query.fileType,
+  (value) => {
+    fileType.value = typeof value === 'string' ? value : ''
+  },
+  { immediate: true },
+)
 
 function clearFilters() {
   keyword.value = ''
@@ -371,6 +461,89 @@ async function loadFiles() {
   }
 }
 
+async function loadUploadOptions() {
+  projectsLoading.value = true
+  try {
+    const [metaResult, projectResult] = await Promise.all([
+      fetchProjectMeta(),
+      fetchProjectRecords({ page: 1, pageSize: 500, sort: 'updatedAt' }),
+    ])
+    Object.assign(meta, metaResult)
+    projects.value = projectResult.data
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '上传选项加载失败')
+  } finally {
+    projectsLoading.value = false
+  }
+}
+
+function resetUploadDialog() {
+  uploadDialog.projectId = ''
+  uploadDialog.categoryKey = ''
+  uploadDialog.displayName = ''
+  uploadDialog.file = null
+  if (uploadInputRef.value) uploadInputRef.value.value = ''
+}
+
+async function openUploadDialog() {
+  if (!projects.value.length || !meta.categories.length) {
+    await loadUploadOptions()
+  }
+  resetUploadDialog()
+  uploadDialog.visible = true
+}
+
+function closeUploadDialog() {
+  if (uploadDialog.saving) return
+  uploadDialog.visible = false
+  resetUploadDialog()
+}
+
+function onUploadFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  uploadDialog.file = input.files?.[0] || null
+  if (!uploadDialog.displayName && uploadDialog.file) {
+    uploadDialog.displayName = uploadDialog.file.name.replace(/\.[^.]+$/, '')
+  }
+}
+
+async function saveUpload() {
+  if (!uploadDialog.projectId) {
+    MessagePlugin.error('请先选择项目')
+    return
+  }
+  if (!uploadDialog.categoryKey) {
+    MessagePlugin.error('请选择资料类型')
+    return
+  }
+  if (!uploadDialog.displayName.trim()) {
+    MessagePlugin.error('请填写资料名称')
+    return
+  }
+  if (!uploadDialog.file) {
+    MessagePlugin.error('请选择要上传的文件')
+    return
+  }
+  uploadDialog.saving = true
+  try {
+    await uploadProjectFile(uploadDialog.projectId, {
+      categoryKey: uploadDialog.categoryKey,
+      displayName: uploadDialog.displayName.trim(),
+      file: uploadDialog.file,
+    })
+    const project = projects.value.find((item) => item.id === uploadDialog.projectId)
+    MessagePlugin.success('资料已上传')
+    uploadDialog.visible = false
+    resetUploadDialog()
+    await loadFiles()
+    if (project?.projectName) selectedProject.value = project.projectName
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '资料上传失败')
+  } finally {
+    uploadDialog.saving = false
+  }
+}
+
 async function openPreview(file: ProjectEvidenceFile) {
   closePreview()
   preview.visible = true
@@ -420,7 +593,20 @@ async function downloadFile(file: ProjectEvidenceFile) {
   }
 }
 
-onMounted(loadFiles)
+function handleSidebarAction(event: Event) {
+  const action = (event as CustomEvent<{ action?: string }>).detail?.action
+  if (action === 'materials:upload') openUploadDialog()
+}
+
+onMounted(() => {
+  window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
+  loadFiles()
+  loadUploadOptions()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
+})
 </script>
 
 <style scoped>
@@ -648,6 +834,31 @@ onMounted(loadFiles)
 }
 
 .preview-message { color: var(--text-secondary); font-size: var(--text-sm); }
+
+.upload-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.upload-form :deep(.arco-form-item) {
+  margin-bottom: 0;
+}
+
+.upload-form :deep(.arco-select-view-single),
+.upload-form :deep(.arco-input-wrapper) {
+  width: 100%;
+}
+
+.native-file {
+  width: 100%;
+}
+
+.dialog-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
 
 @media (max-width: 980px) {
   .summary-grid { grid-template-columns: repeat(2, 1fr); }

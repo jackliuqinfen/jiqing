@@ -8,9 +8,9 @@
  * @returns 格式化字符串（如 "1,234,567.89"）
  */
 export function formatAmount(value: number): string {
-  return value.toLocaleString('zh-CN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  return Number(value || 0).toLocaleString('zh-CN', {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
   })
 }
 
@@ -25,7 +25,81 @@ export function formatCNY(value: number): string {
  * 金额格式化（万元）
  */
 export function formatWan(value: number): string {
-  return `${(value / 10000).toFixed(2)} 万元`
+  return `${formatAmount(Number(value || 0) / 10000)} 万元`
+}
+
+export function formatYuan(value: number): string {
+  return `${formatAmount(Number(value || 0))} 元`
+}
+
+export function moneyParts(value: number) {
+  const amount = Number(value || 0)
+  return {
+    yuan: formatYuan(amount),
+    wan: formatWan(amount),
+    upper: amountToChineseUpper(amount),
+  }
+}
+
+const chineseDigits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖']
+const sectionUnits = ['', '万', '亿', '兆']
+const digitUnits = ['', '拾', '佰', '仟']
+
+function integerSectionToChinese(section: number) {
+  let result = ''
+  let zeroPending = false
+  for (let unitIndex = 3; unitIndex >= 0; unitIndex -= 1) {
+    const divisor = 10 ** unitIndex
+    const digit = Math.floor(section / divisor) % 10
+    if (digit === 0) {
+      if (result) zeroPending = true
+    } else {
+      if (zeroPending) {
+        result += chineseDigits[0]
+        zeroPending = false
+      }
+      result += chineseDigits[digit] + digitUnits[unitIndex]
+    }
+  }
+  return result
+}
+
+function integerToChinese(value: number) {
+  if (value === 0) return chineseDigits[0]
+  let integer = Math.floor(value)
+  const sections: number[] = []
+  while (integer > 0) {
+    sections.unshift(integer % 10000)
+    integer = Math.floor(integer / 10000)
+  }
+  let result = ''
+  let zeroPending = false
+  sections.forEach((section, index) => {
+    const unitIndex = sections.length - index - 1
+    if (section === 0) {
+      zeroPending = result.length > 0
+      return
+    }
+    if (zeroPending || (result.length > 0 && section < 1000)) {
+      result += chineseDigits[0]
+    }
+    result += integerSectionToChinese(section) + sectionUnits[unitIndex]
+    zeroPending = false
+  })
+  return result.replace(/零+/g, '零').replace(/零(万|亿|兆)/g, '$1').replace(/亿万/g, '亿').replace(/零$/g, '')
+}
+
+export function amountToChineseUpper(value: number): string {
+  const amount = Math.round(Math.abs(Number(value || 0)) * 100)
+  const integer = Math.floor(amount / 100)
+  const jiao = Math.floor((amount % 100) / 10)
+  const fen = amount % 10
+  const sign = Number(value || 0) < 0 ? '负' : ''
+  let text = `${sign}人民币${integerToChinese(integer)}元`
+  if (jiao === 0 && fen === 0) return `${text}整`
+  if (jiao > 0) text += `${chineseDigits[jiao]}角`
+  if (fen > 0) text += `${jiao === 0 ? '零' : ''}${chineseDigits[fen]}分`
+  return text
 }
 
 /**

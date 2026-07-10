@@ -43,31 +43,31 @@
 
     <!-- 金额区块 — 清晰网格 -->
     <div class="card-section amount-section">
-      <span class="section-label">造价金额（元）</span>
+      <span class="section-label">造价金额</span>
       <div class="amount-grid">
         <div class="amount-item">
           <span class="amount-label">合同金额</span>
-          <span class="amount-value">{{ formatAmount(item.amount.contractAmount) }}</span>
+          <MoneyDisplay :value="item.amount.contractAmount" mode="compact" />
         </div>
         <div class="amount-item amount-item--bold">
           <span class="amount-label">送审金额</span>
-          <span class="amount-value">{{ formatAmount(item.amount.submittedAmount) }}</span>
+          <MoneyDisplay :value="item.amount.submittedAmount" mode="compact" />
         </div>
         <div class="amount-item">
           <span class="amount-label">一审审定</span>
-          <span class="amount-value">{{ formatAmount(item.amount.firstAuditAmount) }}</span>
+          <MoneyDisplay :value="item.amount.firstAuditAmount" mode="compact" />
         </div>
         <div class="amount-item">
           <span class="amount-label">二审审定</span>
-          <span class="amount-value">{{ formatAmount(item.amount.secondAuditAmount) }}</span>
+          <MoneyDisplay :value="item.amount.secondAuditAmount" mode="compact" />
         </div>
         <div v-if="item.amount.auditDifference > 0" class="amount-item amount-item--negative">
           <span class="amount-label">审减差额</span>
-          <span class="amount-value">-{{ formatAmount(item.amount.auditDifference) }}</span>
+          <MoneyDisplay :value="-item.amount.auditDifference" mode="compact" />
         </div>
         <div class="amount-item amount-item--bold">
           <span class="amount-label">定案应付</span>
-          <span class="amount-value">{{ formatAmount(item.amount.finalPayable) }}</span>
+          <MoneyDisplay :value="item.amount.finalPayable" mode="compact" />
         </div>
       </div>
     </div>
@@ -156,7 +156,8 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import type { CostAuditItem } from '@/types'
-import { formatAmount, getInitials } from '@/utils/format'
+import MoneyDisplay from '@/components/MoneyDisplay.vue'
+import { amountToChineseUpper, formatYuan, getInitials } from '@/utils/format'
 import { formatDate, isOverdue } from '@/utils/date'
 import { MessagePlugin } from '@/ui/message'
 
@@ -229,7 +230,7 @@ function handleCopyInfo() {
     `楼栋: ${props.item.sectionBuilding}`,
     `编号: ${props.item.settlementNo}`,
     `分类: ${props.item.category}`,
-    `送审金额: ${formatAmount(props.item.amount.submittedAmount)}`,
+    `送审金额: ${formatYuan(props.item.amount.submittedAmount)} / ${amountToChineseUpper(props.item.amount.submittedAmount)}`,
     `一审: ${props.item.firstAudit.companyName} - ${props.item.firstAudit.auditor.name}`,
     `二审: ${props.item.secondAudit.department} - ${props.item.secondAudit.auditor.name}`,
     `截止: ${formatDate(props.item.deadline.auditDeadline)}`,
