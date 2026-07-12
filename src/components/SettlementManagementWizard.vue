@@ -69,28 +69,34 @@
           </header>
           <h4>项目是否竣工验收？</h4>
           <div class="choice-grid choice-grid--three">
-            <button v-for="item in acceptanceOptions" :key="item.value" type="button" :class="{ active: form.acceptanceStatus === item.value }" @click="form.acceptanceStatus = item.value">
+            <button v-for="item in acceptanceOptions" :key="item.value" type="button" :class="{ active: form.acceptanceStatus === item.value }" @click="selectAcceptanceStatus(item.value)">
               <strong>{{ item.label }}</strong><span>{{ item.hint }}</span>
             </button>
           </div>
           <div v-if="form.acceptanceStatus === 'accepted'" class="form-grid compact">
             <AFormItem field="acceptanceDate" label="竣工验收日期" required><ADatePicker v-model="form.acceptanceDate" allow-clear placeholder="请选择日期" /></AFormItem>
           </div>
-          <h4>项目是否已经送审？</h4>
-          <div class="choice-grid choice-grid--four">
-            <button v-for="item in auditOptions" :key="item.value" type="button" :class="{ active: form.auditStatus === item.value }" @click="form.auditStatus = item.value"><strong>{{ item.label }}</strong></button>
-          </div>
-          <div class="form-grid">
-            <AFormItem v-if="auditRank >= 1" field="submittedAmount" label="送审金额（元）"><AInputNumber v-model="form.submittedAmount" :min="0" :precision="2" hide-button /></AFormItem>
-            <AFormItem v-if="auditRank >= 3" field="firstAuditAmount" label="一审审定金额（元）"><AInputNumber v-model="form.firstAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
-            <AFormItem v-if="auditRank >= 3" field="firstAuditDate" label="一审完成日期"><ADatePicker v-model="form.firstAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
-            <AFormItem v-if="auditRank >= 5" field="secondAuditAmount" label="二审审定金额（元）"><AInputNumber v-model="form.secondAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
-            <AFormItem v-if="auditRank >= 5" field="secondAuditDate" label="二审完成日期"><ADatePicker v-model="form.secondAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
-            <AFormItem v-if="auditRank >= 7" field="finalAuditAmount" label="最终审定金额（元）"><AInputNumber v-model="form.finalAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
-            <AFormItem v-if="auditRank >= 7" field="finalAuditDate" label="定案日期"><ADatePicker v-model="form.finalAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
-            <AFormItem v-if="auditRank >= 7" field="retentionRatio" label="质保金比例（%）"><AInputNumber v-model="form.retentionRatio" :min="0" :max="100" :precision="2" hide-button /></AFormItem>
-            <AFormItem v-if="auditRank >= 7" field="warrantyStartDate" label="质保期开始日期"><ADatePicker v-model="form.warrantyStartDate" allow-clear placeholder="请选择日期" /></AFormItem>
-            <AFormItem v-if="auditRank >= 7" field="warrantyEndDate" label="质保期结束日期"><ADatePicker v-model="form.warrantyEndDate" allow-clear placeholder="请选择日期" /></AFormItem>
+          <template v-if="canEnterAudit">
+            <h4>项目是否已经送审？</h4>
+            <div class="choice-grid choice-grid--four">
+              <button v-for="item in auditOptions" :key="item.value" type="button" :class="{ active: form.auditStatus === item.value }" @click="form.auditStatus = item.value"><strong>{{ item.label }}</strong></button>
+            </div>
+            <div class="form-grid">
+              <AFormItem v-if="auditRank >= 1" field="submittedAmount" label="送审金额（元）"><AInputNumber v-model="form.submittedAmount" :min="0" :precision="2" hide-button /></AFormItem>
+              <AFormItem v-if="auditRank >= 3" field="firstAuditAmount" label="一审审定金额（元）"><AInputNumber v-model="form.firstAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
+              <AFormItem v-if="auditRank >= 3" field="firstAuditDate" label="一审完成日期"><ADatePicker v-model="form.firstAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
+              <AFormItem v-if="auditRank >= 5" field="secondAuditAmount" label="二审审定金额（元）"><AInputNumber v-model="form.secondAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
+              <AFormItem v-if="auditRank >= 5" field="secondAuditDate" label="二审完成日期"><ADatePicker v-model="form.secondAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
+              <AFormItem v-if="auditRank >= 7" field="finalAuditAmount" label="最终审定金额（元）"><AInputNumber v-model="form.finalAuditAmount" :min="0" :precision="2" hide-button /></AFormItem>
+              <AFormItem v-if="auditRank >= 7" field="finalAuditDate" label="定案日期"><ADatePicker v-model="form.finalAuditDate" allow-clear placeholder="请选择日期" /></AFormItem>
+              <AFormItem v-if="auditRank >= 7" field="retentionRatio" label="质保金比例（%）"><AInputNumber v-model="form.retentionRatio" :min="0" :max="100" :precision="2" hide-button /></AFormItem>
+              <AFormItem v-if="auditRank >= 7" field="warrantyStartDate" label="质保期开始日期"><ADatePicker v-model="form.warrantyStartDate" allow-clear placeholder="请选择日期" /></AFormItem>
+              <AFormItem v-if="auditRank >= 7" field="warrantyEndDate" label="质保期结束日期"><ADatePicker v-model="form.warrantyEndDate" allow-clear placeholder="请选择日期" /></AFormItem>
+            </div>
+          </template>
+          <div v-else-if="form.acceptanceStatus" class="stage-gate" role="status">
+            <strong>{{ auditGateText }}</strong>
+            <span>竣工验收合格后，系统才会开放送审及审计阶段信息。</span>
           </div>
           <div class="status-result"><span>系统结算状态</span><strong>{{ generatedStatus }}</strong></div>
         </section>
@@ -242,7 +248,9 @@ const projectFacts = computed(() => {
   ]
 })
 const paymentBaseAmount = computed(() => Number(form.contractAmount || 0) - Number(form.provisionalAmount || 0) - Number(form.estimatedAmount || 0) - Number(form.ownerSuppliedAmount || 0) - Number(form.otherDeductionAmount || 0))
-const auditRank = computed(() => auditOptions.find((item) => item.value === form.auditStatus)?.rank || 0)
+const canEnterAudit = computed(() => form.acceptanceStatus === 'accepted')
+const auditRank = computed(() => canEnterAudit.value ? (auditOptions.find((item) => item.value === form.auditStatus)?.rank || 0) : 0)
+const auditGateText = computed(() => form.acceptanceStatus === 'completed_not_accepted' ? '项目尚未通过竣工验收，当前不能报审。' : '项目尚未竣工，当前不能报审。')
 const generatedStatus = computed(() => {
   if (form.acceptanceStatus === 'not_completed') return '未进入结算'
   if (form.acceptanceStatus === 'completed_not_accepted') return '待验收'
@@ -278,8 +286,31 @@ function emptyForm(): WizardForm {
 
 watch(() => props.visible, (visible) => { if (visible) reset() })
 watch(() => form.projectId, (projectId) => { if (projectId) hydrateProject() })
+watch(() => form.acceptanceStatus, (status) => { if (status !== 'accepted') clearAuditProgress() })
+watch(() => form.auditStatus, () => clearAuditFieldsAboveRank(auditRank.value))
 
 function reset() { Object.assign(form, emptyForm()); form.paymentNodes = []; stepIndex.value = 0; maxReachedStep.value = 0; message.value = '' }
+function selectAcceptanceStatus(status: string) { form.acceptanceStatus = status; message.value = '' }
+function clearAuditProgress() {
+  form.acceptanceDate = ''
+  form.auditStatus = 'not_submitted'
+  form.submittedAmount = undefined
+  form.firstAuditAmount = undefined
+  form.firstAuditDate = ''
+  form.secondAuditAmount = undefined
+  form.secondAuditDate = ''
+  form.finalAuditAmount = undefined
+  form.finalAuditDate = ''
+  form.retentionRatio = 0
+  form.warrantyStartDate = ''
+  form.warrantyEndDate = ''
+}
+function clearAuditFieldsAboveRank(rank: number) {
+  if (rank < 1) form.submittedAmount = undefined
+  if (rank < 3) { form.firstAuditAmount = undefined; form.firstAuditDate = '' }
+  if (rank < 5) { form.secondAuditAmount = undefined; form.secondAuditDate = '' }
+  if (rank < 7) { form.finalAuditAmount = undefined; form.finalAuditDate = ''; form.retentionRatio = 0; form.warrantyStartDate = ''; form.warrantyEndDate = '' }
+}
 function hydrateProject() {
   const project = selectedProject.value
   const draft = selectedRecord.value?.isDraft ? selectedRecord.value : null
@@ -316,9 +347,14 @@ function validateCurrentStep() {
   if (stepKey.value === 'stage') {
     if (!form.acceptanceStatus) return showError('请确认竣工验收状态。'), false
     if (form.acceptanceStatus === 'accepted' && !form.acceptanceDate) return showError('请选择竣工验收日期。'), false
+    if (!canEnterAudit.value && form.auditStatus !== 'not_submitted') return showError('项目竣工验收合格后才能进入送审流程。'), false
+    if (auditRank.value >= 1 && Number(form.submittedAmount || 0) <= 0) return showError('项目进入送审后必须填写送审金额。'), false
     if (auditRank.value >= 3 && Number(form.firstAuditAmount || 0) <= 0) return showError('一审完成时必须填写一审审定金额。'), false
+    if (auditRank.value >= 3 && !form.firstAuditDate) return showError('一审完成时必须填写一审完成日期。'), false
     if (auditRank.value >= 5 && Number(form.secondAuditAmount || 0) <= 0) return showError('二审完成时必须填写二审审定金额。'), false
+    if (auditRank.value >= 5 && !form.secondAuditDate) return showError('二审完成时必须填写二审完成日期。'), false
     if (auditRank.value >= 7 && Number(form.finalAuditAmount || 0) <= 0) return showError('最终定案时必须填写最终审定金额。'), false
+    if (auditRank.value >= 7 && !form.finalAuditDate) return showError('最终定案时必须填写定案日期。'), false
   }
   if (stepKey.value === 'history') {
     if (Number(form.invoicedAmount || 0) > Number(form.finalAuditAmount || form.contractAmount || 0)) return showError('已开票金额不能超过最终审定金额或合同金额。'), false
@@ -336,7 +372,10 @@ function removeNode(index: number) { form.paymentNodes.splice(index, 1); form.pa
 function updateRatio(item: SettlementPaymentNode, value: number | undefined) { item.paymentRatio = Number(value || 0) / 100 }
 function triggerSatisfied(trigger: string) { if (trigger === 'ACCEPTANCE_COMPLETED') return form.acceptanceStatus === 'accepted'; if (trigger === 'WARRANTY_EXPIRED') return Boolean(form.warrantyEndDate && form.warrantyEndDate <= new Date().toISOString().slice(0, 10)); const required: Record<string, number> = { FIRST_AUDIT_COMPLETED: 3, SECOND_AUDIT_COMPLETED: 5, FINAL_AUDIT_COMPLETED: 7 }; return auditRank.value >= (required[trigger] ?? 99) }
 function previewNodeStatus(trigger: string, amount: number) { if (!triggerSatisfied(trigger)) return '未满足'; if (form.documentsMissing) return '待补资料'; if (Number(form.invoicedAmount || 0) < amount) return '待开票'; if (Number(form.receivedAmount || 0) <= 0) return '待收款'; if (Number(form.receivedAmount || 0) < amount) return '部分收款'; return '已完成' }
-function buildPayload(isDraft: boolean): SettlementProjectPayload { return { ...form, isDraft, settlementStatus: isDraft ? '草稿' : generatedStatus.value, settlementName: `${selectedProject.value?.projectName || ''}结算管理`, paymentBaseAmount: paymentBaseAmount.value, paymentNodes: calculatedNodes.value.map((item) => ({ ...item })) } }
+function buildPayload(isDraft: boolean): SettlementProjectPayload {
+  const auditFields = canEnterAudit.value ? {} : { auditStatus: 'not_submitted', submittedAmount: 0, firstAuditAmount: 0, firstAuditDate: '', secondAuditAmount: 0, secondAuditDate: '', finalAuditAmount: 0, finalAuditDate: '', warrantyStartDate: '', warrantyEndDate: '' }
+  return { ...form, ...auditFields, isDraft, settlementStatus: isDraft ? '草稿' : generatedStatus.value, settlementName: `${selectedProject.value?.projectName || ''}结算管理`, paymentBaseAmount: paymentBaseAmount.value, paymentNodes: calculatedNodes.value.map((item) => ({ ...item })) }
+}
 async function saveDraft() { if (!form.projectId) return showError('请先选择项目。'); await submit(true) }
 async function confirm() { stepIndex.value = steps.length - 1; if (!validateAll()) return; await submit(false) }
 function validateAll() { const original = stepIndex.value; for (let index = 0; index < steps.length - 1; index += 1) { stepIndex.value = index; if (!validateCurrentStep()) { maxReachedStep.value = Math.max(maxReachedStep.value, index); return false } } stepIndex.value = original; return true }
@@ -354,5 +393,6 @@ const HistoryQuestion = defineComponent({
 
 <style scoped>
 .settlement-wizard{display:grid;grid-template-rows:auto minmax(0,1fr) auto;max-height:min(78vh,820px);margin:-8px -16px -16px;color:#10264a}.wizard-steps{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:16px 18px;border-bottom:1px solid rgba(116,145,195,.18);background:rgba(246,249,255,.76)}.wizard-steps button{min-width:0;height:54px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:#6b7d99}.wizard-steps button span{width:24px;height:24px;display:grid;place-items:center;border-radius:50%;background:#e9eff9;font-size:12px}.wizard-steps button strong{font-size:13px;white-space:nowrap}.wizard-steps button.active{color:#0f4ce8;background:#fff;border-color:rgba(22,93,255,.24);box-shadow:0 8px 22px rgba(41,73,129,.08)}.wizard-steps button.active span,.wizard-steps button.done span{color:#fff;background:#165dff}.wizard-body{overflow:auto;padding:22px 24px}.wizard-pane{display:grid;gap:18px}.pane-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.pane-head div{display:flex;align-items:center;gap:10px}.pane-head div>span{color:#165dff;font-size:12px;font-weight:700}.pane-head h3{margin:0;font-size:20px}.pane-head p{max-width:540px;margin:0;color:#6e7f99;line-height:1.7}.fact-grid,.review-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.fact-grid article,.review-grid article{min-height:72px;padding:13px;border:1px solid rgba(115,144,194,.18);border-radius:6px;background:rgba(248,250,254,.72)}.fact-grid span,.review-grid span{display:block;margin-bottom:8px;color:#7687a0;font-size:12px}.fact-grid strong,.review-grid strong{line-height:1.5;overflow-wrap:anywhere}.wizard-alert{margin:0;padding:10px 12px;border-radius:6px;background:#edf5ff;color:#2356a8}.wizard-alert.danger{background:#fff2f2;color:#b42318}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.form-grid.compact{max-width:50%}.span-2{grid-column:1/-1}.money-result{display:grid;gap:6px;padding:16px;border-left:3px solid #165dff;border-radius:4px;background:#f5f8ff}.money-result span,.money-result small{color:#6e7f99}.money-result strong{font-size:16px;line-height:1.6;overflow-wrap:anywhere}.source-note{margin:0;color:#75849a;font-size:12px}.wizard-pane h4{margin:0;font-size:14px}.choice-grid{display:grid;gap:10px}.choice-grid--three{grid-template-columns:repeat(3,1fr)}.choice-grid--four{grid-template-columns:repeat(4,1fr)}.choice-grid button,.template-grid button{min-height:68px;padding:12px;text-align:left;border:1px solid rgba(112,142,194,.22);border-radius:6px;background:#fff;color:#1b3155}.choice-grid button strong,.choice-grid button span,.template-grid button strong,.template-grid button span{display:block}.choice-grid button span,.template-grid button span{margin-top:6px;color:#71829d;font-size:12px;line-height:1.5}.choice-grid button.active,.template-grid button.active{border-color:#165dff;background:#f3f7ff;box-shadow:0 0 0 2px rgba(22,93,255,.08)}.status-result{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-radius:6px;background:#edf8f5}.status-result span{color:#607c76}.status-result strong{color:#008a70}.history-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.history-question{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px;border:1px solid rgba(112,142,194,.2);border-radius:6px;background:#fff}.history-question>div:first-child strong,.history-question>div:first-child span{display:block}.history-question>div:first-child span{margin-top:5px;color:#75849b;font-size:12px}.history-question label{grid-column:1/-1;display:grid;gap:6px;color:#5e6f89;font-size:12px}.history-question input{height:34px;padding:0 10px;border:1px solid #d7e0ef;border-radius:4px}.binary-control{display:flex}.binary-control button{height:30px;padding:0 13px;border:1px solid #d8e1f0;background:#fff;color:#64738a}.binary-control button:first-child{border-radius:4px 0 0 4px}.binary-control button:last-child{border-radius:0 4px 4px 0}.binary-control button.active{color:#fff;background:#165dff;border-color:#165dff}.template-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.node-editor{display:grid;gap:10px}.node-editor article{padding:14px;border:1px solid rgba(112,142,194,.2);border-radius:6px;background:rgba(255,255,255,.8)}.node-editor article>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.node-editor article>header button{border:0;background:transparent;color:#d92d20}.calculation-strip{display:flex;flex-wrap:wrap;gap:18px;padding-top:10px;border-top:1px solid #e7edf6;color:#64758f;font-size:12px}.calculation-strip strong{margin-left:auto;color:#165dff}.add-node{justify-self:start;height:34px;padding:0 14px;border:1px solid #165dff;border-radius:4px;background:#fff;color:#165dff}.document-row{display:grid;gap:10px;padding:14px;border-radius:6px;background:#f7f9fc}.review-table{overflow:hidden;border:1px solid #dfe6f2;border-radius:6px}.review-table>div{display:grid;grid-template-columns:2fr .7fr 1.2fr 1fr;gap:12px;padding:11px 14px;border-bottom:1px solid #e7edf6}.review-table>div:first-child{background:#f5f8fc}.review-table>div:last-child{border-bottom:0}.wizard-message{margin:0 24px 10px;padding:9px 12px;border-radius:4px;background:#edf5ff;color:#2456a5}.wizard-message.error{background:#fff1f1;color:#b42318}.wizard-message.success{background:#ecf8f4;color:#08795f}.wizard-footer{display:grid;grid-template-columns:auto auto 1fr auto auto;gap:10px;padding:14px 18px;border-top:1px solid rgba(116,145,195,.18);background:#fff}.wizard-footer button{height:36px;padding:0 16px;border:1px solid #d5deed;border-radius:4px;background:#fff;color:#29405f}.wizard-footer button.primary{color:#fff;background:#165dff;border-color:#165dff}.wizard-footer button:disabled{opacity:.45;cursor:not-allowed}
+.stage-gate{display:grid;gap:5px;padding:14px 16px;border:1px solid rgba(245,166,35,.24);border-radius:6px;background:#fff9ed;color:#6f4b08}.stage-gate span{color:#8a6a2f;font-size:12px;line-height:1.6}
 @media(max-width:900px){.wizard-steps{grid-template-columns:repeat(3,1fr)}.fact-grid,.review-grid,.history-grid,.form-grid,.choice-grid--three,.choice-grid--four,.template-grid{grid-template-columns:1fr}.form-grid.compact{max-width:none}.span-2{grid-column:auto}.pane-head{display:grid}.wizard-footer{grid-template-columns:repeat(2,auto);justify-content:end}.wizard-footer span{display:none}}
 </style>

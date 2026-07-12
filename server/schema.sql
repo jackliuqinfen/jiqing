@@ -1,5 +1,13 @@
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  checksum TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT DEFAULT '',
+  success INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS audit_projects (
   id TEXT PRIMARY KEY,
   project_id TEXT DEFAULT '',
@@ -57,6 +65,7 @@ CREATE TABLE IF NOT EXISTS project_records (
   company_role TEXT DEFAULT '',
   manager_name TEXT DEFAULT '',
   project_status TEXT DEFAULT 'awarded',
+  lifecycle_version INTEGER NOT NULL DEFAULT 0,
   settlement_status TEXT DEFAULT 'not_started',
   audit_stage TEXT DEFAULT 'not_linked',
   contract_amount REAL DEFAULT 0,
@@ -191,6 +200,23 @@ CREATE TABLE IF NOT EXISTS project_operation_logs (
   after_json TEXT DEFAULT '{}',
   created_at TEXT NOT NULL,
   FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS project_lifecycle_events (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  from_stage TEXT NOT NULL,
+  to_stage TEXT NOT NULL,
+  transition_type TEXT NOT NULL DEFAULT 'forward',
+  reason TEXT DEFAULT '',
+  idempotency_key TEXT NOT NULL,
+  lifecycle_version INTEGER NOT NULL,
+  actor_id TEXT DEFAULT '',
+  actor_name TEXT DEFAULT '',
+  payload_json TEXT DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE,
+  UNIQUE (project_id, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS audit_project_stages (
@@ -381,6 +407,7 @@ CREATE INDEX IF NOT EXISTS idx_project_files_project ON project_files(project_id
 CREATE INDEX IF NOT EXISTS idx_project_settlements_project ON project_settlements(project_id, settlement_status);
 CREATE INDEX IF NOT EXISTS idx_settlement_payment_nodes_settlement ON settlement_payment_nodes(settlement_id, node_order);
 CREATE INDEX IF NOT EXISTS idx_project_variations_project ON project_variations(project_id, variation_status);
+CREATE INDEX IF NOT EXISTS idx_project_lifecycle_events_project ON project_lifecycle_events(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_field_configs_sort ON audit_field_configs(entity_type, sort_order);
 CREATE INDEX IF NOT EXISTS idx_audit_field_options_group ON audit_field_options(group_key, sort_order);
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_operation_logs(created_at DESC);

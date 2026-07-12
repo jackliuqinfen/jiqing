@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from contextlib import contextmanager
 import base64
 import hashlib
 import hmac
@@ -9,12 +10,35 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import time
 import uuid
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
+
+SERVER_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = SERVER_ROOT.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from server.lifecycle import (
+    audit_start_failures,
+    contract_gate_failures,
+    next_stage as lifecycle_next_stage,
+    stage_label as lifecycle_stage_label,
+    validate_adjacent_transition,
+)
+from server.lifecycle_repository import (
+    LifecycleBlockedError,
+    LifecycleConflictError,
+    LifecycleIdempotencyConflictError,
+    LifecycleNotFoundError,
+    lifecycle_snapshot,
+    transition_project,
+)
+from server.migrations import apply_pending_migrations
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT / "audit-kanban.sqlite3"
@@ -239,13 +263,19 @@ def user_payload(row):
     }
 
 
+@contextmanager
 def connect():
     db_path = Path(os.environ.get("AUDIT_DB_PATH", DEFAULT_DB))
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    conn.execute("PRAGMA busy_timeout = 5000")
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def read_json(handler):
@@ -868,6 +898,42 @@ def project_record_columns_from_payload(data):
     }
 
 
+PROJECT_RECORD_PAYLOAD_KEYS = {
+    "project_code": ("projectCode",),
+    "project_name": ("projectName",),
+    "contract_date": ("contractDate",),
+    "construction_unit": ("constructionUnit",),
+    "contractor_name": ("contractorName",),
+    "contractor_contact": ("contractorContact",),
+    "owner_unit": ("ownerUnit",),
+    "company_role": ("companyRole",),
+    "manager_name": ("managerName",),
+    "project_status": ("projectStatus",),
+    "settlement_status": ("settlementStatus",),
+    "audit_stage": ("auditStage",),
+    "contract_amount": ("contractAmount",),
+    "submitted_amount": ("submittedAmount",),
+    "paid_amount": ("paidAmount",),
+    "payment_terms": ("paymentTerms",),
+    "planned_start_date": ("plannedStartDate",),
+    "planned_end_date": ("plannedEndDate",),
+    "description": ("description",),
+    "settlement_book_status": ("settlementBookStatus",),
+    "first_audit_material_status": ("firstAuditMaterialStatus",),
+    "second_audit_material_status": ("secondAuditMaterialStatus",),
+    "audit_project_id": ("auditProjectId", "audit_project_id"),
+}
+
+
+def project_record_update_columns(data, existing):
+    """Build partial-update columns while preserving omitted persisted fields."""
+    columns = project_record_columns_from_payload(data)
+    for column, payload_keys in PROJECT_RECORD_PAYLOAD_KEYS.items():
+        if not any(key in data for key in payload_keys):
+            columns[column] = existing[column]
+    return columns
+
+
 def project_dictionary_options(conn):
     rows = conn.execute(
         """
@@ -1156,6 +1222,7 @@ def bootstrap():
         schema = (ROOT / "schema.sql").read_text(encoding="utf-8")
         conn.executescript(schema)
         ensure_compatible_columns(conn)
+        apply_pending_migrations(conn)
         backfill_derived_fields(conn)
         seed_system_settings(conn)
         seed_theme_configs(conn)
@@ -1604,8 +1671,13 @@ def backfill_project_records(conn):
         """
     ).fetchall()
     for row in rows:
+        project_code = row["project_code"] or ""
+        if not project_code:
+            # project_code is a required, unique business identifier. Do not fabricate one for historical rows.
+            continue
         pid = new_id()
-        ts = row["created_at"] or now_iso()
+        created_at = row["created_at"] or ""
+        updated_at = row["updated_at"] or ""
         stage_to_status = {
             "submitted": "pending_submission",
             "first_audit": "first_audit",
@@ -1613,10 +1685,7 @@ def backfill_project_records(conn):
             "conclusion": "conclusion",
             "archived": "archived",
         }
-        status = stage_to_status.get(row["current_stage"], "pending_submission")
-        settlement_status = "settled" if row["current_stage"] == "archived" else "not_started"
-        doc_status = row["doc_status"] or ""
-        settlement_book_status = "complete" if doc_status == "资料齐全" else "missing"
+        project_status = stage_to_status.get(row["current_stage"], "")
         conn.execute(
             """
             INSERT INTO project_records
@@ -1626,36 +1695,38 @@ def backfill_project_records(conn):
              planned_end_date, description, document_completion, missing_required_count,
              settlement_book_status, first_audit_material_status, second_audit_material_status,
              variation_count, variation_amount, audit_project_id, created_by, updated_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, '系统初始化', '系统初始化', ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '系统初始化', '系统初始化', ?, ?)
             """,
             (
                 pid,
-                row["project_code"] or row["settlement_no"] or pid[:8],
+                project_code,
                 row["project_name"],
-                row["audited_unit"] or row["second_audit_department"],
+                "",
                 row["contractor_name"],
                 row["contractor_phone"],
-                row["second_audit_department"] or row["audited_unit"],
-                "工程咨询",
-                row["manager_name"] or row["contractor_name"],
-                status,
-                settlement_status,
-                row["current_stage"],
-                row["contract_amount"] or row["submitted_amount"] or 0,
-                row["submitted_amount"] or 0,
-                row["paid_amount"] or 0,
-                "按合同约定节点付款",
-                row["start_date"] or row["submit_date"],
-                row["planned_end_date"] or row["audit_deadline"],
+                "",
+                "",
+                row["manager_name"] or "",
+                project_status,
+                "",
+                row["current_stage"] or "",
+                row["contract_amount"] or None,
+                row["submitted_amount"] or None,
+                row["paid_amount"] or None,
+                row_get(row, "payment_terms"),
+                "",
+                row["planned_end_date"] or "",
                 row["description"],
-                100 if doc_status == "资料齐全" else 55,
-                0 if doc_status == "资料齐全" else 2,
-                settlement_book_status,
-                "complete" if row["current_stage"] in ("first_audit", "second_audit", "conclusion", "archived") else "pending",
-                "complete" if row["current_stage"] in ("second_audit", "conclusion", "archived") else "pending",
+                None,
+                None,
+                "",
+                "",
+                "",
+                None,
+                None,
                 row["id"],
-                ts,
-                row["updated_at"] or ts,
+                created_at,
+                updated_at,
             ),
         )
         conn.execute("UPDATE audit_projects SET project_id = ? WHERE id = ?", (pid, row["id"]))
@@ -2542,6 +2613,13 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin", "editor"})
         if not user:
             return
+        if "projectStatus" in data and data["projectStatus"] != "awarded":
+            self.respond(422, {
+                "success": False,
+                "error": "历史项目需通过专用初始化流程创建；普通创建入口仅允许初始阶段 awarded。",
+                "code": "historical_project_initialization_required",
+            })
+            return
         columns = project_record_columns_from_payload(data)
         if not columns["project_name"]:
             self.respond(400, {"success": False, "error": "请填写项目名称"})
@@ -2579,17 +2657,175 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
         self.respond(201, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
 
+    def lifecycle_transition_blockers(self, conn, row, target_stage):
+        project = dict(row)
+        current_stage = project.get("project_status") or "awarded"
+        blockers = validate_adjacent_transition(current_stage, target_stage)
+        if blockers:
+            return blockers
+        if target_stage == "contract_signed":
+            has_contract_file = conn.execute(
+                """
+                SELECT 1 FROM project_files
+                WHERE project_id = ?
+                  AND category_key = 'contract'
+                  AND COALESCE(is_current, 1) = 1
+                  AND COALESCE(is_deleted, 0) = 0
+                LIMIT 1
+                """,
+                (project["id"],),
+            ).fetchone() is not None
+            blockers.extend(contract_gate_failures(project, has_contract_file))
+        if target_stage == "first_audit":
+            blockers.extend(audit_start_failures(project))
+        return blockers
+
+    def project_lifecycle_snapshot(self, conn, project_id):
+        if not self.require_user(conn):
+            return
+        try:
+            snapshot = lifecycle_snapshot(conn, project_id)
+        except LifecycleNotFoundError:
+            self.respond(404, {"success": False, "error": "未找到项目生命周期记录", "code": "project_not_found"})
+            return
+        self.respond(200, {"success": True, "data": snapshot})
+
+    def validate_project_lifecycle(self, conn, project_id, data):
+        if not self.require_user(conn):
+            return
+        row = conn.execute(
+            "SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (project_id,),
+        ).fetchone()
+        if not row:
+            self.respond(404, {"success": False, "error": "未找到项目生命周期记录", "code": "project_not_found"})
+            return
+        current_stage = row["project_status"] or "awarded"
+        target_stage = (data.get("toStage") or "").strip() or lifecycle_next_stage(current_stage)
+        blockers = self.lifecycle_transition_blockers(conn, row, target_stage) if target_stage else [
+            {
+                "code": "terminal_stage",
+                "field": "toStage",
+                "message": "项目已归档，不能继续推进生命周期。",
+            }
+        ]
+        self.respond(200, {
+            "success": True,
+            "data": {
+                "currentStage": current_stage,
+                "currentStageLabel": lifecycle_stage_label(current_stage),
+                "currentVersion": int(row["lifecycle_version"] or 0),
+                "targetStage": target_stage,
+                "targetStageLabel": lifecycle_stage_label(target_stage),
+                "blockers": blockers,
+                "canTransition": not blockers,
+            },
+        })
+
+    def transition_project_lifecycle(self, conn, project_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        missing = []
+        target_stage = (data.get("toStage") or "").strip()
+        idempotency_key = (data.get("idempotencyKey") or "").strip()
+        if not target_stage:
+            missing.append("toStage")
+        if "expectedVersion" not in data or data.get("expectedVersion") is None:
+            missing.append("expectedVersion")
+        if not idempotency_key:
+            missing.append("idempotencyKey")
+        if missing:
+            self.respond(400, {
+                "success": False,
+                "error": "缺少生命周期推进必填参数",
+                "code": "lifecycle_transition_parameters_required",
+                "missing": missing,
+            })
+            return
+        try:
+            expected_version = int(data["expectedVersion"])
+        except (TypeError, ValueError):
+            self.respond(400, {
+                "success": False,
+                "error": "expectedVersion 必须是整数",
+                "code": "invalid_expected_version",
+            })
+            return
+        actor_name = (user["display_name"] or user["username"] or "").strip()
+        try:
+            transition = transition_project(
+                conn,
+                project_id,
+                target_stage,
+                expected_version,
+                idempotency_key,
+                (data.get("reason") or "").strip(),
+                {"id": user["id"], "name": actor_name},
+            )
+        except LifecycleNotFoundError:
+            self.respond(404, {"success": False, "error": "未找到项目生命周期记录", "code": "project_not_found"})
+            return
+        except LifecycleConflictError as exc:
+            self.respond(409, {
+                "success": False,
+                "error": "项目生命周期版本已变化，请刷新后重试",
+                "code": exc.code,
+                "currentVersion": exc.current_version,
+                "expectedVersion": exc.expected_version,
+            })
+            return
+        except LifecycleIdempotencyConflictError as exc:
+            snapshot = lifecycle_snapshot(conn, project_id)
+            self.respond(409, {
+                "success": False,
+                "error": "幂等键已用于不同的生命周期目标阶段",
+                "code": exc.code,
+                "idempotencyKey": exc.idempotency_key,
+                "existingTargetStage": exc.existing_target_stage,
+                "targetStage": exc.requested_target_stage,
+                "currentVersion": snapshot["lifecycleVersion"],
+            })
+            return
+        except LifecycleBlockedError as exc:
+            snapshot = lifecycle_snapshot(conn, project_id)
+            self.respond(422, {
+                "success": False,
+                "error": "项目暂不满足生命周期推进条件",
+                "code": exc.code,
+                "blockers": exc.blockers,
+                "currentStage": snapshot["currentStage"],
+                "currentVersion": snapshot["lifecycleVersion"],
+            })
+            return
+        snapshot = lifecycle_snapshot(conn, project_id)
+        # project_lifecycle_events is the immutable audit record for this operation.
+        # transition_project has already committed it, including idempotent replays.
+        self.respond(200, {"success": True, "data": {"transition": transition, "snapshot": snapshot}})
+
     def start_project_audit(self, conn, project_id, data):
         user = self.require_role(conn, {"admin", "editor"})
         if not user:
             return
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (project_id,)).fetchone()
         if not row:
             self.not_found()
             return
+        blockers = audit_start_failures(dict(row))
+        if blockers:
+            self.respond(422, {
+                "success": False,
+                "error": "项目暂不满足发起审计条件",
+                "code": "audit_start_blocked",
+                "blockers": blockers,
+                "currentStage": row["project_status"] or "awarded",
+                "currentVersion": int(row["lifecycle_version"] or 0),
+            })
+            return
         current_audit_id = (row["audit_project_id"] or "").strip()
         if current_audit_id and conn.execute("SELECT id FROM audit_projects WHERE id = ? AND status != 'deleted'", (current_audit_id,)).fetchone():
-            self.respond(400, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
+            self.respond(409, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
             return
         existing_audit = conn.execute(
             "SELECT id FROM audit_projects WHERE project_id = ? AND status != 'deleted' LIMIT 1",
@@ -2601,7 +2837,7 @@ class Handler(BaseHTTPRequestHandler):
                 (existing_audit["id"], now_iso(), project_id),
             )
             conn.commit()
-            self.respond(400, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
+            self.respond(409, {"success": False, "error": "该项目已进入审计流程，请直接查看审计进度"})
             return
         ts = now_iso()
         audit_id = new_id()
@@ -2667,8 +2903,22 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             self.not_found()
             return
+        if "projectStatus" in data and data["projectStatus"] != row["project_status"]:
+            self.respond(422, {
+                "success": False,
+                "error": "项目阶段只能通过生命周期推进接口修改",
+                "code": "lifecycle_transition_required",
+                "currentStage": row["project_status"] or "awarded",
+                "currentVersion": int(row["lifecycle_version"] or 0),
+                "blockers": [{
+                    "code": "lifecycle_transition_required",
+                    "field": "projectStatus",
+                    "message": "请使用 /api/projects/:id/lifecycle/transitions 推进项目阶段。",
+                }],
+            })
+            return
         before = project_record_payload(conn, row)
-        columns = project_record_columns_from_payload(data)
+        columns = project_record_update_columns(data, row)
         if not columns["project_name"]:
             self.respond(400, {"success": False, "error": "请填写项目名称"})
             return
@@ -3134,11 +3384,88 @@ class Handler(BaseHTTPRequestHandler):
         if min(provisional, estimated, owner_supplied, other_deduction) < 0 or payment_base < 0:
             self.respond(400, {"success": False, "error": "合同扣除项不能为负数，且付款基数不能小于 0"})
             return
+        acceptance_status = str(data.get("acceptanceStatus") or "").strip()
+        audit_status = str(data.get("auditStatus") or "not_submitted").strip()
+        valid_acceptance_statuses = {"not_completed", "completed_not_accepted", "accepted"}
+        valid_audit_statuses = {
+            "not_submitted", "submitted", "first_in_progress", "first_completed",
+            "second_in_progress", "second_completed", "government_audit", "final",
+        }
+        if acceptance_status and acceptance_status not in valid_acceptance_statuses:
+            self.respond(400, {"success": False, "error": "竣工验收状态无效"})
+            return
+        if not is_draft and not acceptance_status:
+            self.respond(400, {"success": False, "error": "请先确认项目竣工验收状态"})
+            return
+        if audit_status not in valid_audit_statuses:
+            self.respond(400, {"success": False, "error": "送审状态无效"})
+            return
+        lifecycle_rank = {stage: index for index, stage in enumerate(PROJECT_STATUSES)}
+        current_project_stage = project["project_status"] or "awarded"
+        current_project_rank = lifecycle_rank.get(current_project_stage, -1)
+        acceptance_rank = lifecycle_rank["completed_acceptance"]
+        conflict = False
+        if acceptance_status == "accepted" and current_project_rank < acceptance_rank:
+            conflict = True
+        elif acceptance_status in {"not_completed", "completed_not_accepted"} and current_project_rank >= acceptance_rank:
+            conflict = True
+        minimum_audit_stage = {
+            "submitted": "pending_submission",
+            "first_in_progress": "first_audit",
+            "first_completed": "first_audit",
+            "second_in_progress": "second_audit",
+            "second_completed": "second_audit",
+            "government_audit": "second_audit",
+            "final": "conclusion",
+        }.get(audit_status)
+        if minimum_audit_stage and current_project_rank < lifecycle_rank[minimum_audit_stage]:
+            conflict = True
+        if conflict:
+            self.respond(422, {
+                "success": False,
+                "error": "结算信息不能超前于项目当前生命周期，请先在项目管理中推进对应阶段",
+                "code": "settlement_stage_conflict",
+                "currentStage": current_project_stage,
+            })
+            return
+        if acceptance_status != "accepted" and audit_status != "not_submitted":
+            self.respond(400, {"success": False, "error": "项目竣工验收合格后才能进入送审流程"})
+            return
+        if acceptance_status == "accepted" and not is_draft and not str(data.get("acceptanceDate") or "").strip():
+            self.respond(400, {"success": False, "error": "验收合格的项目必须填写竣工验收日期"})
+            return
+        acceptance_date = str(data.get("acceptanceDate") or "").strip() if acceptance_status == "accepted" else ""
+        audit_rank = {
+            "not_submitted": 0, "submitted": 1, "first_in_progress": 2, "first_completed": 3,
+            "second_in_progress": 4, "second_completed": 5, "government_audit": 6, "final": 7,
+        }.get(audit_status, 0) if acceptance_status == "accepted" else 0
+        submitted_amount = float(data.get("submittedAmount") or 0) if audit_rank >= 1 else 0.0
+        first_audit_amount = float(data.get("firstAuditAmount") or 0) if audit_rank >= 3 else 0.0
+        first_audit_date = str(data.get("firstAuditDate") or "").strip() if audit_rank >= 3 else ""
+        second_audit_amount = float(data.get("secondAuditAmount") or 0) if audit_rank >= 5 else 0.0
+        second_audit_date = str(data.get("secondAuditDate") or "").strip() if audit_rank >= 5 else ""
+        final_audit_amount = float(data.get("finalAuditAmount") or 0) if audit_rank >= 7 else 0.0
+        final_audit_date = str(data.get("finalAuditDate") or "").strip() if audit_rank >= 7 else ""
+        retention_ratio = float(data.get("retentionRatio") or 0) if audit_rank >= 7 else 0.0
+        warranty_start_date = str(data.get("warrantyStartDate") or "").strip() if audit_rank >= 7 else ""
+        warranty_end_date = str(data.get("warrantyEndDate") or "").strip() if audit_rank >= 7 else ""
+        if not is_draft and audit_rank >= 1 and submitted_amount <= 0:
+            self.respond(400, {"success": False, "error": "项目进入送审后必须填写送审金额"})
+            return
+        if not is_draft and audit_rank >= 3 and (first_audit_amount <= 0 or not first_audit_date):
+            self.respond(400, {"success": False, "error": "一审完成时必须填写一审审定金额和完成日期"})
+            return
+        if not is_draft and audit_rank >= 5 and (second_audit_amount <= 0 or not second_audit_date):
+            self.respond(400, {"success": False, "error": "二审完成时必须填写二审审定金额和完成日期"})
+            return
+        if not is_draft and audit_rank >= 7 and (final_audit_amount <= 0 or not final_audit_date):
+            self.respond(400, {"success": False, "error": "最终定案时必须填写最终审定金额和定案日期"})
+            return
         invoiced = float(data.get("invoicedAmount") or 0)
         received = float(data.get("receivedAmount") or 0)
         historical_paid = float(data.get("historicalPaidAmount") or 0)
         retention_amount = float(data.get("retentionAmount") or 0)
-        audit_cap = float(data.get("finalAuditAmount") or contract_amount or 0)
+        audit_cap = float(final_audit_amount or contract_amount or 0)
         if invoiced > audit_cap or historical_paid > contract_amount or retention_amount > contract_amount:
             self.respond(400, {"success": False, "error": "历史开票、付款或质保金金额超过允许上限，请核对后再提交"})
             return
@@ -3151,15 +3478,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         ts = now_iso()
         settlement_id = existing["id"] if existing else new_id()
+        if is_draft:
+            settlement_status = data.get("settlementStatus") or "草稿"
+        elif acceptance_status == "not_completed":
+            settlement_status = "未进入结算"
+        elif acceptance_status == "completed_not_accepted":
+            settlement_status = "待验收"
+        else:
+            settlement_status = data.get("settlementStatus") or "资料准备中"
         columns = {
             "project_id": project_id,
             "settlement_name": (data.get("settlementName") or f"{project['project_name']}结算管理").strip(),
             "settlement_type": "project_settlement",
-            "settlement_status": data.get("settlementStatus") or ("草稿" if is_draft else "资料准备中"),
-            "apply_amount": float(data.get("submittedAmount") or 0),
-            "approved_amount": float(data.get("finalAuditAmount") or data.get("secondAuditAmount") or data.get("firstAuditAmount") or 0),
+            "settlement_status": settlement_status,
+            "apply_amount": submitted_amount,
+            "approved_amount": float(final_audit_amount or second_audit_amount or first_audit_amount or 0),
             "paid_amount": received,
-            "apply_date": data.get("acceptanceDate") or "",
+            "apply_date": acceptance_date,
             "expected_pay_date": "",
             "paid_date": "",
             "remark": data.get("remark") or data.get("exceptionNote") or "",
@@ -3174,16 +3509,16 @@ class Handler(BaseHTTPRequestHandler):
             "tax_rate": float(data.get("taxRate") or 0),
             "contract_date": data.get("contractDate") or project["contract_date"] or "",
             "payment_terms": data.get("paymentTerms") or project["payment_terms"] or "",
-            "acceptance_status": data.get("acceptanceStatus") or "",
-            "acceptance_date": data.get("acceptanceDate") or "",
-            "audit_status": data.get("auditStatus") or "",
-            "submitted_amount": float(data.get("submittedAmount") or 0),
-            "first_audit_amount": float(data.get("firstAuditAmount") or 0),
-            "first_audit_date": data.get("firstAuditDate") or "",
-            "second_audit_amount": float(data.get("secondAuditAmount") or 0),
-            "second_audit_date": data.get("secondAuditDate") or "",
-            "final_audit_amount": float(data.get("finalAuditAmount") or 0),
-            "final_audit_date": data.get("finalAuditDate") or "",
+            "acceptance_status": acceptance_status,
+            "acceptance_date": acceptance_date,
+            "audit_status": audit_status,
+            "submitted_amount": submitted_amount,
+            "first_audit_amount": first_audit_amount,
+            "first_audit_date": first_audit_date,
+            "second_audit_amount": second_audit_amount,
+            "second_audit_date": second_audit_date,
+            "final_audit_amount": final_audit_amount,
+            "final_audit_date": final_audit_date,
             "has_invoice": 1 if data.get("hasInvoice") else 0,
             "invoiced_amount": invoiced,
             "has_received": 1 if data.get("hasReceived") else 0,
@@ -3191,10 +3526,10 @@ class Handler(BaseHTTPRequestHandler):
             "has_payment": 1 if data.get("hasPayment") else 0,
             "historical_paid_amount": historical_paid,
             "has_retention": 1 if data.get("hasRetention") else 0,
-            "retention_ratio": float(data.get("retentionRatio") or 0),
+            "retention_ratio": retention_ratio,
             "retention_amount": retention_amount,
-            "warranty_start_date": data.get("warrantyStartDate") or "",
-            "warranty_end_date": data.get("warrantyEndDate") or "",
+            "warranty_start_date": warranty_start_date,
+            "warranty_end_date": warranty_end_date,
             "payment_template_id": data.get("paymentTemplateId") or "",
             "documents_missing": 1 if data.get("documentsMissing") else 0,
             "document_note": data.get("documentNote") or "",
@@ -3224,9 +3559,9 @@ class Handler(BaseHTTPRequestHandler):
             base_type = node.get("baseType") or "CONTRACT_PAYMENT_BASE"
             base_amounts = {
                 "CONTRACT_PAYMENT_BASE": payment_base,
-                "FIRST_AUDIT_AMOUNT": float(data.get("firstAuditAmount") or 0),
-                "SECOND_AUDIT_AMOUNT": float(data.get("secondAuditAmount") or 0),
-                "FINAL_AUDIT_AMOUNT": float(data.get("finalAuditAmount") or 0),
+                "FIRST_AUDIT_AMOUNT": first_audit_amount,
+                "SECOND_AUDIT_AMOUNT": second_audit_amount,
+                "FINAL_AUDIT_AMOUNT": final_audit_amount,
             }
             base_amount = base_amounts.get(base_type, payment_base)
             ratio = float(node.get("paymentRatio") or 0)
@@ -3768,6 +4103,8 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 if path == "/api/health":
                     self.respond(200, {"success": True, "data": {"status": "ok", "time": now_iso()}})
+                elif path.startswith("/api/audit/") and not self.require_user(conn):
+                    return
                 elif path == "/api/auth/me":
                     user = self.require_user(conn)
                     if user:
@@ -3871,6 +4208,8 @@ class Handler(BaseHTTPRequestHandler):
                     for row in rows:
                         options.setdefault(row["group_key"], []).append(camel_option(row))
                     self.respond(200, {"success": True, "data": {"stages": [{"code": c, "title": t, "color": color} for c, t, color in STAGES], "fieldConfigs": get_field_configs(conn), "options": options}})
+                elif re.match(r"^/api/projects/([^/]+)/lifecycle$", path):
+                    self.project_lifecycle_snapshot(conn, re.match(r"^/api/projects/([^/]+)/lifecycle$", path).group(1))
                 else:
                     project_match = re.match(r"^/api/projects/([^/]+)$", path)
                     if project_match:
@@ -3939,6 +4278,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.create_settlement_finance_project(conn, data)
                 elif path == "/api/projects/dictionary-options":
                     self.create_project_dictionary_option(conn, data)
+                elif re.match(r"^/api/projects/([^/]+)/lifecycle/validate$", path):
+                    self.validate_project_lifecycle(conn, re.match(r"^/api/projects/([^/]+)/lifecycle/validate$", path).group(1), data)
+                elif re.match(r"^/api/projects/([^/]+)/lifecycle/transitions$", path):
+                    self.transition_project_lifecycle(conn, re.match(r"^/api/projects/([^/]+)/lifecycle/transitions$", path).group(1), data)
                 elif re.match(r"^/api/projects/([^/]+)/start-audit$", path):
                     self.start_project_audit(conn, re.match(r"^/api/projects/([^/]+)/start-audit$", path).group(1), data)
                 elif re.match(r"^/api/projects/([^/]+)/settlements$", path):
@@ -4089,6 +4432,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def update_progress(self, conn, pid, data):
         user = self.current_user(conn)
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM audit_projects WHERE id = ?", (pid,)).fetchone()
         if not row:
             self.not_found()
@@ -4097,10 +4441,84 @@ class Handler(BaseHTTPRequestHandler):
         if not stage:
             self.respond(400, {"success": False, "error": "stageCode 不能为空"})
             return
+        stage_codes = [code for code, _title, _color in STAGES]
+        current_stage = row["current_stage"] or "submitted"
+        expected_stage = None
+        if current_stage in stage_codes:
+            current_index = stage_codes.index(current_stage)
+            if current_index + 1 < len(stage_codes):
+                expected_stage = stage_codes[current_index + 1]
+        if stage not in stage_codes or stage != expected_stage:
+            self.respond(422, {
+                "success": False,
+                "error": "审计阶段只能按既定顺序逐步推进",
+                "code": "audit_stage_transition_required",
+                "currentStage": current_stage,
+                "expectedStage": expected_stage,
+            })
+            return
+        project_id = (row["project_id"] or "").strip()
+        project = conn.execute(
+            "SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (project_id,),
+        ).fetchone() if project_id else None
+        audit_to_project_stage = {
+            "submitted": "pending_submission",
+            "first_audit": "first_audit",
+            "second_audit": "second_audit",
+            "conclusion": "conclusion",
+            "archived": "archived",
+        }
+        current_project_stage = audit_to_project_stage.get(current_stage)
+        target_project_stage = audit_to_project_stage.get(stage)
+        if not project or project["project_status"] != current_project_stage:
+            self.respond(409, {
+                "success": False,
+                "error": "审计阶段与项目生命周期不一致，请刷新项目状态后重试",
+                "code": "audit_project_lifecycle_conflict",
+            })
+            return
+        blockers = self.lifecycle_transition_blockers(conn, project, target_project_stage)
+        if blockers:
+            self.respond(422, {
+                "success": False,
+                "error": "项目暂不满足审计阶段推进条件",
+                "code": "audit_stage_blocked",
+                "blockers": blockers,
+            })
+            return
         ts = now_iso()
         stage_name = dict((c, t) for c, t, _ in STAGES).get(stage, stage)
         conn.execute("UPDATE audit_project_stages SET finished_at = ?, status = 'done' WHERE project_id = ? AND status = 'active'", (ts, pid))
         conn.execute("UPDATE audit_projects SET current_stage = ?, is_archived = ?, updated_at = ? WHERE id = ?", (stage, 1 if stage == "archived" else 0, ts, pid))
+        new_lifecycle_version = int(project["lifecycle_version"] or 0) + 1
+        actor_name = (user["display_name"] or user["username"] or "").strip() if user else ""
+        conn.execute(
+            """
+            UPDATE project_records
+            SET project_status = ?, audit_stage = ?, lifecycle_version = ?, updated_at = ?, updated_by = ?
+            WHERE id = ?
+            """,
+            (target_project_stage, stage, new_lifecycle_version, ts, user["username"] if user else "", project_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO project_lifecycle_events
+            (id, project_id, from_stage, to_stage, transition_type, reason,
+             idempotency_key, lifecycle_version, actor_id, actor_name, payload_json, created_at)
+            VALUES (?, ?, ?, ?, 'forward', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                new_id(), project_id, current_project_stage, target_project_stage,
+                data.get("note", f"审计流转至{stage}"),
+                f"audit-progress:{pid}:{stage}:{new_lifecycle_version}",
+                new_lifecycle_version,
+                user["id"] if user else "",
+                actor_name,
+                json.dumps({"source": "audit_progress", "auditProjectId": pid}, ensure_ascii=False),
+                ts,
+            ),
+        )
         conn.execute(
             "INSERT INTO audit_project_stages (id, project_id, stage_code, stage_name, entered_at, owner, status, progress_percent, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
             (new_id(), pid, stage, stage_name, ts, data.get("operator", ""), int(data.get("progressPercent") or 30), int(data.get("sortOrder") or 0)),

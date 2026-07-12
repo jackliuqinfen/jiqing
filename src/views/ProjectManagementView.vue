@@ -141,7 +141,7 @@
               theme="primary"
               variant="outline"
               :loading="batchAuditing"
-              :disabled="batchAuditCandidates.length === 0"
+              :disabled="selectedRecords.length === 0"
               @click="batchStartAudit"
             >
               批量发起审计
@@ -265,6 +265,11 @@
               <h3>{{ currentProject.projectName }}</h3>
               <p>{{ currentProject.projectCode }} · {{ currentProject.constructionUnit || currentProject.ownerUnit || '未填写建设单位' }}</p>
             </div>
+            <ProjectLifecycleStatus
+              ref="lifecycleStatusRef"
+              :project-id="currentProject.id"
+              @advance="openLifecycleTransition"
+            />
             <div class="detail-head__actions">
               <AButton size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</AButton>
               <AButton
@@ -620,6 +625,14 @@
         </template>
       </section>
       </AModal>
+
+      <ProjectStageTransitionModal
+        v-model:visible="lifecycleTransitionVisible"
+        :project-id="currentProject?.id || ''"
+        :snapshot="lifecycleTransitionSnapshot"
+        @transitioned="handleLifecycleTransitioned"
+        @refresh="refreshLifecycleDetail"
+      />
     </section>
 
     <AModal
@@ -785,24 +798,13 @@
           <section v-else-if="projectWizardStepKey === 'stage'" class="wizard-panel">
             <div class="wizard-panel__header">
               <span class="mini-label">项目阶段</span>
-              <h3>确认项目当前处于哪个业务阶段</h3>
-              <p>系统会根据项目阶段统一展示状态颜色、进度，并判断是否需要提示资料和审计事项。</p>
-            </div>
-            <div class="wizard-option-grid wizard-option-grid--status">
-              <button
-                v-for="option in projectStatusOptions"
-                :key="option.value"
-                type="button"
-                class="wizard-option-card"
-                :class="{ 'is-selected': projectForm.projectStatus === option.value }"
-                @click="selectProjectStatus(option.value)"
-              >
-                <span :class="`status-dot status-dot--${businessColor(projectStatusDict, option.value, 'arcoblue')}`"></span>
-                <strong>{{ option.label }}</strong>
-                <em>{{ projectStatusHint(option.value) }}</em>
-              </button>
+              <h3>新建项目从已中标开始</h3>
+              <p>普通新建项目固定为“已中标”；历史项目请通过专用初始化流程录入。</p>
             </div>
             <div class="dialog-grid wizard-money-grid">
+              <AFormItem field="projectStatus" label="初始项目状态">
+                <AInput model-value="已中标" readonly />
+              </AFormItem>
               <AFormItem field="settlementStatus" label="结算状态">
                 <ASelect v-model="projectForm.settlementStatus" :options="settlementStatusOptions" placeholder="请选择结算状态" />
               </AFormItem>
@@ -816,79 +818,6 @@
                 :help="projectFormErrors.plannedEndDate"
               >
                 <ADatePicker v-model="projectForm.plannedEndDate" data-project-field="plannedEndDate" allow-clear placeholder="请选择计划完成日期" @change="clearProjectFieldError('plannedEndDate')" />
-              </AFormItem>
-            </div>
-          </section>
-
-          <section v-else-if="projectWizardStepKey === 'auditGate'" class="wizard-panel">
-            <div class="wizard-panel__header">
-              <span class="mini-label">审计判断</span>
-              <h3>该项目是否已经进入审计流程？</h3>
-              <p>选择“是”后，系统会继续采集审计信息，并在创建完成时自动同步到审计看板。</p>
-            </div>
-            <div class="wizard-choice-row">
-              <button
-                type="button"
-                class="wizard-choice-card"
-                :class="{ 'is-selected': projectCreationFlow.hasAudit === 'yes' }"
-                @click="setProjectAuditGate('yes')"
-              >
-                <strong>是，已进入或即将进入审计</strong>
-                <span>继续填写报审金额、一审/二审信息和审计备注，创建后自动进入审计看板。</span>
-              </button>
-              <button
-                type="button"
-                class="wizard-choice-card"
-                :class="{ 'is-selected': projectCreationFlow.hasAudit === 'no' }"
-                @click="setProjectAuditGate('no')"
-              >
-                <strong>否，先创建普通工程项目</strong>
-                <span>暂不展示审计字段，后续可在项目详情中发起审计流程。</span>
-              </button>
-            </div>
-          </section>
-
-          <section v-else-if="projectWizardStepKey === 'auditInfo'" class="wizard-panel">
-            <div class="wizard-panel__header">
-              <span class="mini-label">审计信息</span>
-              <h3>一次填写，自动同步到审计看板</h3>
-              <p>这里录入的是审计维度信息，保存后将随项目主档案一起进入审计模块。</p>
-            </div>
-            <div class="dialog-grid">
-              <AFormItem
-                field="submittedAmount"
-                label="报审金额"
-                :validate-status="projectFormErrors.submittedAmount ? 'error' : undefined"
-                :help="projectFormErrors.submittedAmount"
-              >
-                <AInputNumber v-model="projectForm.submittedAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('submittedAmount')" />
-              </AFormItem>
-              <AFormItem field="auditSubmitDate" label="送审日期">
-                <ADatePicker v-model="projectCreationFlow.auditSubmitDate" allow-clear placeholder="请选择送审日期" />
-              </AFormItem>
-              <AFormItem field="firstAuditStatus" label="一审资料状态">
-                <ASelect v-model="projectCreationFlow.firstAuditStatus" :options="auditMaterialStatusOptions" placeholder="请选择一审资料状态" />
-              </AFormItem>
-              <AFormItem field="firstAuditUnit" label="一审单位">
-                <AInput v-model="projectCreationFlow.firstAuditUnit" placeholder="请输入一审单位" allow-clear />
-              </AFormItem>
-              <AFormItem field="firstAuditOwner" label="一审负责人">
-                <AInput v-model="projectCreationFlow.firstAuditOwner" placeholder="请输入一审负责人" allow-clear />
-              </AFormItem>
-              <AFormItem field="secondAuditStatus" label="二审资料状态">
-                <ASelect v-model="projectCreationFlow.secondAuditStatus" :options="auditMaterialStatusOptions" placeholder="请选择二审资料状态" />
-              </AFormItem>
-              <AFormItem field="secondAuditUnit" label="二审单位">
-                <AInput v-model="projectCreationFlow.secondAuditUnit" placeholder="请输入二审单位" allow-clear />
-              </AFormItem>
-              <AFormItem field="secondAuditOwner" label="二审负责人">
-                <AInput v-model="projectCreationFlow.secondAuditOwner" placeholder="请输入二审负责人" allow-clear />
-              </AFormItem>
-              <AFormItem field="finalAmount" label="定案金额">
-                <AInputNumber v-model="projectCreationFlow.finalAmount" :min="0" :precision="2" hide-button />
-              </AFormItem>
-              <AFormItem class="dialog-span-2" field="auditRemark" label="审计备注">
-                <ATextarea v-model="projectCreationFlow.auditRemark" :auto-size="{ minRows: 3, maxRows: 5 }" placeholder="如：已提交一审资料，二审资料待补充盖章件" allow-clear />
               </AFormItem>
             </div>
           </section>
@@ -913,7 +842,7 @@
             <div class="wizard-panel__header">
               <span class="mini-label">确认生成</span>
               <h3>请确认项目创建信息</h3>
-              <p>确认后系统将创建项目主档案、资料节点、待办事项；如已进入审计流程，会自动生成审计看板记录。</p>
+              <p>确认后系统将创建项目主档案、资料节点和待办事项；审计联动需在项目详情中单独发起。</p>
             </div>
             <div class="wizard-review">
               <article>
@@ -933,17 +862,6 @@
                   <dt>结算状态</dt><dd>{{ settlementStatusLabel(projectForm.settlementStatus) }}</dd>
                   <dt>合同金额</dt><dd><MoneyDisplay :value="projectForm.contractAmount" mode="full" /></dd>
                   <dt>已付款金额</dt><dd><MoneyDisplay :value="projectForm.paidAmount" mode="full" /></dd>
-                  <dt>审计流程</dt><dd>{{ projectCreationFlow.hasAudit === 'yes' ? '创建后同步到审计看板' : '暂不进入审计流程' }}</dd>
-                </dl>
-              </article>
-              <article v-if="projectCreationFlow.hasAudit === 'yes'">
-                <h4>审计信息</h4>
-                <dl>
-                  <dt>报审金额</dt><dd><MoneyDisplay :value="projectForm.submittedAmount" mode="full" /></dd>
-                  <dt>送审日期</dt><dd>{{ projectCreationFlow.auditSubmitDate || '未选择' }}</dd>
-                  <dt>一审资料</dt><dd>{{ materialStatusLabel(projectCreationFlow.firstAuditStatus) }}</dd>
-                  <dt>二审资料</dt><dd>{{ materialStatusLabel(projectCreationFlow.secondAuditStatus) }}</dd>
-                  <dt>定案金额</dt><dd><MoneyDisplay :value="projectCreationFlow.finalAmount" mode="full" /></dd>
                 </dl>
               </article>
               <article>
@@ -1038,7 +956,7 @@
             />
           </AFormItem>
           <AFormItem field="projectStatus" label="项目状态">
-            <ASelect v-model="projectForm.projectStatus" :options="projectStatusOptions" />
+            <AInput :model-value="projectStatusLabel(projectForm.projectStatus)" readonly />
           </AFormItem>
           <AFormItem field="settlementStatus" label="结算状态">
             <ASelect v-model="projectForm.settlementStatus" :options="settlementStatusOptions" />
@@ -1279,10 +1197,20 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
+import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
+import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
+import { buildProjectMutationPayload } from '@/utils/projectMutationPayload'
+import { settleLifecycleRefresh } from '@/utils/projectLifecycleRefresh'
+import {
+  auditStartEligibilityMessage,
+  formatAuditStartSkippedSummary,
+  getAuditStartEligibility,
+  partitionAuditStartCandidates,
+} from '@/utils/auditEligibility'
 import { useAuthStore } from '@/store/auth'
 import {
   businessColor,
@@ -1293,6 +1221,7 @@ import {
   variationStatusOptions as variationStatusDict,
 } from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
+import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 import {
   createProjectDictionaryOption,
   createProjectRecord,
@@ -1315,7 +1244,6 @@ import {
   uploadProjectFile,
   renameProjectFile,
 } from '@/api/projects'
-import { fetchAuditProject, updateAuditProject } from '@/api/audit'
 
 const router = useRouter()
 const route = useRoute()
@@ -1323,8 +1251,7 @@ const authStore = useAuthStore()
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
-type ProjectWizardStepKey = 'base' | 'stage' | 'auditGate' | 'auditInfo' | 'materials' | 'confirm'
-type ProjectAuditGate = 'yes' | 'no'
+type ProjectWizardStepKey = 'base' | 'stage' | 'materials' | 'confirm'
 type ProjectLifecycleStepKey = 'base' | 'documents' | 'audit' | 'settlement' | 'archive'
 type ProjectLifecycleStep = {
   key: ProjectLifecycleStepKey
@@ -1517,6 +1444,9 @@ const currentProject = ref<ProjectRecord | null>(null)
 const loading = ref(false)
 const detailLoading = ref(false)
 const detailDialogVisible = ref(false)
+const lifecycleStatusRef = ref<InstanceType<typeof ProjectLifecycleStatus> | null>(null)
+const lifecycleTransitionVisible = ref(false)
+const lifecycleTransitionSnapshot = ref<ProjectLifecycleSnapshot | null>(null)
 const auditStarting = ref(false)
 const batchAuditing = ref(false)
 const error = ref('')
@@ -1607,18 +1537,8 @@ type ProjectFormErrors = Partial<Record<ProjectFormKey, string>>
 const projectFormErrors = reactive<ProjectFormErrors>({})
 
 const projectCreationFlow = reactive({
-  hasAudit: 'no' as ProjectAuditGate,
   projectType: '',
   projectLocation: '',
-  auditSubmitDate: '',
-  firstAuditStatus: 'missing',
-  firstAuditUnit: '',
-  firstAuditOwner: '',
-  secondAuditStatus: 'missing',
-  secondAuditUnit: '',
-  secondAuditOwner: '',
-  finalAmount: 0,
-  auditRemark: '',
 })
 
 const settlementForm = reactive({
@@ -1668,15 +1588,12 @@ const uploadPreviewTitle = computed(() => {
 })
 const projectStatusOptions = computed(() => meta.projectStatuses.length ? meta.projectStatuses : defaultProjectStatuses)
 const settlementStatusOptions = computed(() => meta.settlementStatuses.length ? meta.settlementStatuses : defaultSettlementStatuses)
-const auditMaterialStatusOptions = computed(() => materialStatusDict.map((item) => ({ label: item.label, value: item.value })))
 const projectCodePreview = computed(() => projectForm.projectCode || buildProjectCodePreview(projectForm.contractDate, projectForm.constructionUnit))
 const projectWizardSteps = computed(() => {
   const steps: Array<{ key: ProjectWizardStepKey; title: string }> = [
     { key: 'base', title: '基础信息' },
     { key: 'stage', title: '项目阶段' },
-    { key: 'auditGate', title: '审计判断' },
   ]
-  if (projectCreationFlow.hasAudit === 'yes') steps.push({ key: 'auditInfo', title: '审计信息' })
   steps.push({ key: 'materials', title: '资料目录' }, { key: 'confirm', title: '确认生成' })
   return steps
 })
@@ -1690,12 +1607,6 @@ const projectInitialDirectories = computed(() => {
     { key: 'settlement_book', label: '竣工结算书', required: ['pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '用于报审、核价和后续定案' },
     { key: 'variation', label: '变更签证', required: false, hint: '涉及变更、签证、洽商时按需补充' },
   ]
-  if (projectCreationFlow.hasAudit === 'yes') {
-    base.push(
-      { key: 'first_audit_materials', label: '一审材料', required: ['first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '一审送审资料、往来意见和确认件' },
-      { key: 'second_audit_materials', label: '二审材料', required: ['second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '二审补充资料、核减说明和确认件' },
-    )
-  }
   return base
 })
 const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
@@ -1741,7 +1652,7 @@ const groupedDisplayRecords = computed(() => {
     })
 })
 const selectedRecords = computed(() => displayRecords.value.filter((record) => selectedProjectIds.value.includes(record.id)))
-const batchAuditCandidates = computed(() => selectedRecords.value.filter((record) => !record.auditProjectId))
+const batchAuditEligibility = computed(() => partitionAuditStartCandidates(selectedRecords.value))
 const projectActionHints = computed(() => {
   const project = currentProject.value
   if (!project) return []
@@ -1959,45 +1870,10 @@ function projectStatusHint(value: string) {
   return hints[value] || '按当前业务阶段管理项目'
 }
 
-function projectStageToAuditStage(status: string) {
-  if (status === 'first_audit') return 'first_audit'
-  if (status === 'second_audit') return 'second_audit'
-  if (status === 'conclusion') return 'conclusion'
-  if (status === 'archived') return 'archived'
-  if (status === 'pending_submission') return 'submitted'
-  return projectCreationFlow.hasAudit === 'yes' ? 'submitted' : 'not_linked'
-}
-
-function selectProjectStatus(value: string) {
-  projectForm.projectStatus = value
-  projectForm.auditStage = projectStageToAuditStage(value)
-  if (['pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(value)) {
-    setProjectAuditGate('yes')
-  }
-}
-
-function setProjectAuditGate(value: ProjectAuditGate) {
-  projectCreationFlow.hasAudit = value
-  projectForm.auditStage = value === 'yes' ? projectStageToAuditStage(projectForm.projectStatus) : 'not_linked'
-  if (value === 'no' && projectWizardStepKey.value === 'auditInfo') {
-    projectWizardStepIndex.value = projectWizardSteps.value.findIndex((item) => item.key === 'materials')
-  }
-}
-
 function resetProjectCreationFlow() {
   Object.assign(projectCreationFlow, {
-    hasAudit: 'no',
     projectType: '',
     projectLocation: '',
-    auditSubmitDate: '',
-    firstAuditStatus: 'missing',
-    firstAuditUnit: '',
-    firstAuditOwner: '',
-    secondAuditStatus: 'missing',
-    secondAuditUnit: '',
-    secondAuditOwner: '',
-    finalAmount: 0,
-    auditRemark: '',
   })
   projectWizardStepIndex.value = 0
 }
@@ -2006,11 +1882,6 @@ function appendProjectCreationNotes(description: string) {
   const notes = [
     projectCreationFlow.projectType ? `项目类型：${projectCreationFlow.projectType}` : '',
     projectCreationFlow.projectLocation ? `项目地点：${projectCreationFlow.projectLocation}` : '',
-    projectCreationFlow.hasAudit === 'yes' ? `审计备注：${projectCreationFlow.auditRemark || '已在新建阶段确认进入审计流程'}` : '',
-    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.firstAuditUnit ? `一审单位：${projectCreationFlow.firstAuditUnit}` : '',
-    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.firstAuditOwner ? `一审负责人：${projectCreationFlow.firstAuditOwner}` : '',
-    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.secondAuditUnit ? `二审单位：${projectCreationFlow.secondAuditUnit}` : '',
-    projectCreationFlow.hasAudit === 'yes' && projectCreationFlow.secondAuditOwner ? `二审负责人：${projectCreationFlow.secondAuditOwner}` : '',
   ].filter(Boolean)
   if (!notes.length) return description
   const existing = String(description || '').trim()
@@ -2033,13 +1904,6 @@ function validateProjectWizardStep() {
   }
   if (key === 'stage' && projectForm.plannedStartDate && projectForm.plannedEndDate && projectForm.plannedStartDate > projectForm.plannedEndDate) {
     projectFormErrors.plannedEndDate = '计划完成日期不能早于计划开始日期。'
-  }
-  if (key === 'auditInfo') {
-    const contractAmount = Number(projectForm.contractAmount || 0)
-    const submittedAmount = Number(projectForm.submittedAmount || 0)
-    if (contractAmount > 0 && submittedAmount > contractAmount) {
-      projectFormErrors.submittedAmount = '报审金额不能大于合同金额，请核对金额口径。'
-    }
   }
   const firstErrorKey = Object.keys(projectFormErrors)[0] as ProjectFormKey | undefined
   if (firstErrorKey) {
@@ -2326,35 +2190,6 @@ function validateProjectForm() {
     return false
   }
   return true
-}
-
-function buildAuditProjectUpdatePayload(auditProject: Awaited<ReturnType<typeof fetchAuditProject>>) {
-  const stage = projectStageToAuditStage(projectForm.projectStatus)
-  return {
-    ...auditProject,
-    currentStage: stage,
-    stage,
-    amount: {
-      ...auditProject.amount,
-      submittedAmount: Number(projectForm.submittedAmount || auditProject.amount?.submittedAmount || 0),
-      finalPayable: Number(projectCreationFlow.finalAmount || auditProject.amount?.finalPayable || 0),
-    },
-    deadline: {
-      ...auditProject.deadline,
-      submitDate: projectCreationFlow.auditSubmitDate || auditProject.deadline?.submitDate || projectForm.contractDate,
-    },
-    firstAudit: {
-      ...auditProject.firstAudit,
-      companyName: projectCreationFlow.firstAuditUnit,
-      auditor: { ...(auditProject.firstAudit?.auditor || {}), name: projectCreationFlow.firstAuditOwner },
-    },
-    secondAudit: {
-      ...auditProject.secondAudit,
-      department: projectCreationFlow.secondAuditUnit,
-      auditor: { ...(auditProject.secondAudit?.auditor || {}), name: projectCreationFlow.secondAuditOwner },
-    },
-    description: appendProjectCreationNotes(projectForm.description),
-  }
 }
 
 function isProjectFormDirty() {
@@ -2770,14 +2605,14 @@ async function batchStartAudit() {
     MessagePlugin.warning('请先选择需要发起审计的项目')
     return
   }
-  const candidates = batchAuditCandidates.value
-  const skipped = selectedRecords.value.length - candidates.length
+  const { eligible: candidates, skipped } = batchAuditEligibility.value
+  const skippedSummary = formatAuditStartSkippedSummary(skipped)
   if (!candidates.length) {
-    MessagePlugin.warning('所选项目均已进入审计流程，无需重复发起')
+    MessagePlugin.warning(`所选项目均不满足发起审计条件：${skippedSummary}`)
     return
   }
-  const message = skipped
-    ? `确认将 ${candidates.length} 个项目发起审计流程？另有 ${skipped} 个已进入审计流程，将自动跳过。`
+  const message = skipped.length
+    ? `确认将 ${candidates.length} 个项目发起审计流程？自动跳过：${skippedSummary}。`
     : `确认将 ${candidates.length} 个项目发起审计流程？系统会自动带入项目主数据。`
   openConfirm({
     title: '批量发起审计？',
@@ -2792,11 +2627,22 @@ async function batchStartAudit() {
 async function runBatchStartAudit(candidates: ProjectRecord[]) {
   batchAuditing.value = true
   try {
-    for (const record of candidates) {
-      await startProjectAudit(record.id)
+    const results = await Promise.all(candidates.map(async (record) => {
+      try {
+        await startProjectAudit(record.id)
+        return { record, error: null }
+      } catch (error) {
+        return { record, error }
+      }
+    }))
+    const failed = results.filter((result) => result.error)
+    const succeeded = results.length - failed.length
+    if (succeeded) MessagePlugin.success(`已发起 ${succeeded} 个项目的审计流程`)
+    if (failed.length) {
+      const failedNames = failed.map(({ record }) => record.projectName || record.projectCode).join('、')
+      MessagePlugin.warning(`${failed.length} 个项目未能发起审计：${failedNames}`)
     }
-    MessagePlugin.success(`已发起 ${candidates.length} 个项目的审计流程`)
-    clearProjectSelection()
+    selectedProjectIds.value = selectedProjectIds.value.filter((id) => failed.some((result) => result.record.id === id))
     await loadSummary()
     await loadRecords()
     if (currentProject.value) await loadCurrentProject(currentProject.value.id)
@@ -3064,6 +2910,35 @@ async function loadCurrentProject(id: string) {
   }
 }
 
+function openLifecycleTransition(snapshot: ProjectLifecycleSnapshot) {
+  lifecycleTransitionSnapshot.value = snapshot
+  lifecycleTransitionVisible.value = true
+}
+
+async function refreshLifecycleDetail() {
+  const projectId = currentProject.value?.id
+  lifecycleTransitionVisible.value = false
+  if (!projectId) return
+  const result = await settleLifecycleRefresh({
+    snapshot: async () => {
+      await nextTick()
+      return lifecycleStatusRef.value?.refresh()
+    },
+    ancillary: [
+      () => loadCurrentProject(projectId),
+      () => loadSummary(),
+      () => loadWorkItems(),
+      () => loadRecords(),
+    ],
+  })
+  if (result.snapshot.status === 'rejected') throw result.snapshot.reason
+}
+
+async function handleLifecycleTransitioned(_snapshot: ProjectLifecycleSnapshot) {
+  await refreshLifecycleDetail()
+  MessagePlugin.success('项目阶段已推进')
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -3111,36 +2986,17 @@ async function saveProject() {
   }
   projectDialog.saving = true
   try {
-    const shouldCreateAudit = projectDialog.mode === 'create' && projectCreationFlow.hasAudit === 'yes'
     const payload = {
-      ...projectForm,
-      auditStage: shouldCreateAudit ? projectStageToAuditStage(projectForm.projectStatus) : projectForm.auditStage,
+      ...buildProjectMutationPayload(projectDialog.mode, projectForm),
       contractAmount: Number(projectForm.contractAmount || 0),
       submittedAmount: Number(projectForm.submittedAmount || 0),
       paidAmount: Number(projectForm.paidAmount || 0),
-      firstAuditMaterialStatus: shouldCreateAudit ? projectCreationFlow.firstAuditStatus : undefined,
-      secondAuditMaterialStatus: shouldCreateAudit ? projectCreationFlow.secondAuditStatus : undefined,
-      settlementBookStatus: shouldCreateAudit ? 'submitted' : undefined,
       description: projectDialog.mode === 'create' ? appendProjectCreationNotes(projectForm.description) : projectForm.description,
     }
     const result = projectDialog.mode === 'create'
       ? await createProjectRecord(payload)
       : await updateProjectRecord(projectForm.id, payload)
-    let auditSyncWarning = ''
-    if (shouldCreateAudit) {
-      try {
-        const auditProject = await startProjectAudit(result.id)
-        const auditDetail = await fetchAuditProject(auditProject.id)
-        await updateAuditProject(auditProject.id, buildAuditProjectUpdatePayload(auditDetail) as any)
-      } catch (err) {
-        auditSyncWarning = friendlyErrorMessage(err, '审计看板同步失败，请在项目详情中重新发起或补充审计信息')
-      }
-    }
-    if (auditSyncWarning) {
-      MessagePlugin.warning(`项目已保存，但${auditSyncWarning}`)
-    } else {
-      MessagePlugin.success(shouldCreateAudit ? '项目已保存，并已同步到审计看板' : '项目已保存')
-    }
+    MessagePlugin.success('项目已保存')
     closeProjectDialog(true)
     await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
     await selectProject(result)
@@ -3155,6 +3011,11 @@ async function startAudit(record: ProjectRecord) {
   if (!record?.id) return
   if (record.auditProjectId) {
     MessagePlugin.warning('该项目已进入审计流程，请直接查看审计进度')
+    return
+  }
+  const eligibility = getAuditStartEligibility(record)
+  if (!eligibility.eligible) {
+    MessagePlugin.warning(auditStartEligibilityMessage(eligibility.reason))
     return
   }
   openConfirm({

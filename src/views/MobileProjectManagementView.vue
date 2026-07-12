@@ -151,6 +151,11 @@
           <ATag variant="light" :theme="projectTheme(currentProject.projectStatus)">{{ projectStatusLabel(currentProject.projectStatus) }}</ATag>
           <h2>{{ currentProject.projectName }}</h2>
           <p>{{ currentProject.projectCode }} · {{ currentProject.constructionUnit || '未填写施工单位' }}</p>
+          <ProjectLifecycleStatus
+            ref="lifecycleStatusRef"
+            :project-id="currentProject.id"
+            @advance="openLifecycleTransition"
+          />
         </div>
 
         <div class="quick-actions">
@@ -164,14 +169,11 @@
 
         <div class="status-edit">
           <AForm :model="statusForm" layout="vertical" class="status-form">
-            <AFormItem field="projectStatus" label="项目状态">
-              <ASelect v-model="statusForm.projectStatus" :options="projectStatusOptions" />
-            </AFormItem>
             <AFormItem field="settlementStatus" label="结算状态">
               <ASelect v-model="statusForm.settlementStatus" :options="settlementStatusOptions" />
             </AFormItem>
           </AForm>
-          <AButton theme="primary" :loading="statusSaving" @click="saveStatus">保存状态</AButton>
+          <AButton theme="primary" :loading="statusSaving" @click="saveStatus">保存结算状态</AButton>
         </div>
 
         <div class="mobile-tabs" role="tablist">
@@ -299,6 +301,14 @@
     >
       <p class="confirm-message">{{ confirmState.message }}</p>
     </AModal>
+
+    <ProjectStageTransitionModal
+      v-model:visible="lifecycleTransitionVisible"
+      :project-id="currentProject?.id || ''"
+      :snapshot="lifecycleTransitionSnapshot"
+      @transitioned="handleLifecycleTransitioned"
+      @refresh="refreshLifecycleDetail"
+    />
   </main>
 </template>
 
@@ -307,8 +317,16 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
+import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
+import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
 import { MessagePlugin } from '@/ui/message'
 import { friendlyErrorMessage } from '@/utils/errors'
+import { auditStartEligibilityMessage, getAuditStartEligibility } from '@/utils/auditEligibility'
+import {
+  flattenLoadedProjectPages,
+  getLoadedProjectPageCount,
+  settleLifecycleRefresh,
+} from '@/utils/projectLifecycleRefresh'
 import {
   businessColor,
   businessLabel,
@@ -317,6 +335,7 @@ import {
   variationStatusOptions as variationStatusDict,
 } from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation } from '@/types'
+import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 import {
   fetchProjectMeta,
   fetchProjectRecord,
@@ -373,8 +392,11 @@ const error = ref('')
 const auditStarting = ref(false)
 const statusSaving = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const lifecycleStatusRef = ref<InstanceType<typeof ProjectLifecycleStatus> | null>(null)
+const lifecycleTransitionVisible = ref(false)
+const lifecycleTransitionSnapshot = ref<ProjectLifecycleSnapshot | null>(null)
 
-const statusForm = reactive({ projectStatus: '', settlementStatus: '' })
+const statusForm = reactive({ settlementStatus: '' })
 const fileDialog = reactive({ visible: false, saving: false, projectId: '', categoryKey: '', displayName: '', file: null as File | null })
 const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
@@ -611,6 +633,20 @@ async function loadRecords(append = false) {
   }
 }
 
+async function refreshLoadedRecords() {
+  const loadedPageCount = getLoadedProjectPageCount(records.value.length, filters.pageSize)
+  const pages = await Promise.all(
+    Array.from({ length: loadedPageCount }, (_, index) => fetchProjectRecords({
+      ...filters,
+      page: index + 1,
+      pageSize: filters.pageSize,
+    })),
+  )
+  records.value = flattenLoadedProjectPages(pages.map((page) => page.data))
+  total.value = pages[0]?.total || 0
+  filters.pageSize = pages[0]?.pageSize || filters.pageSize
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -636,7 +672,6 @@ async function openDetail(record: ProjectRecord) {
   detailLoading.value = true
   try {
     currentProject.value = await fetchProjectRecord(record.id)
-    statusForm.projectStatus = currentProject.value.projectStatus
     statusForm.settlementStatus = currentProject.value.settlementStatus
   } catch (err) {
     currentProject.value = null
@@ -649,7 +684,6 @@ async function openDetail(record: ProjectRecord) {
 async function refreshCurrentProject() {
   if (!currentProject.value) return
   currentProject.value = await fetchProjectRecord(currentProject.value.id)
-  statusForm.projectStatus = currentProject.value.projectStatus
   statusForm.settlementStatus = currentProject.value.settlementStatus
 }
 
@@ -658,10 +692,9 @@ async function saveStatus() {
   statusSaving.value = true
   try {
     await updateProjectRecord(currentProject.value.id, {
-      projectStatus: statusForm.projectStatus,
       settlementStatus: statusForm.settlementStatus,
     })
-    MessagePlugin.success('项目状态已更新')
+    MessagePlugin.success('结算状态已更新')
     await Promise.all([refreshCurrentProject(), loadSummary(), loadRecords()])
   } catch (err) {
     MessagePlugin.error(friendlyErrorMessage(err, '项目状态保存失败，请稍后重试或联系管理员'))
@@ -809,6 +842,11 @@ function startAudit(record: ProjectRecord) {
     goAudit(record.auditProjectId)
     return
   }
+  const eligibility = getAuditStartEligibility(record)
+  if (!eligibility.eligible) {
+    MessagePlugin.warning(auditStartEligibilityMessage(eligibility.reason))
+    return
+  }
   confirmState.title = '发起审计流程？'
   confirmState.message = `将「${record.projectName}」发起审计流程，系统会自动带入项目主数据。`
   confirmState.confirmText = '发起审计'
@@ -816,6 +854,28 @@ function startAudit(record: ProjectRecord) {
     await runStartAudit(record)
   }
   confirmState.visible = true
+}
+
+function openLifecycleTransition(snapshot: ProjectLifecycleSnapshot) {
+  lifecycleTransitionSnapshot.value = snapshot
+  lifecycleTransitionVisible.value = true
+}
+
+async function refreshLifecycleDetail() {
+  lifecycleTransitionVisible.value = false
+  if (!currentProject.value) return
+  const { ancillary } = await settleLifecycleRefresh({
+    snapshot: () => lifecycleStatusRef.value?.refresh(),
+    ancillary: [refreshCurrentProject, loadSummary, refreshLoadedRecords],
+  })
+  if (ancillary.some((result) => result.status === 'rejected')) {
+    MessagePlugin.warning('项目阶段已更新，但部分页面数据刷新失败，请稍后重试。')
+  }
+}
+
+async function handleLifecycleTransitioned(_snapshot: ProjectLifecycleSnapshot) {
+  await refreshLifecycleDetail()
+  MessagePlugin.success('项目阶段已推进')
 }
 
 async function confirmPrimaryAction() {

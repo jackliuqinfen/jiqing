@@ -72,11 +72,17 @@ echo "GIT_SYNC_OK $(git -C "$RELEASE_REPO" rev-parse --short HEAD)"
 
 cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
 
-cp "$WORK_DIR/server/audit_api.py" "$API_ROOT/audit_api.py"
-cp "$WORK_DIR/server/schema.sql" "$API_ROOT/schema.sql"
-if [[ -f "$WORK_DIR/server/postgres_schema.sql" ]]; then
-  cp "$WORK_DIR/server/postgres_schema.sql" "$API_ROOT/postgres_schema.sql"
-fi
+# Sync runtime source and schema files without touching the production database,
+# uploads, or test fixtures. Lifecycle modules are imported by audit_api.py and
+# must be released together with it.
+find "$WORK_DIR/server" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sql" \) \
+  -exec cp -f {} "$API_ROOT/" \;
+for required_file in audit_api.py schema.sql lifecycle.py lifecycle_repository.py migrations.py; do
+  if [[ ! -f "$API_ROOT/$required_file" ]]; then
+    echo "Deployed API runtime missing $required_file" >&2
+    exit 1
+  fi
+done
 mkdir -p "$API_ROOT/uploads"
 mkdir -p /etc/nginx/conf.d
 cat > /etc/nginx/conf.d/shenjikanban-upload-size.conf <<'EOF'
@@ -95,7 +101,7 @@ import urllib.request
 
 checks = [
     "http://127.0.0.1:3008/api/health",
-    "http://127.0.0.1:8088/api/audit/dashboard/summary",
+    "http://127.0.0.1:8088/api/health",
 ]
 
 for url in checks:

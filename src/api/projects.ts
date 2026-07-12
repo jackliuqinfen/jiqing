@@ -13,8 +13,46 @@ import type {
 } from '@/types'
 import type { AuditProject } from '@/types/audit'
 import type { ApiResult } from '@/types/audit'
+import type { ProjectLifecycleBlocker, ProjectLifecycleStage } from '@/types/projectLifecycle'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
+
+export type ProjectAuditStartErrorPayload = {
+  error?: string
+  code?: string
+  blockers?: ProjectLifecycleBlocker[]
+  currentStage?: ProjectLifecycleStage
+  currentVersion?: number
+  expectedVersion?: number
+  lifecycleVersion?: number
+  [key: string]: unknown
+}
+
+type ProjectAuditStartResult = { success: boolean; data?: AuditProject } & ProjectAuditStartErrorPayload
+
+export class ProjectAuditStartApiError extends Error {
+  readonly status: number
+  readonly payload: ProjectAuditStartErrorPayload
+  readonly code?: string
+  readonly blockers: ProjectLifecycleBlocker[]
+  readonly currentStage?: ProjectLifecycleStage
+  readonly currentVersion?: number
+  readonly expectedVersion?: number
+  readonly lifecycleVersion?: number
+
+  constructor(status: number, payload: ProjectAuditStartErrorPayload) {
+    super(payload.error || `请求失败: ${status || '网络异常'}`)
+    this.name = 'ProjectAuditStartApiError'
+    this.status = status
+    this.payload = payload
+    this.code = payload.code
+    this.blockers = payload.blockers || []
+    this.currentStage = payload.currentStage
+    this.currentVersion = payload.currentVersion
+    this.expectedVersion = payload.expectedVersion
+    this.lifecycleVersion = payload.lifecycleVersion
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken()
@@ -88,8 +126,29 @@ export function fetchProjectEvidence(params?: { keyword?: string; fileType?: str
   return request(`/project-evidence${query.toString() ? `?${query.toString()}` : ''}`)
 }
 
-export function startProjectAudit(projectId: string): Promise<AuditProject> {
-  return request(`/projects/${projectId}/start-audit`, { method: 'POST', body: JSON.stringify({}) })
+export async function startProjectAudit(projectId: string): Promise<AuditProject> {
+  const token = getAuthToken()
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/start-audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({}),
+    })
+  } catch {
+    throw new ProjectAuditStartApiError(0, { error: '网络连接失败，请检查连接后重试。', code: 'network_error' })
+  }
+
+  let payload: ProjectAuditStartResult = { success: false, error: `请求失败: ${response.status}` }
+  try {
+    payload = (await response.json()) as ProjectAuditStartResult
+  } catch {
+    // Keep the HTTP status when an upstream proxy returns a non-JSON error page.
+  }
+  if (!response.ok || !payload.success || payload.data === undefined) {
+    throw new ProjectAuditStartApiError(response.status, payload)
+  }
+  return payload.data
 }
 
 export function fetchProjectRecord(id: string): Promise<ProjectRecord> {
