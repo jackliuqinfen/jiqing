@@ -183,6 +183,18 @@ def _transition_blockers(conn, project, target_stage):
         )
     if target_stage == "first_audit":
         blockers.extend(audit_start_failures(project))
+        if _value(project, "audit_project_id"):
+            blockers.append({
+                "code": "audit_progress_required",
+                "field": "projectStatus",
+                "message": "项目已关联审计流程，请从审计看板推进一审阶段。",
+            })
+        else:
+            blockers.append({
+                "code": "audit_link_required",
+                "field": "auditProjectId",
+                "message": "进入一审前必须先从项目详情发起审计流程。",
+            })
     return blockers
 
 

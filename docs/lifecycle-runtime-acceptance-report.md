@@ -35,7 +35,7 @@ Command:
 python -m unittest discover -s server/tests -v
 ```
 
-Result: `50` tests passed, `0` failures, exit code `0`.
+Result: `52` tests passed, `0` failures, exit code `0`.
 
 Covered acceptance paths include:
 
@@ -51,6 +51,9 @@ Covered acceptance paths include:
 - concurrent audit-start requests creating only one audit record;
 - audit progress rejecting stage skips and synchronizing the project lifecycle;
 - settlement facts being rejected when they exceed the project lifecycle;
+- generic project edits being unable to clear backend-managed audit linkage;
+- linked projects requiring audit-stage progression through the audit workflow;
+- audit-progress retries returning the current result without duplicate writes;
 - migration checksum, retry, rollback, and idempotency behavior.
 
 Command:

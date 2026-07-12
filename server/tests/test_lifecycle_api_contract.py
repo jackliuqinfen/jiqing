@@ -384,6 +384,32 @@ class LifecycleApiContractTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(linked["project_id"], project_id)
 
+    def test_generic_project_update_cannot_explicitly_clear_audit_linkage(self):
+        project_id = self.insert_project(project_name="受保护关联")
+        audit_id = self.insert_audit_project(project_id)
+
+        status, payload = self.request(
+            "PUT",
+            f"/api/projects/{project_id}",
+            {"projectName": "受保护关联", "auditProjectId": "", "auditStage": "not_linked"},
+            "admin-user",
+        )
+
+        self.assertEqual(status, 422)
+        self.assertEqual(payload["code"], "audit_linkage_managed")
+        with audit_api.connect() as conn:
+            project = conn.execute(
+                "SELECT audit_project_id, audit_stage FROM project_records WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+            audit = conn.execute(
+                "SELECT project_id FROM audit_projects WHERE id = ?",
+                (audit_id,),
+            ).fetchone()
+        self.assertEqual(project["audit_project_id"], audit_id)
+        self.assertEqual(project["audit_stage"], "submitted")
+        self.assertEqual(audit["project_id"], project_id)
+
     def test_standard_project_creation_allows_only_awarded_status(self):
         status, payload = self.request(
             "POST",
@@ -494,6 +520,55 @@ class LifecycleApiContractTests(unittest.TestCase):
         self.assertEqual(project["audit_stage"], "first_audit")
         self.assertEqual(project["lifecycle_version"], 5)
         self.assertEqual((event["from_stage"], event["to_stage"]), ("pending_submission", "first_audit"))
+
+        replay_status, replay_payload = self.request(
+            "POST",
+            f"/api/audit/projects/{audit_id}/progress",
+            {"stageCode": "first_audit"},
+            "admin-user",
+        )
+        self.assertEqual(replay_status, 200)
+        self.assertEqual(replay_payload["data"]["stage"], "first_audit")
+        with audit_api.connect() as conn:
+            event_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM project_lifecycle_events WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()["count"]
+            stage_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM audit_project_stages WHERE project_id = ?",
+                (audit_id,),
+            ).fetchone()["count"]
+        self.assertEqual(event_count, 1)
+        self.assertEqual(stage_count, 1)
+
+    def test_project_lifecycle_cannot_bypass_linked_audit_progress(self):
+        project_id = self.insert_project(
+            project_status="pending_submission",
+            submitted_amount=100,
+            lifecycle_version=4,
+        )
+        audit_id = self.insert_audit_project(project_id, "submitted")
+
+        status, payload = self.request(
+            "POST",
+            f"/api/projects/{project_id}/lifecycle/transitions",
+            {"toStage": "first_audit", "expectedVersion": 4, "idempotencyKey": "bypass-audit"},
+            "admin-user",
+        )
+
+        self.assertEqual(status, 422)
+        self.assertIn("audit_progress_required", {item["code"] for item in payload["blockers"]})
+        with audit_api.connect() as conn:
+            project = conn.execute(
+                "SELECT project_status FROM project_records WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+            audit = conn.execute(
+                "SELECT current_stage FROM audit_projects WHERE id = ?",
+                (audit_id,),
+            ).fetchone()
+        self.assertEqual(project["project_status"], "pending_submission")
+        self.assertEqual(audit["current_stage"], "submitted")
 
     def test_settlement_cannot_claim_facts_beyond_project_lifecycle(self):
         project_id = self.insert_project(project_status="awarded")

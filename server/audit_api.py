@@ -2657,7 +2657,7 @@ class Handler(BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
         self.respond(201, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
 
-    def lifecycle_transition_blockers(self, conn, row, target_stage):
+    def lifecycle_transition_blockers(self, conn, row, target_stage, from_audit_progress=False):
         project = dict(row)
         current_stage = project.get("project_status") or "awarded"
         blockers = validate_adjacent_transition(current_stage, target_stage)
@@ -2678,6 +2678,19 @@ class Handler(BaseHTTPRequestHandler):
             blockers.extend(contract_gate_failures(project, has_contract_file))
         if target_stage == "first_audit":
             blockers.extend(audit_start_failures(project))
+            if not from_audit_progress:
+                if (project.get("audit_project_id") or "").strip():
+                    blockers.append({
+                        "code": "audit_progress_required",
+                        "field": "projectStatus",
+                        "message": "项目已关联审计流程，请从审计看板推进一审阶段。",
+                    })
+                else:
+                    blockers.append({
+                        "code": "audit_link_required",
+                        "field": "auditProjectId",
+                        "message": "进入一审前必须先从项目详情发起审计流程。",
+                    })
         return blockers
 
     def project_lifecycle_snapshot(self, conn, project_id):
@@ -2915,6 +2928,21 @@ class Handler(BaseHTTPRequestHandler):
                     "field": "projectStatus",
                     "message": "请使用 /api/projects/:id/lifecycle/transitions 推进项目阶段。",
                 }],
+            })
+            return
+        requested_audit_project_id = data.get("auditProjectId", data.get("audit_project_id"))
+        audit_linkage_changed = (
+            requested_audit_project_id is not None
+            and str(requested_audit_project_id or "").strip() != (row["audit_project_id"] or "").strip()
+        ) or (
+            "auditStage" in data
+            and str(data.get("auditStage") or "not_linked").strip() != (row["audit_stage"] or "not_linked").strip()
+        )
+        if audit_linkage_changed:
+            self.respond(422, {
+                "success": False,
+                "error": "审计关联由发起审计和审计进度流程维护，不能通过项目基础信息编辑修改",
+                "code": "audit_linkage_managed",
             })
             return
         before = project_record_payload(conn, row)
@@ -4443,6 +4471,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         stage_codes = [code for code, _title, _color in STAGES]
         current_stage = row["current_stage"] or "submitted"
+        if stage == current_stage:
+            self.respond(200, {"success": True, "data": project_payload(conn, row)})
+            return
         expected_stage = None
         if current_stage in stage_codes:
             current_index = stage_codes.index(current_stage)
@@ -4478,7 +4509,7 @@ class Handler(BaseHTTPRequestHandler):
                 "code": "audit_project_lifecycle_conflict",
             })
             return
-        blockers = self.lifecycle_transition_blockers(conn, project, target_project_stage)
+        blockers = self.lifecycle_transition_blockers(conn, project, target_project_stage, from_audit_progress=True)
         if blockers:
             self.respond(422, {
                 "success": False,
