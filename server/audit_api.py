@@ -38,10 +38,15 @@ from server.lifecycle_repository import (
     lifecycle_snapshot,
     transition_project,
 )
+from server.document_api import DocumentApi
 from server.migrations import apply_pending_migrations
+from server.recognition.registry import build_recognition_adapter
+from server.recognition_service import recognition_health_payload
+from server.recognition_worker import RecognitionWorker
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT / "audit-kanban.sqlite3"
+RECOGNITION_WORKER = None
 STAGES = [
     ("submitted", "报审待受理", "#3366FF"),
     ("first_audit", "一级初审", "#FF8D1A"),
@@ -288,6 +293,10 @@ def read_json(handler):
 
 def upload_root():
     return Path(os.environ.get("UPLOAD_ROOT", ROOT / "uploads")).resolve()
+
+
+def recognition_configured():
+    return bool(str(os.environ.get("OCR_HTTP_ENDPOINT") or "").strip())
 
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 100
@@ -1219,10 +1228,10 @@ def log_action(conn, project_id, action, operator="", note="", before=None, afte
 
 def bootstrap():
     with connect() as conn:
+        apply_pending_migrations(conn)
         schema = (ROOT / "schema.sql").read_text(encoding="utf-8")
         conn.executescript(schema)
         ensure_compatible_columns(conn)
-        apply_pending_migrations(conn)
         backfill_derived_fields(conn)
         seed_system_settings(conn)
         seed_theme_configs(conn)
@@ -2007,6 +2016,12 @@ def project_columns_from_payload(data):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "AuditKanbanAPI/1.0"
+    document_max_upload_size = staticmethod(max_upload_size)
+    # Administrators can operate globally. Other roles start with no project
+    # scope until a deployment injects its real project-membership provider.
+    document_project_scope_provider = staticmethod(
+        lambda _conn, actor: None if actor.get("role") == "admin" else set()
+    )
 
     def setup(self):
         super().setup()
@@ -2015,7 +2030,7 @@ class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Range")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -2613,49 +2628,11 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin", "editor"})
         if not user:
             return
-        if "projectStatus" in data and data["projectStatus"] != "awarded":
-            self.respond(422, {
-                "success": False,
-                "error": "历史项目需通过专用初始化流程创建；普通创建入口仅允许初始阶段 awarded。",
-                "code": "historical_project_initialization_required",
-            })
-            return
-        columns = project_record_columns_from_payload(data)
-        if not columns["project_name"]:
-            self.respond(400, {"success": False, "error": "请填写项目名称"})
-            return
-        if not columns["project_code"]:
-            columns["project_code"] = generate_project_code(conn, columns.get("contract_date"), columns.get("construction_unit"))
-        pid = new_id()
-        ts = now_iso()
-        columns["created_by"] = user["username"]
-        columns["updated_by"] = user["username"]
-        columns["created_at"] = ts
-        columns["updated_at"] = ts
-        try:
-            names = ", ".join(["id", *columns.keys()])
-            marks = ", ".join(["?"] * (len(columns) + 1))
-            conn.execute(f"INSERT INTO project_records ({names}) VALUES ({marks})", (pid, *columns.values()))
-        except sqlite3.IntegrityError:
-            self.respond(400, {"success": False, "error": "项目编号已存在，请更换后再保存"})
-            return
-        audit_project_id = (columns.get("audit_project_id") or "").strip()
-        if audit_project_id:
-            audit_row = conn.execute("SELECT id, project_id FROM audit_projects WHERE id = ?", (audit_project_id,)).fetchone()
-            if not audit_row:
-                conn.rollback()
-                self.respond(400, {"success": False, "error": "未找到关联审计项目，请返回后重新选择"})
-                return
-            conn.execute(
-                "UPDATE audit_projects SET project_id = ?, updated_at = ? WHERE id = ?",
-                (pid, ts, audit_project_id),
-            )
-        project_log(conn, pid, "project.create", "新建项目", user, after=columns)
-        save_project_dictionary_values(conn, data)
-        self.write_operation_log(conn, "project_record.create", user, "project_record", pid)
-        conn.commit()
-        row = conn.execute("SELECT * FROM project_records WHERE id = ?", (pid,)).fetchone()
-        self.respond(201, {"success": True, "data": project_record_payload(conn, row, include_detail=True)})
+        self.respond(409, {
+            "success": False,
+            "error": "请先上传合同并完成施工合同识别复核，确认后系统将自动创建项目主档案。",
+            "code": "contract_review_required",
+        })
 
     def lifecycle_transition_blockers(self, conn, row, target_stage, from_audit_progress=False):
         project = dict(row)
@@ -4123,14 +4100,55 @@ class Handler(BaseHTTPRequestHandler):
         rows = conn.execute("SELECT * FROM system_operation_logs ORDER BY created_at DESC LIMIT 200").fetchall()
         self.respond(200, {"success": True, "data": [row_dict(r) for r in rows]})
 
+    def mounted_document_api(self, conn, user):
+        actor = {
+            "id": user["id"],
+            "name": user["display_name"] or user["username"],
+            "role": user["role"],
+        }
+        return DocumentApi(
+            conn=conn,
+            handler=self,
+            actor=actor,
+            allowed_project_ids=self.document_project_scope_provider(conn, actor),
+            storage_root=upload_root(),
+            max_upload_size=self.document_max_upload_size(),
+            read_json=read_json,
+            filename_decoder=multipart_filename,
+            project_code_generator=generate_project_code,
+            recognition_adapter_key=build_recognition_adapter().adapter_key,
+        )
+
     def do_GET(self):
         try:
             parsed = urlparse(self.path)
             path = parsed.path
             params = parse_qs(parsed.query)
             with connect() as conn:
-                if path == "/api/health":
-                    self.respond(200, {"success": True, "data": {"status": "ok", "time": now_iso()}})
+                if DocumentApi.is_route("GET", path):
+                    user = self.require_user(conn)
+                    if user:
+                        self.mounted_document_api(conn, user).dispatch("GET", path)
+                    return
+                elif path == "/api/health":
+                    recognition_health = recognition_health_payload(
+                        conn,
+                        recognition_configured=recognition_configured(),
+                        worker_alive=bool(
+                            RECOGNITION_WORKER and RECOGNITION_WORKER.is_alive
+                        ),
+                    )
+                    self.respond(
+                        200,
+                        {
+                            "success": True,
+                            "data": {
+                                "status": "ok",
+                                "time": now_iso(),
+                                **recognition_health,
+                            },
+                        },
+                    )
                 elif path.startswith("/api/audit/") and not self.require_user(conn):
                     return
                 elif path == "/api/auth/me":
@@ -4279,6 +4297,11 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlparse(self.path)
             path = parsed.path
             with connect() as conn:
+                if DocumentApi.is_route("POST", path):
+                    user = self.require_user(conn)
+                    if user:
+                        self.mounted_document_api(conn, user).dispatch("POST", path)
+                    return
                 project_file_upload_match = re.match(r"^/api/projects/([^/]+)/files$", path)
                 if project_file_upload_match:
                     self.upload_project_file(conn, project_file_upload_match.group(1))
@@ -4789,14 +4812,25 @@ def dashboard_overview(conn):
 
 
 def main():
+    global RECOGNITION_WORKER
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default=os.environ.get("AUDIT_API_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("AUDIT_API_PORT", "3008")))
     args = parser.parse_args()
     bootstrap()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    RECOGNITION_WORKER = RecognitionWorker(
+        connection_factory=connect,
+        adapter_resolver=lambda _adapter_key: build_recognition_adapter(),
+        storage_root=upload_root(),
+    )
+    RECOGNITION_WORKER.start()
     print(f"Audit Kanban API listening on http://{args.host}:{args.port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        RECOGNITION_WORKER.stop()
+        server.server_close()
 
 
 if __name__ == "__main__":

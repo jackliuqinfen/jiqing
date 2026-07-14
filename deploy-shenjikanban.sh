@@ -6,6 +6,7 @@ WORK_DIR="/tmp/shenjikanban-release-current"
 RELEASE_REPO="/opt/shenjikanban/release-git"
 FRONTEND_ROOT="/www/wwwroot/shenjikanban"
 API_ROOT="/opt/shenjikanban/server"
+OCR_VENV_BASE="/opt/shenjikanban/ocr-venvs"
 SERVICE_NAME="audit-kanban.service"
 
 if [[ ! -f "$ZIP_PATH" ]]; then
@@ -70,25 +71,66 @@ else
 fi
 echo "GIT_SYNC_OK $(git -C "$RELEASE_REPO" rev-parse --short HEAD)"
 
+OCR_REQUIREMENTS="$WORK_DIR/server/requirements-ocr.txt"
+if [[ ! -f "$OCR_REQUIREMENTS" ]]; then
+  echo "Release package missing server/requirements-ocr.txt" >&2
+  exit 1
+fi
+OCR_REQUIREMENTS_HASH="$(sha256sum "$OCR_REQUIREMENTS" | awk '{print $1}')"
+OCR_VENV_ROOT="$OCR_VENV_BASE/$OCR_REQUIREMENTS_HASH"
+mkdir -p "$OCR_VENV_BASE"
+OCR_HASH_FILE="$OCR_VENV_ROOT/.requirements-ocr.sha256"
+INSTALLED_OCR_HASH=""
+if [[ -f "$OCR_HASH_FILE" ]]; then
+  INSTALLED_OCR_HASH="$(cat "$OCR_HASH_FILE")"
+fi
+if [[ ! -x "$OCR_VENV_ROOT/bin/python" || "$OCR_REQUIREMENTS_HASH" != "$INSTALLED_OCR_HASH" ]]; then
+  if [[ ! -x "$OCR_VENV_ROOT/bin/python" ]]; then
+    python3 -m venv "$OCR_VENV_ROOT"
+  fi
+  "$OCR_VENV_ROOT/bin/python" -m pip install --disable-pip-version-check -r "$OCR_REQUIREMENTS"
+  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2; print('OCR_IMPORT_OK')"
+  printf '%s' "$OCR_REQUIREMENTS_HASH" > "$OCR_HASH_FILE"
+else
+  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2; print('OCR_IMPORT_OK')"
+fi
+OCR_SITE_PACKAGES="$("$OCR_VENV_ROOT/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+
 cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
 
 # Sync runtime source and schema files without touching the production database,
 # uploads, or test fixtures. Lifecycle modules are imported by audit_api.py and
 # must be released together with it.
-find "$WORK_DIR/server" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sql" \) \
+find "$WORK_DIR/server" -maxdepth 1 -type f \( -name "*.py" -o -name "*.sql" -o -name "requirements-*.txt" \) \
   -exec cp -f {} "$API_ROOT/" \;
-for required_file in audit_api.py schema.sql lifecycle.py lifecycle_repository.py migrations.py; do
+mkdir -p "$API_ROOT/recognition"
+cp -a "$WORK_DIR/server/recognition/." "$API_ROOT/recognition/"
+for required_file in audit_api.py schema.sql lifecycle.py lifecycle_repository.py migrations.py requirements-ocr.txt recognition_service.py recognition_worker.py; do
   if [[ ! -f "$API_ROOT/$required_file" ]]; then
     echo "Deployed API runtime missing $required_file" >&2
     exit 1
   fi
 done
-mkdir -p "$API_ROOT/uploads"
+for required_file in recognition/contracts.py recognition/registry.py; do
+  if [[ ! -f "$API_ROOT/$required_file" ]]; then
+    echo "Deployed API runtime missing $required_file" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "/etc/systemd/system/$SERVICE_NAME.d"
+cat > "/etc/systemd/system/$SERVICE_NAME.d/document-ocr.conf" <<EOF
+[Service]
+Environment="PYTHONPATH=$OCR_SITE_PACKAGES"
+EOF
+
+mkdir -p "$API_ROOT/uploads/documents"
 mkdir -p /etc/nginx/conf.d
 cat > /etc/nginx/conf.d/shenjikanban-upload-size.conf <<'EOF'
 client_max_body_size 500m;
 EOF
 
+systemctl daemon-reload
 systemctl restart "$SERVICE_NAME"
 systemctl is-active --quiet "$SERVICE_NAME"
 nginx -t
@@ -116,6 +158,9 @@ for url in checks:
                     data = json.loads(body)
                 except Exception:
                     data = {"raw": body[:120]}
+                health = data.get("data", data)
+                if not isinstance(health, dict) or health.get("recognitionWorkerAlive") is not True:
+                    raise RuntimeError("recognition worker is not alive")
                 print(f"HEALTH_OK {url} {data}")
                 break
         except Exception as exc:

@@ -410,7 +410,7 @@ class LifecycleApiContractTests(unittest.TestCase):
         self.assertEqual(project["audit_stage"], "submitted")
         self.assertEqual(audit["project_id"], project_id)
 
-    def test_standard_project_creation_allows_only_awarded_status(self):
+    def test_standard_project_creation_is_blocked_until_contract_review_is_confirmed(self):
         status, payload = self.request(
             "POST",
             "/api/projects",
@@ -418,25 +418,10 @@ class LifecycleApiContractTests(unittest.TestCase):
             "admin-user",
         )
 
-        self.assertEqual(status, 201)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["data"]["projectStatus"], "awarded")
-
-        status, payload = self.request(
-            "POST",
-            "/api/projects",
-            {
-                "projectCode": f"HISTORY-{uuid.uuid4().hex[:8]}",
-                "projectName": "不应通过普通入口建立的历史项目",
-                "projectStatus": "contract_signed",
-            },
-            "admin-user",
-        )
-
-        self.assertEqual(status, 422)
+        self.assertEqual(status, 409)
         self.assertFalse(payload["success"])
-        self.assertEqual(payload["code"], "historical_project_initialization_required")
-        self.assertIn("历史项目", payload["error"])
+        self.assertEqual(payload["code"], "contract_review_required")
+        self.assertIn("上传合同", payload["error"])
 
     def test_start_audit_before_pending_submission_is_rejected(self):
         project_id = self.insert_project(submitted_amount=100)

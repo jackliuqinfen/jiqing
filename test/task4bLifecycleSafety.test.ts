@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { buildProjectMutationPayload } from '../src/utils/projectMutationPayload.ts'
+import { buildReviewDecisionInput } from '../src/utils/documentReviewDecision.ts'
 import {
   flattenLoadedProjectPages,
   getLoadedProjectPageCount,
@@ -25,19 +26,35 @@ test('omits backend-owned lifecycle and audit linkage fields from project edits'
   })
 })
 
-test('uses only fixed lifecycle defaults for project creation and never reuses audit linkage', () => {
-  const payload = buildProjectMutationPayload('create', {
-    projectName: 'North bridge',
-    projectStatus: 'under_construction',
-    auditStage: 'first_audit',
-    auditProjectId: 'audit-stale',
-  })
+test('blocks ordinary project creation so formal records can only come from contract confirmation', () => {
+  assert.throws(
+    () => buildProjectMutationPayload('create', { projectName: 'North bridge' }),
+    /contract review confirmation/i,
+  )
+})
 
-  assert.deepEqual(payload, {
-    projectName: 'North bridge',
-    projectStatus: 'awarded',
-    auditStage: 'not_linked',
-  })
+test('returns the exact AI value when a reviewer accepts a recognized field', () => {
+  const aiValue = ['竣工验收合格后支付 60%']
+  assert.deepEqual(
+    buildReviewDecisionInput({ id: 'field-1', aiValue }, 'accepted', ''),
+    {
+      fieldId: 'field-1',
+      decision: 'accepted',
+      confirmedValue: aiValue,
+    },
+  )
+})
+
+test('records an auditable reason when a reviewer modifies an OCR value', () => {
+  assert.deepEqual(
+    buildReviewDecisionInput({ id: 'field-2', aiValue: '错误日期' }, 'modified', '2026-07-14'),
+    {
+      fieldId: 'field-2',
+      decision: 'modified',
+      confirmedValue: '2026-07-14',
+      reason: '人工复核修正 OCR 识别值',
+    },
+  )
 })
 
 test('replaces all loaded mobile pages without dropping prior records', () => {

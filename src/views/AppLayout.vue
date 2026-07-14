@@ -244,7 +244,7 @@ const sideNavMap: Record<string, NavItem[]> = {
   ],
   '/project-management': [
     { key: 'project-ledger', path: '/project-management', query: { view: 'ledger' }, label: '项目台账', icon: 'task', description: '统一查看项目主档案' },
-    { key: 'project-create', path: '/project-management', label: '新建向导', icon: 'add', action: 'project:create', description: '问卷式创建项目' },
+    { key: 'project-create', path: '/project-management', label: '上传合同建档', icon: 'add', action: 'project:create', description: 'AI 识别合同并人工复核建档' },
     { key: 'project-docs', path: '/project-management', query: { onlyMissingDocuments: '1', sort: 'updatedAt' }, label: '资料缺口', icon: 'folder', description: '筛选仍需补齐资料的项目' },
     { key: 'project-audit', path: '/project-management', query: { view: 'audit' }, label: '审计联动', icon: 'view-module', description: '查看已进入审计流程的项目' },
   ],
@@ -1336,4 +1336,3 @@ async function logout() {
   .system-main { min-height: auto; }
 }
 </style>
-
