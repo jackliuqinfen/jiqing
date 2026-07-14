@@ -111,12 +111,23 @@ class LifecycleRepositoryTests(unittest.TestCase):
 
         self.assertIn("lifecycle_version", project_columns)
         self.assertIsNotNone(event_table)
-        self.assertEqual(len(migrations), 1)
-        self.assertEqual(migrations[0]["version"], "2026071101_lifecycle_runtime")
-        self.assertTrue(migrations[0]["checksum"])
-        self.assertTrue(migrations[0]["started_at"])
-        self.assertTrue(migrations[0]["finished_at"])
-        self.assertEqual(migrations[0]["success"], 1)
+        self.assertEqual(
+            {row["version"]: row["success"] for row in migrations},
+            {
+                "2026071101_lifecycle_runtime": 1,
+                "2026071301_document_evidence_phase1": 1,
+                "2026071401_document_confirmation_guards": 1,
+            },
+        )
+        lifecycle_migration = next(
+            row
+            for row in migrations
+            if row["version"] == "2026071101_lifecycle_runtime"
+        )
+        self.assertTrue(lifecycle_migration["checksum"])
+        self.assertTrue(lifecycle_migration["started_at"])
+        self.assertTrue(lifecycle_migration["finished_at"])
+        self.assertEqual(lifecycle_migration["success"], 1)
 
     def test_successful_migration_with_checksum_mismatch_raises_clear_error(self):
         conn = memory_conn()
