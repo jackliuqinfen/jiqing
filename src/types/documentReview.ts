@@ -101,6 +101,7 @@ export interface RecognitionJob {
   maxAttempts: number
   blockCount: number
   fieldCount: number
+  reviewId: string
   reviewStatus: ReviewStatus | ''
   error: RecognitionJobError | null
   createdAt: string

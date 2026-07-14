@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import test from 'node:test'
 
@@ -73,12 +74,26 @@ const recognitionJob = {
   maxAttempts: 3,
   blockCount: 0,
   fieldCount: 0,
+  reviewId: 'review-1',
   reviewStatus: '',
   error: null,
   createdAt: '2026-07-14T00:00:00Z',
   updatedAt: '2026-07-14T00:00:00Z',
   finishedAt: '',
 }
+
+test('RecognitionJob exposes the backend reviewId contract', () => {
+  const source = readFileSync(
+    new URL('../src/types/documentReview.ts', import.meta.url),
+    'utf8',
+  )
+  const recognitionJobContract = source.match(
+    /export interface RecognitionJob \{([\s\S]*?)\n\}/,
+  )?.[1]
+
+  assert.ok(recognitionJobContract)
+  assert.match(recognitionJobContract, /\breviewId:\s*string\b/)
+})
 
 function makeReview(overrides = {}) {
   return {
