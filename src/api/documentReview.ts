@@ -7,6 +7,7 @@ import type {
   DocumentUploadRequest,
   DocumentUploadResponse,
   RecognitionJob,
+  RetryRecognitionRequest,
   SaveReviewDecisionsRequest,
   StartRecognitionRequest,
 } from '@/types/documentReview'
@@ -145,6 +146,16 @@ export function startRecognition(data: StartRecognitionRequest): Promise<Recogni
 
 export function fetchRecognitionJob(jobId: string): Promise<RecognitionJob> {
   return request(`/document-recognition-jobs/${encodeURIComponent(jobId)}`)
+}
+
+export function retryRecognition(
+  jobId: string,
+  data: RetryRecognitionRequest,
+): Promise<RecognitionJob> {
+  return request(`/document-recognition-jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 }
 
 export function fetchDocumentReview(reviewId: string): Promise<DocumentReview> {

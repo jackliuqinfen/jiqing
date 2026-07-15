@@ -116,6 +116,10 @@ export interface StartRecognitionRequest {
   idempotencyKey: string
 }
 
+export interface RetryRecognitionRequest {
+  idempotencyKey: string
+}
+
 export interface OcrBlock {
   id: string
   pageId: string

@@ -7,6 +7,8 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -556,14 +558,19 @@ class DocumentApiContractTests(unittest.TestCase):
 
         with audit_api.connect() as conn:
             conn.execute("UPDATE recognition_jobs SET status = 'failed' WHERE id = ?", (job_id,))
-        status, _headers, retried = self.request(
-            "POST",
-            f"/api/document-recognition-jobs/{job_id}/retry",
-            payload={"idempotencyKey": f"retry:{uuid.uuid4().hex}"},
-            user_id="editor-user",
-        )
+        with patch(
+            "server.audit_api.build_recognition_adapter",
+            return_value=SimpleNamespace(adapter_key="provider-v2"),
+        ):
+            status, _headers, retried = self.request(
+                "POST",
+                f"/api/document-recognition-jobs/{job_id}/retry",
+                payload={"idempotencyKey": f"retry:{uuid.uuid4().hex}"},
+                user_id="editor-user",
+            )
         self.assertEqual(status, 201)
         self.assertEqual(retried["data"]["status"], "queued")
+        self.assertEqual(retried["data"]["adapterKey"], "provider-v2")
         self.assertNotEqual(retried["data"]["id"], job_id)
 
     def test_start_recognition_renders_uploaded_pdf_pages_at_300_dpi(self):

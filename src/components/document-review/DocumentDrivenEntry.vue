@@ -44,11 +44,16 @@
       </div>
 
       <div v-else class="result-panel" :class="`result-panel--${phase}`">
-        <strong>{{ phase === 'manual' ? 'AI 识别服务尚未就绪' : '合同处理未完成' }}</strong>
+        <strong>{{ phase === 'manual' ? manualRequiredTitle(job) : '合同处理未完成' }}</strong>
         <p>{{ resultMessage }}</p>
         <div class="contract-entry__actions">
           <AButton variant="outline" @click="reset">重新选择合同</AButton>
-          <AButton v-if="phase === 'failed'" theme="primary" @click="uploadAndRecognize">重试</AButton>
+          <AButton
+            v-if="job && (phase === 'manual' || phase === 'failed')"
+            theme="primary"
+            @click="retryCurrentJob"
+          >重新识别</AButton>
+          <AButton v-else-if="phase === 'failed'" theme="primary" @click="uploadAndRecognize">重试上传</AButton>
         </div>
       </div>
     </section>
@@ -58,7 +63,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import DocumentReviewWorkspace from './DocumentReviewWorkspace.vue'
-import { fetchRecognitionJob, startRecognition, uploadDocument } from '@/api/documentReview'
+import { fetchRecognitionJob, retryRecognition, startRecognition, uploadDocument } from '@/api/documentReview'
 import { friendlyErrorMessage } from '@/utils/errors'
 import type { RecognitionJob } from '@/types/documentReview'
 
@@ -131,6 +136,22 @@ async function pollRecognition() {
   }
 }
 
+async function retryCurrentJob() {
+  if (!job.value) return
+  stopPolling()
+  phase.value = 'recognizing'
+  resultMessage.value = ''
+  try {
+    job.value = await retryRecognition(job.value.id, {
+      idempotencyKey: `contract-recognition-retry:${job.value.id}:${Date.now()}`,
+    })
+    handleJob(job.value)
+  } catch (error) {
+    phase.value = 'failed'
+    resultMessage.value = friendlyErrorMessage(error, '重新识别启动失败，请稍后重试。')
+  }
+}
+
 function handleJob(current: RecognitionJob) {
   if (current.status === 'queued' || current.status === 'running') {
     phase.value = 'recognizing'
@@ -145,11 +166,31 @@ function handleJob(current: RecognitionJob) {
   }
   if (current.status === 'manual_required') {
     phase.value = 'manual'
-    resultMessage.value = '当前服务器尚未配置可用的合同 OCR 服务，文件已安全保存，但系统不会编造识别结果。请联系管理员配置 OCR API 后重试。'
+    resultMessage.value = manualRequiredMessage(current)
     return
   }
   phase.value = 'failed'
   resultMessage.value = current.error?.message || '合同识别失败，请重新上传清晰扫描件后重试。'
+}
+
+function manualRequiredMessage(current: RecognitionJob) {
+  const code = current.error?.code || ''
+  if (code === 'ocr_provider_not_configured') {
+    return '合同已安全保存，但当前服务器尚未配置可用的 OCR 服务。请联系管理员配置后重新识别。'
+  }
+  if (code === 'ocr_page_quality_low') {
+    return '扫描件清晰度不足，建议重新扫描后上传；也可以先点击重新识别再次尝试。'
+  }
+  if (code === 'ocr_provider_malformed_response') {
+    return 'OCR 返回的版面信息暂时无法处理，请点击重新识别。若仍失败，请重新扫描该合同。'
+  }
+  return current.error?.message || 'AI 未能完成当前合同识别，请点击重新识别或重新上传清晰扫描件。'
+}
+
+function manualRequiredTitle(current: RecognitionJob | null) {
+  if (current?.error?.code === 'ocr_provider_not_configured') return 'AI 识别服务尚未配置'
+  if (current?.error?.code === 'ocr_page_quality_low') return '扫描件清晰度不足'
+  return '合同识别需要重新处理'
 }
 
 function handleCreated(projectId: string) {

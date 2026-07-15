@@ -162,22 +162,39 @@ def _normalize_page(response, page):
 
 def _normalized_bbox(rect, page):
     try:
-        x = float(rect["x"]) / int(page.width_px)
-        y = float(rect["y"]) / int(page.height_px)
-        width = float(rect["width"]) / int(page.width_px)
-        height = float(rect["height"]) / int(page.height_px)
+        page_width = int(page.width_px)
+        page_height = int(page.height_px)
+        x = float(rect["x"])
+        y = float(rect["y"])
+        width = float(rect["width"])
+        height = float(rect["height"])
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         raise _malformed() from None
-    if (
-        x < 0
-        or y < 0
-        or width <= 0
-        or height <= 0
-        or x + width > 1.000001
-        or y + height > 1.000001
-    ):
+    if page_width <= 0 or page_height <= 0:
         raise _malformed()
-    return tuple(round(item, 6) for item in (x, y, width, height))
+    if x < 0 or y < 0 or width <= 0 or height <= 0:
+        raise _malformed()
+    if x >= page_width or y >= page_height:
+        raise _malformed()
+
+    overflow_x = max(0.0, x + width - page_width)
+    overflow_y = max(0.0, y + height - page_height)
+    if overflow_x > max(8.0, page_width * 0.005):
+        raise _malformed()
+    if overflow_y > max(8.0, page_height * 0.005):
+        raise _malformed()
+
+    clamped_width = min(x + width, page_width) - x
+    clamped_height = min(y + height, page_height) - y
+    return tuple(
+        round(item, 6)
+        for item in (
+            x / page_width,
+            y / page_height,
+            clamped_width / page_width,
+            clamped_height / page_height,
+        )
+    )
 
 
 def _normalized_confidence(value):

@@ -312,6 +312,54 @@ class RecognitionAdapterTests(unittest.TestCase):
             )
             self.assertIsInstance(adapter.client_factory(), FakeVisualService)
 
+    def test_volcengine_adapter_clamps_minor_provider_bbox_overflow(self):
+        class FakeVisualService:
+            def set_ak(self, _value):
+                pass
+
+            def set_sk(self, _value):
+                pass
+
+            def set_host(self, _value):
+                pass
+
+            def ocr_normal(self, _form):
+                return {
+                    "code": 10000,
+                    "request_id": "request-clamped-bbox",
+                    "data": {
+                        "line_texts": ["盖章区域"],
+                        "line_rects": [
+                            {"x": 100, "y": 1900, "width": 400, "height": 105}
+                        ],
+                        "line_probs": [0.98],
+                    },
+                }
+
+        adapter = VolcengineOcrAdapter(
+            access_key_id="test-ak",
+            secret_access_key="test-sk",
+            client_factory=FakeVisualService,
+        )
+        result = adapter.recognize(
+            RecognitionRequest(
+                job_id="job-clamp",
+                document_type="construction_contract",
+                schema_version="contract.v1",
+                pages=(
+                    RecognitionPage(
+                        page_id="page-clamp",
+                        page_number=1,
+                        image_bytes=b"page",
+                        width_px=1000,
+                        height_px=2000,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(result.blocks[0].bbox, (0.1, 0.95, 0.4, 0.05))
+
     def test_registry_selects_volcengine_only_when_both_credentials_exist(self):
         adapter = build_recognition_adapter(
             {

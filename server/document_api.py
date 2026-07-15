@@ -440,7 +440,7 @@ class DocumentApi:
         job = enqueue_recognition(
             self.conn,
             document_version_id=source["document_version_id"],
-            adapter_key=source["adapter_key"],
+            adapter_key=self.recognition_adapter_key,
             schema_version=source["schema_version"],
             idempotency_key=idempotency_key,
             max_attempts=source["max_attempts"],
