@@ -111,8 +111,8 @@ body::before,
   background: rgba(255, 255, 255, 0.76) !important;
   border-bottom: 1px solid rgba(202, 215, 234, 0.72) !important;
   box-shadow: 0 5px 18px rgba(31, 64, 108, 0.035) !important;
-  backdrop-filter: blur(14px) saturate(128%);
-  -webkit-backdrop-filter: blur(14px) saturate(128%);
+  backdrop-filter: blur(14px) saturate(128%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(128%) !important;
 }
 
 .topbar-brand {

@@ -506,8 +506,8 @@ async function logout() {
     linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 251, 255, 0.76));
   border-bottom: 1px solid rgba(128, 158, 210, 0.14);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.92) inset, 0 12px 32px rgba(36, 67, 120, 0.055);
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(128%);
+  -webkit-backdrop-filter: blur(14px) saturate(128%);
 }
 
 .topbar-brand {
@@ -1243,7 +1243,7 @@ async function logout() {
     padding: 0 10px;
   }
   .topbar-user::before { display: none; }
-  .topbar-user span { display: none; }
+  .topbar-user__copy { display: none; }
   .topbar-user strong { max-width: 96px; font-size: 12px; }
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
