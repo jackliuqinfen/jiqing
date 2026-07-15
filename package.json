@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:premium-theme": "node scripts/verify-premium-theme.mjs"
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.58.0",
