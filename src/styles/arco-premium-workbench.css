@@ -498,17 +498,10 @@ body::before,
   background: transparent !important;
 }
 
-/* Glass is reserved for high-level summary and query chrome. */
+/* Glass utilities stay opt-in for high-level title and body chrome. */
 .command-hero,
 .hero-console,
 .mission-strip,
-.summary-card,
-.kpi-card,
-.project-management .toolbar,
-.project-management .filter-panel,
-.file-library .library-toolbar,
-.admin-page .admin-toolbar,
-.audit-main .filter-panel,
 .app-glass-card {
   position: relative;
   background: var(--premium-glass) !important;
@@ -551,12 +544,7 @@ body::before,
 .project-detail-card,
 .document-card,
 .doc-card,
-.stage-table-card,
 .audit-detail-panel,
-.admin-table-card,
-.project-management .ledger-panel,
-.file-library .group-panel,
-.file-library .file-panel,
 .audit-main .gantt-view,
 .audit-main .table-view,
 .audit-main .stage-table-view {
@@ -570,15 +558,54 @@ body::before,
   -webkit-backdrop-filter: none !important;
 }
 
-.kanban-column {
+.project-management .ledger-panel,
+.file-library .group-panel,
+.file-library .file-panel,
+.kanban-column,
+.stage-table-card,
+.admin-page .admin-table-card {
   position: relative;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.68) !important;
+}
+
+/* Business data and workflow surfaces remain opaque. */
+.project-management .ledger-panel,
+.file-library .group-panel,
+.file-library .file-panel,
+.kanban-column,
+.stage-table-card,
+.settlement-center .view-panel,
+.settlement-center .sub-panel,
+.bidding-dashboard .workbench-panel,
+.admin-page .admin-table-card,
+.arco-table,
+.arco-table-container,
+.arco-modal {
+  background: #fff !important;
   border: 1px solid var(--premium-line) !important;
   border-radius: var(--premium-radius) !important;
-  box-shadow: var(--premium-shadow-soft) !important;
-  backdrop-filter: blur(10px) saturate(112%);
-  -webkit-backdrop-filter: blur(10px) saturate(112%);
+  box-shadow: var(--premium-shadow-ambient) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Translucency is limited to status summaries and query controls. */
+.summary-card,
+.kpi-card,
+.metric-card,
+.project-management .toolbar,
+.project-management .filter-panel,
+.file-library .library-toolbar,
+.admin-page .admin-toolbar,
+.audit-main .filter-panel,
+.settlement-center .source-status-panel,
+.bidding-dashboard .source-status-panel {
+  background: rgba(255, 255, 255, 0.68) !important;
+  border: 1px solid rgba(206, 219, 236, 0.78) !important;
+  border-radius: var(--premium-radius) !important;
+  box-shadow: var(--premium-shadow-ambient) !important;
+  backdrop-filter: blur(12px) saturate(118%);
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
 }
 
 .arco-card::after,
@@ -604,11 +631,8 @@ body::before,
 
 .arco-card:hover,
 .panel-card:hover,
-.summary-card:hover,
-.kpi-card:hover,
 .chart-panel:hover,
 .dashboard-card:hover,
-.project-card:hover,
 .doc-card:hover {
   border-color: var(--premium-line-strong) !important;
   box-shadow: var(--premium-shadow-hover) !important;
@@ -691,35 +715,34 @@ body::before,
   border-color: rgba(22, 93, 255, 0.38) !important;
 }
 
-.arco-input-wrapper.arco-input-focus,
-.arco-select-view-focus,
-.arco-picker-focused,
 .arco-input-number-focus,
 .arco-textarea-wrapper-focus {
   border-color: var(--premium-blue) !important;
   box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.08) !important;
 }
 
+.arco-input-wrapper:focus-within,
+.arco-select-view-focus,
+.arco-picker-focused {
+  border-color: rgba(22, 93, 255, 0.72) !important;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.08) !important;
+}
+
 .arco-table,
 .arco-table-container {
   overflow: hidden !important;
-  background: #fff !important;
-  border-color: var(--premium-line) !important;
-  border-radius: var(--premium-radius) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .arco-table-th {
   color: #35435a !important;
   background: #f6f8fb !important;
+  border-bottom-color: #e2e8f2 !important;
   font-weight: 700 !important;
 }
 
 .arco-table-td {
   background: #fff !important;
-  border-color: rgba(115, 143, 190, 0.14) !important;
+  border-bottom-color: #edf1f6 !important;
   background-clip: padding-box !important;
 }
 
@@ -729,12 +752,6 @@ body::before,
 
 .arco-modal {
   overflow: hidden;
-  background: #fff !important;
-  border: 1px solid rgba(115, 143, 190, 0.18) !important;
-  border-radius: var(--premium-radius) !important;
-  box-shadow: 0 24px 68px rgba(25, 53, 101, 0.2) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .arco-modal-header,
@@ -876,12 +893,6 @@ body::before,
   border-radius: var(--premium-radius) !important;
 }
 
-.project-management .arco-table,
-.project-management .arco-table-container {
-  border: 0 !important;
-  background: transparent !important;
-}
-
 .detail-empty-action,
 .upload-empty,
 .empty-upload,
@@ -892,6 +903,15 @@ body::before,
   border-style: solid !important;
   border-color: rgba(115, 143, 190, 0.2) !important;
   border-radius: var(--premium-radius) !important;
+}
+
+.summary-card:hover,
+.kpi-card:hover,
+.metric-card:hover,
+.project-card:hover {
+  border-color: rgba(22, 93, 255, 0.22) !important;
+  box-shadow: var(--premium-shadow-card) !important;
+  transform: none !important;
 }
 
 @container (max-width: 218px) {
