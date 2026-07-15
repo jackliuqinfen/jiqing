@@ -10,7 +10,11 @@ from server.recognition.contracts import (
     RecognitionPage,
     RecognitionRequest,
 )
-from server.recognition.registry import build_recognition_adapter
+from server.recognition.registry import (
+    build_recognition_adapter,
+    recognition_settings_configured,
+)
+from server.recognition.volcengine_adapter import VolcengineOcrAdapter
 
 
 class _ProviderState:
@@ -200,6 +204,122 @@ class RecognitionAdapterTests(unittest.TestCase):
                     "OCR_HTTP_TOKEN": "private-token",
                 }
             )
+
+    def test_volcengine_adapter_normalizes_each_page_without_inventing_fields(self):
+        class FakeVisualService:
+            def __init__(self):
+                self.ak = None
+                self.sk = None
+                self.host = None
+                self.calls = []
+
+            def set_ak(self, value):
+                self.ak = value
+
+            def set_sk(self, value):
+                self.sk = value
+
+            def set_host(self, value):
+                self.host = value
+
+            def ocr_normal(self, form):
+                self.calls.append(form)
+                return {
+                    "code": 10000,
+                    "request_id": f"request-{len(self.calls)}",
+                    "data": {
+                        "line_texts": ["建设单位：江苏某建设单位"],
+                        "line_rects": [
+                            {"x": 100, "y": 200, "width": 400, "height": 100}
+                        ],
+                        "line_probs": [95],
+                    },
+                }
+
+        client = FakeVisualService()
+        adapter = VolcengineOcrAdapter(
+            access_key_id="test-ak",
+            secret_access_key="test-sk",
+            endpoint="https://visual.volcengineapi.com",
+            timeout_seconds=10,
+            client_factory=lambda: client,
+        )
+        request = RecognitionRequest(
+            job_id="job-volc",
+            document_type="construction_contract",
+            schema_version="contract.v1",
+            pages=(
+                RecognitionPage(
+                    page_id="page-1",
+                    page_number=1,
+                    image_bytes=b"page-one",
+                    width_px=1000,
+                    height_px=2000,
+                ),
+                RecognitionPage(
+                    page_id="page-2",
+                    page_number=2,
+                    image_bytes=b"page-two",
+                    width_px=1000,
+                    height_px=2000,
+                ),
+            ),
+        )
+
+        result = adapter.recognize(request)
+
+        self.assertEqual(result.status, "review_ready")
+        self.assertEqual(result.adapter_key, "volcengine-ocr-normal")
+        self.assertEqual(result.provider_request_id, "request-1,request-2")
+        self.assertEqual(len(result.blocks), 2)
+        self.assertEqual(result.blocks[0].page_id, "page-1")
+        self.assertEqual(result.blocks[0].confidence, 0.95)
+        self.assertEqual(result.blocks[0].bbox, (0.1, 0.1, 0.4, 0.05))
+        self.assertEqual(result.fields, ())
+        self.assertEqual(client.ak, "test-ak")
+        self.assertEqual(client.sk, "test-sk")
+        self.assertEqual(client.host, "visual.volcengineapi.com")
+        self.assertEqual(len(client.calls), 2)
+        self.assertNotEqual(
+            client.calls[0]["image_base64"], client.calls[1]["image_base64"]
+        )
+
+    def test_registry_selects_volcengine_only_when_both_credentials_exist(self):
+        adapter = build_recognition_adapter(
+            {
+                "OCR_PROVIDER": "volcengine",
+                "VOLCENGINE_OCR_ACCESS_KEY_ID": "test-ak",
+                "VOLCENGINE_OCR_SECRET_ACCESS_KEY": "test-sk",
+            }
+        )
+        self.assertEqual(adapter.adapter_key, "volcengine-ocr-normal")
+
+        missing_secret = build_recognition_adapter(
+            {
+                "OCR_PROVIDER": "volcengine",
+                "VOLCENGINE_OCR_ACCESS_KEY_ID": "test-ak",
+            }
+        )
+        self.assertEqual(missing_secret.adapter_key, "manual")
+
+    def test_volcengine_health_configuration_requires_complete_credentials(self):
+        self.assertTrue(
+            recognition_settings_configured(
+                {
+                    "OCR_PROVIDER": "volcengine",
+                    "VOLCENGINE_OCR_ACCESS_KEY_ID": "test-ak",
+                    "VOLCENGINE_OCR_SECRET_ACCESS_KEY": "test-sk",
+                }
+            )
+        )
+        self.assertFalse(
+            recognition_settings_configured(
+                {
+                    "OCR_PROVIDER": "volcengine",
+                    "VOLCENGINE_OCR_ACCESS_KEY_ID": "test-ak",
+                }
+            )
+        )
 
 
 if __name__ == "__main__":

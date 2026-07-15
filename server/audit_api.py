@@ -40,7 +40,10 @@ from server.lifecycle_repository import (
 )
 from server.document_api import DocumentApi
 from server.migrations import apply_pending_migrations
-from server.recognition.registry import build_recognition_adapter
+from server.recognition.registry import (
+    build_recognition_adapter,
+    recognition_settings_configured,
+)
 from server.recognition_service import recognition_health_payload
 from server.recognition_worker import RecognitionWorker
 
@@ -296,7 +299,7 @@ def upload_root():
 
 
 def recognition_configured():
-    return bool(str(os.environ.get("OCR_HTTP_ENDPOINT") or "").strip())
+    return recognition_settings_configured()
 
 
 DEFAULT_MAX_UPLOAD_SIZE_MB = 100
