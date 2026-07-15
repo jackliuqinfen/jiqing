@@ -579,7 +579,6 @@ body::before,
 .bidding-dashboard .workbench-panel,
 .admin-page .admin-table-card,
 .arco-table,
-.arco-table-container,
 .arco-modal {
   background: #fff !important;
   border: 1px solid var(--premium-line) !important;
@@ -597,7 +596,7 @@ body::before,
 .project-management .filter-panel,
 .file-library .library-toolbar,
 .admin-page .admin-toolbar,
-.audit-main .filter-panel,
+.audit-main .toolbar,
 .settlement-center .source-status-panel,
 .bidding-dashboard .source-status-panel {
   background: rgba(255, 255, 255, 0.68) !important;
@@ -728,9 +727,15 @@ body::before,
   box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.08) !important;
 }
 
-.arco-table,
+.arco-table {
+  overflow: hidden !important;
+}
+
 .arco-table-container {
   overflow: hidden !important;
+  border: 0 !important;
+  border-radius: inherit !important;
+  box-shadow: none !important;
 }
 
 .arco-table-th {
@@ -806,7 +811,7 @@ body::before,
 .file-library .file-panel,
 .admin-page .admin-toolbar,
 .admin-page .admin-table-card,
-.audit-main .filter-panel,
+.audit-main .toolbar,
 .audit-detail-panel,
 .audit-detail-workspace .detail-grid,
 .audit-detail-workspace .progress-box,
@@ -893,6 +898,13 @@ body::before,
   border-radius: var(--premium-radius) !important;
 }
 
+.project-management .project-table-group .arco-table,
+.project-management .project-table-group .arco-table-container {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
 .detail-empty-action,
 .upload-empty,
 .empty-upload,
@@ -910,6 +922,13 @@ body::before,
 .metric-card:hover,
 .project-card:hover {
   border-color: rgba(22, 93, 255, 0.22) !important;
+  box-shadow: var(--premium-shadow-card) !important;
+  transform: none !important;
+}
+
+.summary-card.summary-card--active {
+  background: var(--summary-bg, color-mix(in srgb, var(--premium-blue) 8%, #fff)) !important;
+  border-color: color-mix(in srgb, var(--summary-color, var(--premium-blue)) 46%, var(--premium-line)) !important;
   box-shadow: var(--premium-shadow-card) !important;
   transform: none !important;
 }
