@@ -926,6 +926,16 @@ body::before,
   transform: none !important;
 }
 
+.summary-card:focus-visible,
+.kpi-card:focus-visible,
+.metric-card:focus-visible,
+.project-card:focus-visible {
+  outline: none;
+  border-color: rgba(22, 93, 255, 0.34) !important;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.16), var(--premium-shadow-card) !important;
+  transform: none !important;
+}
+
 .summary-card.summary-card--active {
   background: var(--summary-bg, color-mix(in srgb, var(--premium-blue) 8%, #fff)) !important;
   border-color: color-mix(in srgb, var(--summary-color, var(--premium-blue)) 46%, var(--premium-line)) !important;

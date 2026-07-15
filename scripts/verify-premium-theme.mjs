@@ -72,6 +72,10 @@ assert.ok(
 
 assertRule('.arco-table', /border:\s*1px solid var\(--premium-line\)\s*!important;/, 'table must own its outer border')
 assertRule('.arco-table', /box-shadow:\s*var\(--premium-shadow-ambient\)\s*!important;/, 'table must own its outer shadow')
+assertRule('.arco-table', /background:\s*#fff\s*!important;/, 'table must remain opaque')
+assertRule('.arco-table', /backdrop-filter:\s*none\s*!important;/, 'table must not use backdrop blur')
+assertRule('.arco-modal', /background:\s*#fff\s*!important;/, 'modal must remain opaque')
+assertRule('.arco-modal', /backdrop-filter:\s*none\s*!important;/, 'modal must not use backdrop blur')
 assertRule('.arco-table-container', /border:\s*0\s*!important;/, 'table container must not add an outer border')
 assertRule('.arco-table-container', /border-radius:\s*inherit\s*!important;/, 'table container must inherit table radius')
 assertRule('.arco-table-container', /box-shadow:\s*none\s*!important;/, 'table container must not add an outer shadow')
@@ -103,6 +107,19 @@ assert.match(layoutTopbarRule, /-webkit-backdrop-filter:\s*blur\(14px\) saturate
 
 assert.match(layout, /:aria-current="isTopNavActive\(item\.path\) \? 'page' : undefined"/)
 assert.match(layout, /:aria-current="isSideNavActive\(item\) \? 'page' : undefined"/)
+
+for (const selector of [
+  '.summary-card:focus-visible',
+  '.kpi-card:focus-visible',
+  '.metric-card:focus-visible',
+  '.project-card:focus-visible',
+]) {
+  assertRule(selector, /box-shadow:\s*0 0 0 3px rgba\(22,\s*93,\s*255,\s*0\.16\),\s*var\(--premium-shadow-card\)\s*!important;/, `${selector} must retain a visible keyboard focus ring`)
+  assertRule(selector, /transform:\s*none\s*!important;/, `${selector} must stay stationary while focused`)
+}
+
+assertRule('.sidebar-resizer::after', /background:\s*transparent\s*!important;/, 'sidebar resizer must be transparent at rest')
+assertRule('.sidebar-resizer::after', /opacity:\s*0\s*!important;/, 'sidebar resizer must be invisible at rest')
 
 const compactMediaStart = layout.indexOf('@media (max-width: 900px)')
 const mobileMediaStart = layout.indexOf('@media (max-width: 640px)', compactMediaStart)
