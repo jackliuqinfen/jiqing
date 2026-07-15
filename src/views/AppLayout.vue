@@ -20,6 +20,7 @@
           :to="item.path"
           class="platform-link"
           :class="{ 'platform-link--active': isTopNavActive(item.path), 'platform-link--draggable': canReorderModules, 'platform-link--dragging': draggedModulePath === item.path }"
+          :aria-current="isTopNavActive(item.path) ? 'page' : undefined"
           :draggable="canReorderModules"
           :title="getModuleTitle(item)"
           @dragstart="startModuleDrag(item.path, $event)"
@@ -35,9 +36,12 @@
         <button v-if="sidebarMode === 'hidden'" type="button" class="topbar-icon-button" title="展开左侧导航" @click="setSidebarMode('full')">
           <AIcon name="list" />
         </button>
-        <div v-if="authStore.isAuthenticated" class="topbar-user" :title="userDisplayName">
-          <span>欢迎回来</span>
-          <strong>{{ userDisplayName }}</strong>
+        <div v-if="authStore.isAuthenticated" class="topbar-user" :title="`当前登录用户：${userDisplayName}`">
+          <span class="topbar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
+          <span class="topbar-user__copy">
+            <small>欢迎回来</small>
+            <strong>{{ userDisplayName }}</strong>
+          </span>
         </div>
         <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="topbar-action-link">
           <AIcon name="setting" />
@@ -71,6 +75,7 @@
           :to="sideNavTarget(item)"
           class="module-link"
           :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
+          :aria-current="isSideNavActive(item) ? 'page' : undefined"
           :title="item.description || item.label"
           @click="handleSideNavClick(item, $event)"
         >
@@ -79,20 +84,6 @@
           <small v-if="item.badge">{{ item.badge }}</small>
         </router-link>
       </nav>
-
-      <div class="nav-group">
-        <p>当前位置</p>
-        <div class="route-sense">
-          <strong>{{ activeModule?.label || '首页数据看板' }}</strong>
-          <span>{{ activeSideNav?.label || '总览' }}</span>
-        </div>
-      </div>
-
-      <section v-if="activeSideNav" class="sidebar-context-card" aria-label="当前功能说明">
-        <p>当前工作</p>
-        <strong>{{ activeSideNav.label }}</strong>
-        <span>{{ activeSideNav.description || activeModuleDescription }}</span>
-      </section>
 
       <div class="sidebar-foot">
         <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
@@ -179,6 +170,7 @@ const resizing = ref(false)
 const navOrder = ref<string[]>([])
 const draggedModulePath = ref('')
 const userDisplayName = computed(() => authStore.displayName || authStore.username || '用户')
+const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || '用')
 
 const shellStyle = computed(() => (
   sidebarMode.value === 'full'
