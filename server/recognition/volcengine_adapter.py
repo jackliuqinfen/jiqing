@@ -91,7 +91,7 @@ class VolcengineOcrAdapter(RecognitionAdapter):
 
 def _default_client_factory():
     try:
-        from volc.visual.VisualService import VisualService
+        from volcengine.visual.VisualService import VisualService
     except ImportError:
         raise RecognitionAdapterError(
             "ocr_provider_client_missing",

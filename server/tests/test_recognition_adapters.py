@@ -1,9 +1,12 @@
 import json
 import logging
+import sys
 import threading
 import time
+import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 
 from server.recognition.contracts import (
     RecognitionAdapterError,
@@ -283,6 +286,31 @@ class RecognitionAdapterTests(unittest.TestCase):
         self.assertNotEqual(
             client.calls[0]["image_base64"], client.calls[1]["image_base64"]
         )
+
+    def test_volcengine_default_factory_uses_installed_sdk_namespace(self):
+        class FakeVisualService:
+            pass
+
+        volcengine_module = types.ModuleType("volcengine")
+        volcengine_module.__path__ = []
+        visual_module = types.ModuleType("volcengine.visual")
+        visual_module.__path__ = []
+        service_module = types.ModuleType("volcengine.visual.VisualService")
+        service_module.VisualService = FakeVisualService
+
+        with patch.dict(
+            sys.modules,
+            {
+                "volcengine": volcengine_module,
+                "volcengine.visual": visual_module,
+                "volcengine.visual.VisualService": service_module,
+            },
+        ):
+            adapter = VolcengineOcrAdapter(
+                access_key_id="test-ak",
+                secret_access_key="test-sk",
+            )
+            self.assertIsInstance(adapter.client_factory(), FakeVisualService)
 
     def test_registry_selects_volcengine_only_when_both_credentials_exist(self):
         adapter = build_recognition_adapter(
