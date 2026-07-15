@@ -269,6 +269,22 @@ CREATE TABLE IF NOT EXISTS recognition_jobs (
   started_at TIMESTAMPTZ,
   finished_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  source_recognition_job_id TEXT REFERENCES recognition_jobs(id)
+);
+
+CREATE TABLE IF NOT EXISTS project_intake_drafts (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  document_id TEXT REFERENCES documents(id),
+  document_version_id TEXT REFERENCES document_versions(id),
+  schema_version TEXT NOT NULL DEFAULT 'contract.v1',
+  values_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  fallback_reason TEXT NOT NULL DEFAULT '',
+  fallback_note TEXT NOT NULL DEFAULT '',
+  completed_project_id TEXT REFERENCES project_records(id),
+  created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
 
@@ -516,6 +532,8 @@ CREATE INDEX IF NOT EXISTS idx_documents_project_type ON documents(project_id, d
 CREATE INDEX IF NOT EXISTS idx_document_versions_hash ON document_versions(sha256);
 CREATE INDEX IF NOT EXISTS idx_document_pages_version ON document_pages(document_version_id, page_number);
 CREATE INDEX IF NOT EXISTS idx_recognition_jobs_status ON recognition_jobs(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_project_intake_drafts_owner ON project_intake_drafts(owner_user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_intake_drafts_status ON project_intake_drafts(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_extracted_fields_job_key ON extracted_fields(recognition_job_id, semantic_key);
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON document_reviews(status, opened_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_project_contracts_current ON project_contracts(project_id) WHERE is_current;

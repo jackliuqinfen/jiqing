@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 LIFECYCLE_RUNTIME_MIGRATION = "2026071101_lifecycle_runtime"
 DOCUMENT_EVIDENCE_MIGRATION = "2026071301_document_evidence_phase1"
 DOCUMENT_CONFIRMATION_GUARDS_MIGRATION = "2026071401_document_confirmation_guards"
+CONTRACT_FALLBACK_MIGRATION = "2026071501_contract_fallback"
 
 
 class MigrationChecksumMismatchError(RuntimeError):
@@ -460,6 +461,53 @@ DOCUMENT_CONFIRMATION_GUARDS_CHECKSUM = hashlib.sha256(
 ).hexdigest()
 
 
+_RECOGNITION_SOURCE_JOB_ALTER_SQL = """
+ALTER TABLE recognition_jobs ADD COLUMN source_recognition_job_id TEXT
+REFERENCES recognition_jobs(id)
+"""
+
+_CONTRACT_FALLBACK_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS project_intake_drafts (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      document_id TEXT,
+      document_version_id TEXT,
+      schema_version TEXT NOT NULL DEFAULT 'contract.v1',
+      values_json TEXT NOT NULL DEFAULT '{}',
+      fallback_reason TEXT NOT NULL DEFAULT '',
+      fallback_note TEXT NOT NULL DEFAULT '',
+      completed_project_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (document_id) REFERENCES documents(id),
+      FOREIGN KEY (document_version_id) REFERENCES document_versions(id),
+      FOREIGN KEY (completed_project_id) REFERENCES project_records(id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_project_intake_drafts_owner
+    ON project_intake_drafts(owner_user_id, updated_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_project_intake_drafts_status
+    ON project_intake_drafts(status, updated_at DESC)
+    """,
+)
+
+_CONTRACT_FALLBACK_MIGRATION_DEFINITION = (
+    _RECOGNITION_SOURCE_JOB_ALTER_SQL,
+    *_CONTRACT_FALLBACK_STATEMENTS,
+)
+
+CONTRACT_FALLBACK_CHECKSUM = hashlib.sha256(
+    "\n".join(
+        statement.strip() for statement in _CONTRACT_FALLBACK_MIGRATION_DEFINITION
+    ).encode("utf-8")
+).hexdigest()
+
+
 def apply_pending_migrations(conn):
     """Apply ordered SQLite migrations once and verify applied definitions."""
     _ensure_schema_migrations_table(conn)
@@ -483,6 +531,13 @@ def apply_pending_migrations(conn):
         version=DOCUMENT_CONFIRMATION_GUARDS_MIGRATION,
         checksum=DOCUMENT_CONFIRMATION_GUARDS_CHECKSUM,
         statements=_DOCUMENT_CONFIRMATION_GUARD_STATEMENTS,
+    )
+    _apply_migration(
+        conn,
+        version=CONTRACT_FALLBACK_MIGRATION,
+        checksum=CONTRACT_FALLBACK_CHECKSUM,
+        statements=_CONTRACT_FALLBACK_STATEMENTS,
+        prepare=_prepare_contract_fallback,
     )
 
 
@@ -567,6 +622,15 @@ def _prepare_document_evidence(conn):
         "evidence_document_version_id",
     ):
         conn.execute(_EVIDENCE_DOCUMENT_VERSION_ALTER_SQL)
+
+
+def _prepare_contract_fallback(conn):
+    if not _column_exists(
+        conn,
+        "recognition_jobs",
+        "source_recognition_job_id",
+    ):
+        conn.execute(_RECOGNITION_SOURCE_JOB_ALTER_SQL)
 
 
 def _ensure_schema_migrations_table(conn):

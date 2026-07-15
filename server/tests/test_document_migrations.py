@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from server import audit_api
 from server.migrations import (
+    CONTRACT_FALLBACK_MIGRATION,
     DOCUMENT_CONFIRMATION_GUARDS_MIGRATION,
     DOCUMENT_EVIDENCE_CHECKSUM,
     DOCUMENT_EVIDENCE_MIGRATION,
@@ -31,6 +32,7 @@ EXPECTED_TABLES = {
     "project_contracts",
     "project_acceptance_records",
     "project_audit_determinations",
+    "project_intake_drafts",
 }
 
 
@@ -123,8 +125,72 @@ class DocumentMigrationTests(unittest.TestCase):
                 (LIFECYCLE_RUNTIME_MIGRATION, 1),
                 (DOCUMENT_EVIDENCE_MIGRATION, 1),
                 (DOCUMENT_CONFIRMATION_GUARDS_MIGRATION, 1),
+                (CONTRACT_FALLBACK_MIGRATION, 1),
             ],
         )
+
+    def test_contract_fallback_migration_adds_drafts_and_job_provenance(self):
+        apply_pending_migrations(self.conn)
+
+        draft_columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(project_intake_drafts)")
+        }
+        self.assertTrue(
+            {
+                "owner_user_id",
+                "status",
+                "document_id",
+                "document_version_id",
+                "schema_version",
+                "values_json",
+                "fallback_reason",
+                "fallback_note",
+                "completed_project_id",
+            }.issubset(draft_columns)
+        )
+        recognition_columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(recognition_jobs)")
+        }
+        self.assertIn("source_recognition_job_id", recognition_columns)
+
+        indexes = {
+            row["name"]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        self.assertIn("idx_project_intake_drafts_owner", indexes)
+        self.assertIn("idx_project_intake_drafts_status", indexes)
+
+        self._insert_version()
+        now = "2026-07-15T00:00:00Z"
+        self.conn.execute(
+            """
+            INSERT INTO recognition_jobs
+            (id, document_version_id, status, adapter_key, schema_version,
+             idempotency_key, created_at, updated_at)
+            VALUES ('source-job', 'version-1', 'failed', 'volcengine',
+                    'contract.v1', 'source-key', ?, ?)
+            """,
+            (now, now),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO recognition_jobs
+            (id, document_version_id, status, adapter_key, schema_version,
+             idempotency_key, source_recognition_job_id, created_at, updated_at)
+            VALUES ('fallback-job', 'version-1', 'review_ready', 'manual-entry',
+                    'contract.v1', 'fallback-key', 'source-job', ?, ?)
+            """,
+            (now, now),
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.conn.execute(
+                "UPDATE recognition_jobs SET source_recognition_job_id = 'missing' "
+                "WHERE id = 'fallback-job'"
+            )
 
     def test_document_version_number_is_unique_within_document(self):
         apply_pending_migrations(self.conn)
