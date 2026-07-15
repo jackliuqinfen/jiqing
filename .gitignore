@@ -54,3 +54,6 @@ server/*.db
 
 # Optional eslint cache
 .eslintcache
+
+# Local isolated feature worktrees
+.worktrees/
