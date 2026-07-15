@@ -31,8 +31,8 @@
 - [x] Frontend Node tests pass.
 - [x] Vue type-check and Vite production build pass.
 - [x] `git diff --check` passes.
-- [ ] Deploy committed tracked files to production.
-- [ ] Verify database migration, service health and public application load.
+- [x] Deploy committed tracked files to production.
+- [x] Verify database migration, service health and public application load.
 - [ ] Run authenticated production walk-through with a real contract: external AI import, manual draft resume and formal confirmation.
 
 ## Non-Negotiable Boundaries
