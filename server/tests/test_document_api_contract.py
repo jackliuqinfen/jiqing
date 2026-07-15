@@ -329,7 +329,7 @@ class DocumentApiContractTests(unittest.TestCase):
 
         visit(payload)
 
-    def test_all_nine_routes_require_authentication(self):
+    def test_all_document_and_intake_routes_require_authentication(self):
         requests = [
             ("POST", "/api/documents/uploads"),
             ("GET", "/api/documents/document-id"),
@@ -340,6 +340,15 @@ class DocumentApiContractTests(unittest.TestCase):
             ("GET", "/api/document-reviews/review-id"),
             ("POST", "/api/document-reviews/review-id/decisions"),
             ("POST", "/api/document-reviews/review-id/confirm"),
+            ("POST", "/api/document-versions/version-id/manual-review"),
+            ("POST", "/api/document-versions/version-id/external-import"),
+            ("POST", "/api/document-recognition-jobs/job-id/manual-review"),
+            ("POST", "/api/document-recognition-jobs/job-id/external-import"),
+            ("GET", "/api/project-intake-drafts"),
+            ("POST", "/api/project-intake-drafts"),
+            ("GET", "/api/project-intake-drafts/draft-id"),
+            ("POST", "/api/project-intake-drafts/draft-id"),
+            ("POST", "/api/project-intake-drafts/draft-id/abandon"),
         ]
 
         for method, path in requests:
@@ -372,6 +381,8 @@ class DocumentApiContractTests(unittest.TestCase):
             ("POST", f"/api/document-recognition-jobs/{job['id']}/retry", {}),
             ("POST", f"/api/document-reviews/{review['id']}/decisions", {}),
             ("POST", f"/api/document-reviews/{review['id']}/confirm", {}),
+            ("POST", "/api/project-intake-drafts", {}),
+            ("POST", f"/api/document-recognition-jobs/{job['id']}/manual-review", {}),
         ]
         for method, path, payload in writes:
             with self.subTest(path=path):
@@ -616,6 +627,128 @@ class DocumentApiContractTests(unittest.TestCase):
         self.assertEqual(payload["data"]["reviewStatus"], "open")
         self.assertEqual(payload["data"]["reviewId"], review["id"])
         self.assert_no_internal_fields(payload)
+
+    def test_owner_scoped_intake_drafts_never_create_project_records(self):
+        with audit_api.connect() as conn:
+            before_projects = conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0]
+
+        status, _headers, created = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {"project.name": "悦铂特项目"},
+                "fallbackReason": "manual_selected",
+                "fallbackNote": "合同扫描件暂未上传",
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 201, created)
+        draft_id = created["data"]["id"]
+
+        status, _headers, listed = self.request(
+            "GET", "/api/project-intake-drafts", user_id="editor-user"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual([item["id"] for item in listed["data"]], [draft_id])
+
+        status, _headers, outsider_list = self.request(
+            "GET", "/api/project-intake-drafts", user_id="outsider-user"
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn(draft_id, [item["id"] for item in outsider_list["data"]])
+
+        status, _headers, updated = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}",
+            payload={"values": {"project.name": "悦铂特工程"}},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["values"]["project.name"], "悦铂特工程")
+
+        status, _headers, abandoned = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}/abandon",
+            payload={},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(abandoned["data"]["status"], "abandoned")
+        with audit_api.connect() as conn:
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0],
+                before_projects,
+            )
+
+    def test_proactive_manual_and_external_import_open_review_without_fake_project(self):
+        with audit_api.connect() as conn:
+            before_projects = conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0]
+        for mode in ("manual-review", "external-import"):
+            with self.subTest(mode=mode):
+                status, _headers, uploaded = self.upload(
+                    content=self.one_page_pdf() + uuid.uuid4().hex.encode("ascii"),
+                    filename=f"{mode}.pdf",
+                )
+                self.assertEqual(status, 201)
+                version_id = uploaded["data"]["version"]["id"]
+                payload = {
+                    "idempotencyKey": f"{mode}:{uuid.uuid4().hex}",
+                    "fallbackReason": f"{mode}_selected",
+                }
+                if mode == "manual-review":
+                    payload["values"] = {"project.name": "悦铂特项目"}
+                else:
+                    payload["markdown"] = """```json
+{"schemaVersion":"contract.v1","fields":{"project.name":{"value":"悦铂特项目","evidence":"项目名称：悦铂特项目","page":1}}}
+```"""
+
+                status, _headers, result = self.request(
+                    "POST",
+                    f"/api/document-versions/{version_id}/{mode}",
+                    payload=payload,
+                    user_id="editor-user",
+                )
+                self.assertEqual(status, 201, result)
+                self.assertEqual(result["data"]["status"], "review_ready")
+                self.assertTrue(result["data"]["reviewId"])
+                self.assertEqual(result["data"]["sourceRecognitionJobId"], "")
+
+        with audit_api.connect() as conn:
+            self.assertEqual(
+                conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0],
+                before_projects,
+            )
+
+    def test_failed_job_can_enter_manual_review_and_external_parser_errors_are_explicit(self):
+        created = self.create_document(project_id=None)
+        self.add_page(created)
+        job = self.create_job(created, status="failed")
+
+        status, _headers, manual = self.request(
+            "POST",
+            f"/api/document-recognition-jobs/{job['id']}/manual-review",
+            payload={
+                "idempotencyKey": f"manual:{uuid.uuid4().hex}",
+                "fallbackReason": "ocr_failed",
+                "values": {},
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 201, manual)
+        self.assertEqual(manual["data"]["sourceRecognitionJobId"], job["id"])
+
+        status, _headers, invalid = self.request(
+            "POST",
+            f"/api/document-recognition-jobs/{job['id']}/external-import",
+            payload={
+                "idempotencyKey": f"external:{uuid.uuid4().hex}",
+                "fallbackReason": "external_ai",
+                "markdown": "```json\n{broken}\n```",
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 422)
+        self.assertEqual(invalid["code"], "external_json_invalid")
 
     def test_page_image_supports_206_and_416_ranges(self):
         created = self.create_document()

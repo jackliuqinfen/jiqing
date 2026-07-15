@@ -4,7 +4,9 @@ import unittest
 
 from server.contract_fallback_service import (
     ContractFallbackError,
+    create_direct_fallback_review,
     create_fallback_review,
+    manual_contract_fields,
     parse_external_contract_markdown,
 )
 from server.document_repository import create_document_upload, create_recognition_job
@@ -193,6 +195,34 @@ class ContractFallbackReviewTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(suggestion["source_kind"], "external_ai")
         self.assertEqual(json.loads(suggestion["normalized_value_json"]), "悦铂特项目")
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0], 0)
+
+    def test_direct_manual_review_supports_proactive_fallback_without_source_job(self):
+        fields = manual_contract_fields({
+            "project.name": "悦铂特项目",
+            "party.contractor": "江苏悦铂特建设工程有限公司",
+        })
+
+        result = create_direct_fallback_review(
+            self.conn,
+            document_version_id=self.source_job["document_version_id"],
+            adapter_key="manual-entry",
+            idempotency_key="manual-direct-1",
+            fields=fields,
+            actor={"id": "editor-1", "name": "刘建祥"},
+            fallback_reason="manual_selected",
+            now=NOW,
+        )
+        self.conn.commit()
+
+        self.assertEqual(result["status"], "review_ready")
+        self.assertIsNone(result["source_recognition_job_id"])
+        project_name = self.conn.execute(
+            "SELECT * FROM extracted_fields WHERE recognition_job_id = ? AND semantic_key = 'project.name'",
+            (result["id"],),
+        ).fetchone()
+        self.assertEqual(project_name["source_kind"], "manual")
+        self.assertEqual(json.loads(project_name["normalized_value_json"]), "悦铂特项目")
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0], 0)
 
     def test_fallback_rejects_a_source_job_that_is_still_running(self):

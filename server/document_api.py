@@ -11,6 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from server import document_repository
+from server import project_intake_drafts
+from server.contract_fallback_service import (
+    ContractFallbackError,
+    create_direct_fallback_review,
+    create_fallback_review,
+    manual_contract_fields,
+    parse_external_contract_markdown,
+)
 from server.document_domain import DocumentType, allowed_document_types
 from server.document_repository import (
     DocumentNotFoundError,
@@ -30,6 +38,7 @@ from server.document_review_service import (
     save_decisions,
 )
 from server.document_storage import DocumentStorage, UnsafeDocumentPathError
+from server.project_intake_drafts import ProjectIntakeDraftError
 from server.recognition.schemas import schema_for_document_type, schema_for_version
 from server.recognition_service import enqueue_recognition, recognition_job_snapshot
 
@@ -72,6 +81,8 @@ class DocumentApi:
         re.compile(r"^/api/document-versions/([^/]+)/pages/([1-9][0-9]*)/image$"),
         re.compile(r"^/api/document-recognition-jobs/([^/]+)$"),
         re.compile(r"^/api/document-reviews/([^/]+)$"),
+        re.compile(r"^/api/project-intake-drafts$"),
+        re.compile(r"^/api/project-intake-drafts/([^/]+)$"),
     )
     _POST_ROUTES = (
         re.compile(r"^/api/documents/uploads$"),
@@ -79,6 +90,13 @@ class DocumentApi:
         re.compile(r"^/api/document-recognition-jobs/([^/]+)/retry$"),
         re.compile(r"^/api/document-reviews/([^/]+)/decisions$"),
         re.compile(r"^/api/document-reviews/([^/]+)/confirm$"),
+        re.compile(r"^/api/document-versions/([^/]+)/manual-review$"),
+        re.compile(r"^/api/document-versions/([^/]+)/external-import$"),
+        re.compile(r"^/api/document-recognition-jobs/([^/]+)/manual-review$"),
+        re.compile(r"^/api/document-recognition-jobs/([^/]+)/external-import$"),
+        re.compile(r"^/api/project-intake-drafts$"),
+        re.compile(r"^/api/project-intake-drafts/([^/]+)$"),
+        re.compile(r"^/api/project-intake-drafts/([^/]+)/abandon$"),
     )
 
     def __init__(
@@ -130,6 +148,12 @@ class DocumentApi:
             return False
         except DocumentApiError as exc:
             self._error(exc.status, exc.code, exc.message, **exc.details)
+        except ContractFallbackError as exc:
+            status = 404 if exc.code in {"source_job_not_found", "document_version_not_found"} else 409 if exc.code == "fallback_idempotency_conflict" else 422
+            self._error(status, exc.code, str(exc))
+        except ProjectIntakeDraftError as exc:
+            status = 404 if exc.code == "draft_not_found" else 409 if exc.code == "draft_immutable" else 422
+            self._error(status, exc.code, str(exc))
         except ReviewVersionConflictError as exc:
             self._error(
                 409,
@@ -177,6 +201,13 @@ class DocumentApi:
         if match:
             self._get_review(match.group(1))
             return True
+        if self._GET_ROUTES[4].fullmatch(path):
+            self._list_intake_drafts()
+            return True
+        match = self._GET_ROUTES[5].fullmatch(path)
+        if match:
+            self._get_intake_draft(match.group(1))
+            return True
         return False
 
     def _dispatch_post(self, path):
@@ -202,6 +233,40 @@ class DocumentApi:
         if match:
             self._require_confirmer()
             self._confirm_review(match.group(1))
+            return True
+        match = self._POST_ROUTES[5].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._direct_fallback_review(match.group(1), mode="manual")
+            return True
+        match = self._POST_ROUTES[6].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._direct_fallback_review(match.group(1), mode="external")
+            return True
+        match = self._POST_ROUTES[7].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._job_fallback_review(match.group(1), mode="manual")
+            return True
+        match = self._POST_ROUTES[8].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._job_fallback_review(match.group(1), mode="external")
+            return True
+        if self._POST_ROUTES[9].fullmatch(path):
+            self._require_writer()
+            self._create_intake_draft()
+            return True
+        match = self._POST_ROUTES[10].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._save_intake_draft(match.group(1))
+            return True
+        match = self._POST_ROUTES[11].fullmatch(path)
+        if match:
+            self._require_writer()
+            self._abandon_intake_draft(match.group(1))
             return True
         return False
 
@@ -448,6 +513,145 @@ class DocumentApi:
         self.conn.commit()
         self._success(200 if existing else 201, _map_job(recognition_job_snapshot(self.conn, job["id"])))
 
+    def _direct_fallback_review(self, version_id, *, mode):
+        source = self.read_repository.version(version_id)
+        if not source:
+            raise DocumentApiError(404, "document_version_not_found", "未找到文档版本。")
+        self._require_resource_access(source)
+        self._ensure_rendered_pages(source)
+        data = self._read_json_body()
+        idempotency_key = _required_text(data, "idempotencyKey")
+        fields, adapter_key = self._fallback_fields(data, mode)
+        existing = self.read_repository.job_by_idempotency_key(idempotency_key)
+        result = create_direct_fallback_review(
+            self.conn,
+            document_version_id=version_id,
+            adapter_key=adapter_key,
+            idempotency_key=idempotency_key,
+            fields=fields,
+            actor=self.actor,
+            fallback_reason=_required_text(data, "fallbackReason"),
+            fallback_note=str(data.get("fallbackNote") or "").strip(),
+        )
+        self._log_operation(
+            "contract_fallback_review_created",
+            "document_version",
+            version_id,
+            {"mode": mode, "reviewId": result["review_id"]},
+        )
+        self.conn.commit()
+        self._success(200 if existing else 201, _map_job(result))
+
+    def _job_fallback_review(self, job_id, *, mode):
+        source = self.read_repository.job_source(job_id)
+        if not source:
+            raise DocumentApiError(404, "recognition_job_not_found", "未找到识别任务。")
+        self._require_resource_access(source)
+        data = self._read_json_body()
+        idempotency_key = _required_text(data, "idempotencyKey")
+        fields, adapter_key = self._fallback_fields(data, mode)
+        existing = self.read_repository.job_by_idempotency_key(idempotency_key)
+        result = create_fallback_review(
+            self.conn,
+            source_job_id=job_id,
+            adapter_key=adapter_key,
+            idempotency_key=idempotency_key,
+            fields=fields,
+            actor=self.actor,
+            fallback_reason=_required_text(data, "fallbackReason"),
+            fallback_note=str(data.get("fallbackNote") or "").strip(),
+        )
+        self._log_operation(
+            "contract_fallback_review_created",
+            "recognition_job",
+            job_id,
+            {"mode": mode, "reviewId": result["review_id"]},
+        )
+        self.conn.commit()
+        self._success(200 if existing else 201, _map_job(result))
+
+    @staticmethod
+    def _fallback_fields(data, mode):
+        if mode == "external":
+            return parse_external_contract_markdown(_required_text(data, "markdown")), "external-ai-paste"
+        return manual_contract_fields(data.get("values") or {}), "manual-entry"
+
+    def _list_intake_drafts(self):
+        rows = project_intake_drafts.list_drafts(
+            self.conn,
+            owner_user_id=self.actor["id"],
+            include_all=self.actor["role"] == "admin",
+        )
+        self._success(200, [_map_intake_draft(row) for row in rows])
+
+    def _get_intake_draft(self, draft_id):
+        row = project_intake_drafts.get_draft(
+            self.conn,
+            draft_id,
+            owner_user_id=self.actor["id"],
+            include_all=self.actor["role"] == "admin",
+        )
+        if not row:
+            raise DocumentApiError(404, "draft_not_found", "未找到项目录入草稿。")
+        self._success(200, _map_intake_draft(row))
+
+    def _create_intake_draft(self):
+        data = self._read_json_body()
+        row = project_intake_drafts.create_draft(
+            self.conn,
+            owner_user_id=self.actor["id"],
+            values=data.get("values") or {},
+            fallback_reason=_required_text(data, "fallbackReason"),
+            fallback_note=str(data.get("fallbackNote") or "").strip(),
+            document_id=_optional_text(data, "documentId"),
+            document_version_id=_optional_text(data, "documentVersionId"),
+        )
+        self._log_operation(
+            "project_intake_draft_created",
+            "project_intake_draft",
+            row["id"],
+            {"status": row["status"]},
+        )
+        self.conn.commit()
+        self._success(201, _map_intake_draft(row))
+
+    def _save_intake_draft(self, draft_id):
+        data = self._read_json_body()
+        row = project_intake_drafts.save_draft(
+            self.conn,
+            draft_id=draft_id,
+            owner_user_id=self.actor["id"],
+            values=data.get("values") if "values" in data else None,
+            fallback_reason=data.get("fallbackReason") if "fallbackReason" in data else None,
+            fallback_note=data.get("fallbackNote") if "fallbackNote" in data else None,
+            document_id=data.get("documentId") if "documentId" in data else None,
+            document_version_id=data.get("documentVersionId") if "documentVersionId" in data else None,
+        )
+        self._log_operation(
+            "project_intake_draft_updated",
+            "project_intake_draft",
+            row["id"],
+            {"status": row["status"]},
+        )
+        self.conn.commit()
+        self._success(200, _map_intake_draft(row))
+
+    def _abandon_intake_draft(self, draft_id):
+        self._read_json_body()
+        row = project_intake_drafts.abandon_draft(
+            self.conn,
+            draft_id=draft_id,
+            owner_user_id=self.actor["id"],
+        )
+        self._log_operation(
+            "project_intake_draft_abandoned",
+            "project_intake_draft",
+            row["id"],
+            {"status": row["status"]},
+        )
+        self.conn.commit()
+        self._success(200, _map_intake_draft(row))
+
     def _get_review(self, review_id):
         source = self._review_source(review_id)
         detail = review_detail(self.conn, review_id)
@@ -576,6 +780,20 @@ class DocumentApi:
     def _success(self, status, data):
         self.handler.respond(status, {"success": True, "data": data})
 
+    def _log_operation(self, action, target_type, target_id, detail):
+        self.handler.write_operation_log(
+            self.conn,
+            action,
+            user={
+                "id": self.actor["id"],
+                "username": self.actor["name"],
+                "role": self.actor["role"],
+            },
+            target_type=target_type,
+            target_id=target_id,
+            detail=detail,
+        )
+
     def _error(self, status, code, message, **details):
         self.handler.respond(
             status,
@@ -607,7 +825,8 @@ class _DocumentReadRepository:
             self.conn,
             """
             SELECT dv.*, d.document_type, d.lifecycle_stage, d.project_id,
-                   d.candidate_project_id, d.status AS document_status
+                   d.candidate_project_id, d.status AS document_status,
+                   d.created_by AS document_created_by
             FROM document_versions dv
             JOIN documents d ON d.id = dv.document_id
             WHERE dv.id = ?
@@ -1012,6 +1231,7 @@ def _map_job(row):
         "status": row["status"],
         "adapterKey": row["adapter_key"],
         "schemaVersion": row["schema_version"],
+        "sourceRecognitionJobId": row.get("source_recognition_job_id") or "",
         "attempts": int(row["attempts"]),
         "maxAttempts": int(row["max_attempts"]),
         "blockCount": int(row.get("block_count") or 0),
@@ -1022,6 +1242,23 @@ def _map_job(row):
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
         "finishedAt": row.get("finished_at") or "",
+    }
+
+
+def _map_intake_draft(row):
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "status": row["status"],
+        "documentId": row.get("document_id") or "",
+        "documentVersionId": row.get("document_version_id") or "",
+        "schemaVersion": row["schema_version"],
+        "values": row.get("values") or {},
+        "fallbackReason": row.get("fallback_reason") or "",
+        "fallbackNote": row.get("fallback_note") or "",
+        "completedProjectId": row.get("completed_project_id") or "",
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
     }
 
 

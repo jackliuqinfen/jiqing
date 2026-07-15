@@ -98,6 +98,41 @@ def parse_external_contract_markdown(markdown):
     return fields
 
 
+def manual_contract_fields(values):
+    if values is None:
+        return []
+    if not isinstance(values, dict):
+        raise ContractFallbackError("manual_fields_invalid", "手工合同字段必须是对象。")
+    schema = schema_for_version("contract.v1")
+    fields = []
+    for semantic_key, value in values.items():
+        if semantic_key not in schema.semantic_keys:
+            raise ContractFallbackError(
+                "manual_semantic_key_invalid", f"不支持的合同字段：{semantic_key}。"
+            )
+        if value is None or value == "":
+            continue
+        if isinstance(value, list):
+            raw_value = "\n".join(str(item).strip() for item in value if str(item).strip())
+        elif isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ContractFallbackError(
+                "manual_field_value_invalid", f"合同字段 {semantic_key} 的值类型无效。"
+            )
+        else:
+            raw_value = str(value).strip()
+        if raw_value:
+            fields.append(
+                {
+                    "semantic_key": semantic_key,
+                    "raw_value": raw_value,
+                    "confidence": None,
+                    "anchors": (),
+                    "source_kind": "manual",
+                }
+            )
+    return fields
+
+
 def create_fallback_review(
     conn,
     *,
@@ -110,8 +145,7 @@ def create_fallback_review(
     fallback_note="",
     now=None,
 ):
-    if adapter_key not in ALLOWED_FALLBACK_ADAPTERS:
-        raise ContractFallbackError("fallback_adapter_invalid", "当前人工复核方式不受支持。")
+    _validate_fallback_request(adapter_key, idempotency_key, fallback_reason)
     source = document_repository._fetch_one(
         conn,
         """
@@ -128,14 +162,91 @@ def create_fallback_review(
         raise ContractFallbackError("fallback_status_invalid", "当前识别状态不能转入人工复核。")
     if source["schema_version"] != "contract.v1":
         raise ContractFallbackError("fallback_schema_invalid", "一期仅支持合同人工复核。")
+
+    return _create_review_for_version(
+        conn,
+        document_id=source["document_id"],
+        document_version_id=source["document_version_id"],
+        source_job_id=source["id"],
+        adapter_key=adapter_key,
+        idempotency_key=idempotency_key,
+        fields=fields,
+        actor=actor,
+        fallback_reason=fallback_reason,
+        fallback_note=fallback_note,
+        now=now,
+    )
+
+
+def create_direct_fallback_review(
+    conn,
+    *,
+    document_version_id,
+    adapter_key,
+    idempotency_key,
+    fields,
+    actor,
+    fallback_reason,
+    fallback_note="",
+    now=None,
+):
+    _validate_fallback_request(adapter_key, idempotency_key, fallback_reason)
+    source = document_repository._fetch_one(
+        conn,
+        """
+        SELECT dv.id AS document_version_id, dv.document_id, d.document_type
+        FROM document_versions dv
+        JOIN documents d ON d.id = dv.document_id
+        WHERE dv.id = ?
+        """,
+        (str(document_version_id or ""),),
+    )
+    if not source:
+        raise ContractFallbackError("document_version_not_found", "未找到合同文档版本。")
+    if source["document_type"] != "construction_contract":
+        raise ContractFallbackError("fallback_schema_invalid", "一期仅支持合同人工复核。")
+    return _create_review_for_version(
+        conn,
+        document_id=source["document_id"],
+        document_version_id=source["document_version_id"],
+        source_job_id=None,
+        adapter_key=adapter_key,
+        idempotency_key=idempotency_key,
+        fields=fields,
+        actor=actor,
+        fallback_reason=fallback_reason,
+        fallback_note=fallback_note,
+        now=now,
+    )
+
+
+def _validate_fallback_request(adapter_key, idempotency_key, fallback_reason):
+    if adapter_key not in ALLOWED_FALLBACK_ADAPTERS:
+        raise ContractFallbackError("fallback_adapter_invalid", "当前人工复核方式不受支持。")
     if not str(idempotency_key or "").strip():
         raise ContractFallbackError("fallback_idempotency_required", "人工复核必须提供幂等键。")
     if not str(fallback_reason or "").strip():
         raise ContractFallbackError("fallback_reason_required", "请选择转入人工复核的原因。")
 
+
+def _create_review_for_version(
+    conn,
+    *,
+    document_id,
+    document_version_id,
+    source_job_id,
+    adapter_key,
+    idempotency_key,
+    fields,
+    actor,
+    fallback_reason,
+    fallback_note,
+    now,
+):
+
     job = document_repository.create_recognition_job(
         conn,
-        document_version_id=source["document_version_id"],
+        document_version_id=document_version_id,
         adapter_key=adapter_key,
         schema_version="contract.v1",
         idempotency_key=str(idempotency_key).strip(),
@@ -143,16 +254,17 @@ def create_fallback_review(
         now=now,
     )
     existing_source_id = job.get("source_recognition_job_id")
-    if existing_source_id and existing_source_id != source["id"]:
+    if existing_source_id and existing_source_id != source_job_id:
         raise ContractFallbackError(
             "fallback_idempotency_conflict", "人工复核幂等键已用于其他识别任务。"
         )
-    document_repository.link_fallback_job_source(
-        conn,
-        job_id=job["id"],
-        source_recognition_job_id=source["id"],
-        now=now,
-    )
+    if source_job_id:
+        document_repository.link_fallback_job_source(
+            conn,
+            job_id=job["id"],
+            source_recognition_job_id=source_job_id,
+            now=now,
+        )
     if job["status"] != "review_ready":
         normalized = normalize_extracted_fields(fields or [], "contract.v1")
         normalized = materialize_schema_fields(normalized, "contract.v1")
@@ -165,8 +277,8 @@ def create_fallback_review(
         )
     review = document_repository.create_review(
         conn,
-        document_id=source["document_id"],
-        document_version_id=source["document_version_id"],
+        document_id=document_id,
+        document_version_id=document_version_id,
         recognition_job_id=job["id"],
         now=now,
     )
