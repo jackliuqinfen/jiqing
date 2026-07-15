@@ -546,6 +546,71 @@ def save_recognition_result(
     return _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
 
 
+def link_fallback_job_source(conn, *, job_id, source_recognition_job_id, now=None):
+    now = now or _now_iso()
+    conn.execute(
+        """
+        UPDATE recognition_jobs
+        SET source_recognition_job_id = ?, updated_at = ?
+        WHERE id = ? AND (source_recognition_job_id IS NULL OR source_recognition_job_id = ?)
+        """,
+        (source_recognition_job_id, now, job_id, source_recognition_job_id),
+    )
+    return _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
+
+
+def save_fallback_recognition_result(
+    conn,
+    *,
+    job_id,
+    fields,
+    model_version,
+    now=None,
+):
+    now = now or _now_iso()
+    job = _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
+    if not job:
+        raise RecognitionJobNotFoundError(job_id)
+    if job["adapter_key"] not in {"manual-entry", "external-ai-paste"}:
+        raise EvidenceGraphMismatchError("fallback result requires a fallback adapter")
+    if job["status"] == "review_ready":
+        return job
+    if job["status"] != "queued":
+        raise EvidenceGraphMismatchError("fallback job is not ready to materialize")
+    for field in fields:
+        conn.execute(
+            """
+            INSERT INTO extracted_fields
+            (id, recognition_job_id, semantic_key, raw_value, normalized_value_json,
+             confidence, validation_status, source_kind, model_version, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                field.get("id") or uuid.uuid4().hex,
+                job_id,
+                field["semantic_key"],
+                field.get("raw_value", ""),
+                _json(field.get("normalized_value")),
+                None,
+                field.get("validation_status", "unvalidated"),
+                field.get("source_kind", "manual"),
+                model_version,
+                now,
+            ),
+        )
+    conn.execute(
+        """
+        UPDATE recognition_jobs
+        SET status = 'review_ready', model_version = ?, provider_request_id = '',
+            provider_metadata_json = '{}', finished_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (model_version, now, now, job_id),
+    )
+    _update_document_status_for_version(conn, job["document_version_id"], "review_ready", now)
+    return _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
+
+
 def create_review(
     conn,
     *,
