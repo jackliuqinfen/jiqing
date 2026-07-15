@@ -270,7 +270,9 @@ CREATE TABLE IF NOT EXISTS recognition_jobs (
   finished_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
-  source_recognition_job_id TEXT REFERENCES recognition_jobs(id)
+  source_recognition_job_id TEXT REFERENCES recognition_jobs(id),
+  fallback_reason TEXT NOT NULL DEFAULT '',
+  fallback_note TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS project_intake_drafts (

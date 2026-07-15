@@ -1,7 +1,7 @@
 # 合同建档应急降级与手动辅助设计
 
 日期：2026-07-15  
-状态：已确认，进入实施
+状态：已实施，待生产走查
 适用范围：项目管理中的“上传合同创建项目”流程
 
 ## 1. 目标与边界
@@ -28,7 +28,7 @@
 
 外部 AI 通道必须在界面中明确提示：合同可能包含敏感商业信息，用户应遵循本单位的数据安全要求，不得把不允许外发的合同上传至第三方服务。
 
-起始页同时展示当前用户最近的建档草稿，支持继续填写。不得展示其他用户的未绑定草稿，管理员除外。
+起始页同时展示当前用户未完成的建档草稿，支持继续填写和放弃。不得展示其他用户的未绑定草稿，管理员除外。
 
 ### 2.2 AI 通道降级
 
@@ -81,7 +81,7 @@
 6. `evidence` 和 `page` 仅作为人工核对提示，不生成伪造版面坐标；
 7. 导入值统一标记为 `ai_suggestion`，关键字段仍需逐项人工确认。
 
-外部 AI 结果只有在合同文件已经保存到本系统后才能进入正式复核。未保存合同文件时，粘贴结果只能保存到建档草稿，不得创建正式项目。
+外部 AI 结果只有在合同文件已经保存到本系统后才能进入正式复核。未保存合同文件时，外部导入按钮不可提交；用户可切换到手工模式保存建档草稿，但不得创建正式项目。
 
 ## 3. 两类手动结果
 
@@ -91,8 +91,7 @@
 
 - 不创建 `projects`、合同事实或生命周期事件；
 - 不生成项目编号；
-- 状态显示为“待补合同”；
-- 自动生成“补传合同文件”待办；
+- 状态显示为未关联合同原件，并出现在当前用户的未完成草稿列表；
 - 后续补传合同成功后进入合同复核流程；
 - 草稿中的人工值用于复核页预填，但仍需逐项确认。
 
@@ -134,10 +133,10 @@
 
 ### 4.2 `recognition_jobs`
 
-新增可空字段 `source_recognition_job_id`，用于记录手动复核任务来源。约束如下：
+新增可空字段 `source_recognition_job_id`，用于记录手动复核任务来源；新增 `fallback_reason`、`fallback_note`，用于持久化降级原因。约束如下：
 
 - 手动任务 `adapter_key = manual-entry`，外部导入任务 `adapter_key = external-ai-paste`；
-- 只允许从 `failed` 或 `manual_required` 的任务创建；
+- 允许对已保存合同主动选择备用方式，也允许从 `failed` 或 `manual_required` 的系统任务降级；
 - 来源任务和手动任务必须关联同一 `document_version_id`；
 - 同一来源任务使用幂等键，重复点击只返回同一手动任务。
 
@@ -146,16 +145,18 @@
 ### 5.1 草稿接口
 
 - `POST /api/project-intake-drafts`：新建草稿。
-- `GET /api/project-intake-drafts?mine=true`：获取当前用户草稿。
+- `GET /api/project-intake-drafts`：获取当前用户草稿，管理员按现有权限可查看全部。
 - `GET /api/project-intake-drafts/{id}`：读取草稿。
-- `PATCH /api/project-intake-drafts/{id}`：保存字段、原因或关联文档。
+- `POST /api/project-intake-drafts/{id}`：保存字段、原因、关联文档或正式建档后的项目 ID。
 - `POST /api/project-intake-drafts/{id}/abandon`：放弃草稿。
 
 所有写接口仅允许当前系统中的管理员或编辑者；查看者不可写。普通用户只能访问自己的草稿，管理员可按权限查看全部。
 
 ### 5.2 人工复核接口
 
-`POST /api/document-recognition-jobs/{jobId}/manual-review`
+已存在失败任务时使用：`POST /api/document-recognition-jobs/{jobId}/manual-review`。
+
+用户主动选择手工复核时使用：`POST /api/document-versions/{versionId}/manual-review`。
 
 请求：
 
@@ -172,7 +173,9 @@
 
 ### 5.3 外部 AI 结果导入接口
 
-`POST /api/document-recognition-jobs/{jobId}/external-import`
+已存在失败任务时使用：`POST /api/document-recognition-jobs/{jobId}/external-import`。
+
+用户主动选择外部 AI 时使用：`POST /api/document-versions/{versionId}/external-import`。
 
 请求：
 
@@ -210,7 +213,7 @@
 
 ## 8. 审计、权限与安全
 
-必须记录以下操作：模式选择、降级原因、草稿创建与修改、合同补传、进入手动复核、字段确认、正式建档和草稿完成或放弃。
+后端必须记录以下持久化操作：降级原因、草稿创建与修改、合同关联、进入手动复核、字段确认、正式建档和草稿完成或放弃。
 
 日志展示姓名并保留账号 ID。文件访问、草稿访问、人工复核和正式确认均执行后端权限校验，不能只靠前端隐藏按钮。
 
@@ -228,6 +231,8 @@
 10. 所有降级动作在操作日志中可追溯。
 11. 外部 AI Markdown 中存在未知字段、多个 JSON 代码块或非法结构时，后端拒绝导入并返回准确错误。
 12. 外部导入值只作为建议，未逐项人工确认时不能正式建档。
+13. 已保存草稿可由原所有人继续填写或放弃，正式建档后自动标为完成。
+14. 上传失败时仍能保存无文件草稿，提示必须明确文件尚未上传成功。
 
 ## 10. 测试范围
 

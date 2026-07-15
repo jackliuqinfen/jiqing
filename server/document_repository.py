@@ -559,6 +559,35 @@ def link_fallback_job_source(conn, *, job_id, source_recognition_job_id, now=Non
     return _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
 
 
+def record_fallback_provenance(
+    conn,
+    *,
+    job_id,
+    fallback_reason,
+    fallback_note="",
+    now=None,
+):
+    now = now or _now_iso()
+    conn.execute(
+        """
+        UPDATE recognition_jobs
+        SET fallback_reason = ?, fallback_note = ?, updated_at = ?
+        WHERE id = ?
+          AND (fallback_reason = '' OR fallback_reason = ?)
+          AND (fallback_note = '' OR fallback_note = ?)
+        """,
+        (
+            fallback_reason,
+            fallback_note,
+            now,
+            job_id,
+            fallback_reason,
+            fallback_note,
+        ),
+    )
+    return _fetch_one(conn, "SELECT * FROM recognition_jobs WHERE id = ?", (job_id,))
+
+
 def save_fallback_recognition_result(
     conn,
     *,

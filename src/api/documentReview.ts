@@ -2,13 +2,18 @@ import { getAuthToken } from '@/api/system'
 import type {
   ConfirmDocumentReviewRequest,
   ConfirmDocumentReviewResponse,
+  CreateProjectIntakeDraftRequest,
   DocumentReview,
   DocumentReviewErrorPayload,
   DocumentUploadRequest,
   DocumentUploadResponse,
+  ExternalImportRequest,
+  ManualReviewRequest,
+  ProjectIntakeDraft,
   RecognitionJob,
   RetryRecognitionRequest,
   SaveReviewDecisionsRequest,
+  SaveProjectIntakeDraftRequest,
   StartRecognitionRequest,
 } from '@/types/documentReview'
 
@@ -155,6 +160,76 @@ export function retryRecognition(
   return request(`/document-recognition-jobs/${encodeURIComponent(jobId)}/retry`, {
     method: 'POST',
     body: JSON.stringify(data),
+  })
+}
+
+export function startDirectManualReview(
+  versionId: string,
+  data: ManualReviewRequest,
+): Promise<RecognitionJob> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}/manual-review`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function importDirectExternalResult(
+  versionId: string,
+  data: ExternalImportRequest,
+): Promise<RecognitionJob> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}/external-import`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function startJobManualReview(
+  jobId: string,
+  data: ManualReviewRequest,
+): Promise<RecognitionJob> {
+  return request(`/document-recognition-jobs/${encodeURIComponent(jobId)}/manual-review`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function importJobExternalResult(
+  jobId: string,
+  data: ExternalImportRequest,
+): Promise<RecognitionJob> {
+  return request(`/document-recognition-jobs/${encodeURIComponent(jobId)}/external-import`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function createProjectIntakeDraft(
+  data: CreateProjectIntakeDraftRequest,
+): Promise<ProjectIntakeDraft> {
+  return request('/project-intake-drafts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function listProjectIntakeDrafts(): Promise<ProjectIntakeDraft[]> {
+  return request('/project-intake-drafts')
+}
+
+export function saveProjectIntakeDraft(
+  draftId: string,
+  data: SaveProjectIntakeDraftRequest,
+): Promise<ProjectIntakeDraft> {
+  return request(`/project-intake-drafts/${encodeURIComponent(draftId)}`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export function abandonProjectIntakeDraft(draftId: string): Promise<ProjectIntakeDraft> {
+  return request(`/project-intake-drafts/${encodeURIComponent(draftId)}/abandon`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   })
 }
 

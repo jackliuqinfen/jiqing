@@ -94,6 +94,19 @@ class ContractFallbackParserTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractFallbackError, "过长"):
             parse_external_contract_markdown("x" * 131073)
 
+    def test_parser_rejects_duplicate_keys_and_non_finite_numbers(self):
+        duplicated_key = """```json
+{"schemaVersion":"contract.v1","fields":{"project.name":{"value":"A"},"project.name":{"value":"B"}}}
+```"""
+        with self.assertRaisesRegex(ContractFallbackError, "重复"):
+            parse_external_contract_markdown(duplicated_key)
+
+        non_finite = """```json
+{"schemaVersion":"contract.v1","fields":{"contract.amount":{"value":NaN}}}
+```"""
+        with self.assertRaisesRegex(ContractFallbackError, "非法数字"):
+            parse_external_contract_markdown(non_finite)
+
 
 class ContractFallbackReviewTests(unittest.TestCase):
     def setUp(self):
@@ -224,6 +237,13 @@ class ContractFallbackReviewTests(unittest.TestCase):
         self.assertEqual(project_name["source_kind"], "manual")
         self.assertEqual(json.loads(project_name["normalized_value_json"]), "悦铂特项目")
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0], 0)
+
+        provenance = self.conn.execute(
+            "SELECT fallback_reason, fallback_note FROM recognition_jobs WHERE id = ?",
+            (result["id"],),
+        ).fetchone()
+        self.assertEqual(provenance["fallback_reason"], "manual_selected")
+        self.assertEqual(provenance["fallback_note"], "")
 
     def test_fallback_rejects_a_source_job_that_is_still_running(self):
         self.conn.execute(

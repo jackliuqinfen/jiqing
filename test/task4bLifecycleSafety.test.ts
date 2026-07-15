@@ -36,7 +36,7 @@ test('blocks ordinary project creation so formal records can only come from cont
 test('returns the exact AI value when a reviewer accepts a recognized field', () => {
   const aiValue = ['竣工验收合格后支付 60%']
   assert.deepEqual(
-    buildReviewDecisionInput({ id: 'field-1', aiValue }, 'accepted', ''),
+    buildReviewDecisionInput({ id: 'field-1', aiValue, sourceKind: 'ocr' }, 'accepted', ''),
     {
       fieldId: 'field-1',
       decision: 'accepted',
@@ -47,13 +47,32 @@ test('returns the exact AI value when a reviewer accepts a recognized field', ()
 
 test('records an auditable reason when a reviewer modifies an OCR value', () => {
   assert.deepEqual(
-    buildReviewDecisionInput({ id: 'field-2', aiValue: '错误日期' }, 'modified', '2026-07-14'),
+    buildReviewDecisionInput({ id: 'field-2', aiValue: '错误日期', sourceKind: 'ocr' }, 'modified', '2026-07-14'),
     {
       fieldId: 'field-2',
       decision: 'modified',
       confirmedValue: '2026-07-14',
       reason: '人工复核修正 OCR 识别值',
     },
+  )
+})
+
+test('records the actual source when correcting fallback values', () => {
+  assert.equal(
+    buildReviewDecisionInput(
+      { id: 'manual-field', aiValue: '手工值', sourceKind: 'manual' },
+      'modified',
+      '核对后值',
+    ).reason,
+    '人工核对合同原文后修正手工录入值',
+  )
+  assert.equal(
+    buildReviewDecisionInput(
+      { id: 'external-field', aiValue: '外部建议', sourceKind: 'external_ai' },
+      'modified',
+      '核对后值',
+    ).reason,
+    '人工核对合同原文后修正外部 AI 建议',
   )
 })
 

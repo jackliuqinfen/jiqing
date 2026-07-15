@@ -51,7 +51,8 @@ def build_review_blockers(
                 )
             )
             continue
-        if not field.get("anchors") and decision.get("decision") != "modified":
+        requires_ocr_anchor = field.get("source_kind") not in {"manual", "external_ai"}
+        if requires_ocr_anchor and not field.get("anchors") and decision.get("decision") != "modified":
             blockers.append(
                 _issue(
                     "evidence_anchor_missing",

@@ -630,7 +630,15 @@ class DocumentApiContractTests(unittest.TestCase):
 
     def test_owner_scoped_intake_drafts_never_create_project_records(self):
         with audit_api.connect() as conn:
-            before_projects = conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0]
+            before_counts = {
+                table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in (
+                    "project_records",
+                    "project_contracts",
+                    "project_lifecycle_events",
+                    "audit_projects",
+                )
+            }
 
         status, _headers, created = self.request(
             "POST",
@@ -649,7 +657,7 @@ class DocumentApiContractTests(unittest.TestCase):
             "GET", "/api/project-intake-drafts", user_id="editor-user"
         )
         self.assertEqual(status, 200)
-        self.assertEqual([item["id"] for item in listed["data"]], [draft_id])
+        self.assertIn(draft_id, [item["id"] for item in listed["data"]])
 
         status, _headers, outsider_list = self.request(
             "GET", "/api/project-intake-drafts", user_id="outsider-user"
@@ -675,10 +683,53 @@ class DocumentApiContractTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(abandoned["data"]["status"], "abandoned")
         with audit_api.connect() as conn:
-            self.assertEqual(
-                conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0],
-                before_projects,
-            )
+            after_counts = {
+                table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in before_counts
+            }
+            self.assertEqual(after_counts, before_counts)
+
+    def test_draft_cannot_attach_another_users_unbound_document(self):
+        status, _headers, uploaded = self.upload(user_id="editor-user")
+        self.assertEqual(status, 201)
+
+        status, _headers, payload = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {"project.name": "越权绑定测试"},
+                "fallbackReason": "manual_selected",
+                "documentId": uploaded["data"]["document"]["id"],
+                "documentVersionId": uploaded["data"]["version"]["id"],
+            },
+            user_id="outsider-user",
+        )
+
+        self.assertEqual(status, 403, payload)
+        self.assertEqual(payload["code"], "unbound_document_forbidden")
+
+    def test_draft_can_be_marked_completed_after_formal_project_creation(self):
+        status, _headers, created = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {"project.name": "待建档工程"},
+                "fallbackReason": "manual_selected",
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 201, created)
+
+        status, _headers, completed = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{created['data']['id']}",
+            payload={"completedProjectId": "project-allowed"},
+            user_id="editor-user",
+        )
+
+        self.assertEqual(status, 200, completed)
+        self.assertEqual(completed["data"]["status"], "completed")
+        self.assertEqual(completed["data"]["completedProjectId"], "project-allowed")
 
     def test_proactive_manual_and_external_import_open_review_without_fake_project(self):
         with audit_api.connect() as conn:
@@ -694,6 +745,7 @@ class DocumentApiContractTests(unittest.TestCase):
                 payload = {
                     "idempotencyKey": f"{mode}:{uuid.uuid4().hex}",
                     "fallbackReason": f"{mode}_selected",
+                    "fallbackNote": "契约测试来源说明",
                 }
                 if mode == "manual-review":
                     payload["values"] = {"project.name": "悦铂特项目"}
@@ -712,6 +764,33 @@ class DocumentApiContractTests(unittest.TestCase):
                 self.assertEqual(result["data"]["status"], "review_ready")
                 self.assertTrue(result["data"]["reviewId"])
                 self.assertEqual(result["data"]["sourceRecognitionJobId"], "")
+                self.assertEqual(result["data"]["fallbackReason"], f"{mode}_selected")
+                self.assertEqual(result["data"]["fallbackNote"], "契约测试来源说明")
+
+                status, _headers, persisted = self.request(
+                    "GET",
+                    f"/api/document-recognition-jobs/{result['data']['id']}",
+                    user_id="editor-user",
+                )
+                self.assertEqual(status, 200, persisted)
+                self.assertEqual(persisted["data"]["fallbackReason"], f"{mode}_selected")
+
+                status, _headers, review = self.request(
+                    "GET",
+                    f"/api/document-reviews/{result['data']['reviewId']}",
+                    user_id="editor-user",
+                )
+                self.assertEqual(status, 200, review)
+                project_name = next(
+                    field
+                    for section in review["data"]["sections"]
+                    for field in section["fields"]
+                    if field["semanticKey"] == "project.name"
+                )
+                self.assertEqual(
+                    project_name["sourceKind"],
+                    "manual" if mode == "manual-review" else "external_ai",
+                )
 
         with audit_api.connect() as conn:
             self.assertEqual(

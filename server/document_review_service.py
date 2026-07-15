@@ -193,6 +193,7 @@ def review_detail(conn, review_id):
             "aiValue": _loads(field["normalized_value_json"], None),
             "confidence": field["confidence"],
             "validationStatus": field["validation_status"],
+            "sourceKind": field["source_kind"],
             "anchors": anchors_by_field.get(field["id"], []),
             "decision": decision_by_field.get(field["id"]),
         })

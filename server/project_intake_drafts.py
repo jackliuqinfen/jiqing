@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 
@@ -185,6 +186,10 @@ def _validate_values(values):
             clean[key] = None
         elif isinstance(value, bool) or not isinstance(value, (str, int, float, list)):
             raise ProjectIntakeDraftError("draft_value_invalid", f"合同字段 {key} 的值类型无效。")
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise ProjectIntakeDraftError("draft_value_invalid", f"合同字段 {key} 不能是非有限数值。")
+        elif isinstance(value, list) and not all(isinstance(item, str) for item in value):
+            raise ProjectIntakeDraftError("draft_value_invalid", f"合同字段 {key} 的列表只能包含文本。")
         else:
             clean[key] = value
     return clean

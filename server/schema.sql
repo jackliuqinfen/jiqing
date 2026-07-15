@@ -292,6 +292,8 @@ CREATE TABLE IF NOT EXISTS recognition_jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   source_recognition_job_id TEXT,
+  fallback_reason TEXT NOT NULL DEFAULT '',
+  fallback_note TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (document_version_id) REFERENCES document_versions(id) ON DELETE CASCADE,
   FOREIGN KEY (source_recognition_job_id) REFERENCES recognition_jobs(id)
 );

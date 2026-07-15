@@ -10,6 +10,7 @@ LIFECYCLE_RUNTIME_MIGRATION = "2026071101_lifecycle_runtime"
 DOCUMENT_EVIDENCE_MIGRATION = "2026071301_document_evidence_phase1"
 DOCUMENT_CONFIRMATION_GUARDS_MIGRATION = "2026071401_document_confirmation_guards"
 CONTRACT_FALLBACK_MIGRATION = "2026071501_contract_fallback"
+CONTRACT_FALLBACK_PROVENANCE_MIGRATION = "2026071502_contract_fallback_provenance"
 
 
 class MigrationChecksumMismatchError(RuntimeError):
@@ -508,6 +509,26 @@ CONTRACT_FALLBACK_CHECKSUM = hashlib.sha256(
 ).hexdigest()
 
 
+_RECOGNITION_FALLBACK_REASON_ALTER_SQL = """
+ALTER TABLE recognition_jobs ADD COLUMN fallback_reason TEXT NOT NULL DEFAULT ''
+"""
+
+_RECOGNITION_FALLBACK_NOTE_ALTER_SQL = """
+ALTER TABLE recognition_jobs ADD COLUMN fallback_note TEXT NOT NULL DEFAULT ''
+"""
+
+_CONTRACT_FALLBACK_PROVENANCE_DEFINITION = (
+    _RECOGNITION_FALLBACK_REASON_ALTER_SQL,
+    _RECOGNITION_FALLBACK_NOTE_ALTER_SQL,
+)
+
+CONTRACT_FALLBACK_PROVENANCE_CHECKSUM = hashlib.sha256(
+    "\n".join(
+        statement.strip() for statement in _CONTRACT_FALLBACK_PROVENANCE_DEFINITION
+    ).encode("utf-8")
+).hexdigest()
+
+
 def apply_pending_migrations(conn):
     """Apply ordered SQLite migrations once and verify applied definitions."""
     _ensure_schema_migrations_table(conn)
@@ -538,6 +559,13 @@ def apply_pending_migrations(conn):
         checksum=CONTRACT_FALLBACK_CHECKSUM,
         statements=_CONTRACT_FALLBACK_STATEMENTS,
         prepare=_prepare_contract_fallback,
+    )
+    _apply_migration(
+        conn,
+        version=CONTRACT_FALLBACK_PROVENANCE_MIGRATION,
+        checksum=CONTRACT_FALLBACK_PROVENANCE_CHECKSUM,
+        statements=(),
+        prepare=_prepare_contract_fallback_provenance,
     )
 
 
@@ -631,6 +659,13 @@ def _prepare_contract_fallback(conn):
         "source_recognition_job_id",
     ):
         conn.execute(_RECOGNITION_SOURCE_JOB_ALTER_SQL)
+
+
+def _prepare_contract_fallback_provenance(conn):
+    if not _column_exists(conn, "recognition_jobs", "fallback_reason"):
+        conn.execute(_RECOGNITION_FALLBACK_REASON_ALTER_SQL)
+    if not _column_exists(conn, "recognition_jobs", "fallback_note"):
+        conn.execute(_RECOGNITION_FALLBACK_NOTE_ALTER_SQL)
 
 
 def _ensure_schema_migrations_table(conn):

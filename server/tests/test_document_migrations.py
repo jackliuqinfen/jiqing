@@ -8,6 +8,7 @@ from unittest.mock import patch
 from server import audit_api
 from server.migrations import (
     CONTRACT_FALLBACK_MIGRATION,
+    CONTRACT_FALLBACK_PROVENANCE_MIGRATION,
     DOCUMENT_CONFIRMATION_GUARDS_MIGRATION,
     DOCUMENT_EVIDENCE_CHECKSUM,
     DOCUMENT_EVIDENCE_MIGRATION,
@@ -126,6 +127,7 @@ class DocumentMigrationTests(unittest.TestCase):
                 (DOCUMENT_EVIDENCE_MIGRATION, 1),
                 (DOCUMENT_CONFIRMATION_GUARDS_MIGRATION, 1),
                 (CONTRACT_FALLBACK_MIGRATION, 1),
+                (CONTRACT_FALLBACK_PROVENANCE_MIGRATION, 1),
             ],
         )
 
@@ -154,6 +156,8 @@ class DocumentMigrationTests(unittest.TestCase):
             for row in self.conn.execute("PRAGMA table_info(recognition_jobs)")
         }
         self.assertIn("source_recognition_job_id", recognition_columns)
+        self.assertIn("fallback_reason", recognition_columns)
+        self.assertIn("fallback_note", recognition_columns)
 
         indexes = {
             row["name"]

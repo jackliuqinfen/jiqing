@@ -597,6 +597,7 @@ class DocumentApi:
 
     def _create_intake_draft(self):
         data = self._read_json_body()
+        self._require_intake_draft_document_access(data)
         row = project_intake_drafts.create_draft(
             self.conn,
             owner_user_id=self.actor["id"],
@@ -617,6 +618,11 @@ class DocumentApi:
 
     def _save_intake_draft(self, draft_id):
         data = self._read_json_body()
+        self._require_intake_draft_document_access(data)
+        completed_project_id = _optional_text(data, "completedProjectId")
+        if completed_project_id:
+            self._require_existing_project(completed_project_id)
+            self._require_project_access(completed_project_id)
         row = project_intake_drafts.save_draft(
             self.conn,
             draft_id=draft_id,
@@ -626,6 +632,7 @@ class DocumentApi:
             fallback_note=data.get("fallbackNote") if "fallbackNote" in data else None,
             document_id=data.get("documentId") if "documentId" in data else None,
             document_version_id=data.get("documentVersionId") if "documentVersionId" in data else None,
+            completed_project_id=completed_project_id,
         )
         self._log_operation(
             "project_intake_draft_updated",
@@ -635,6 +642,28 @@ class DocumentApi:
         )
         self.conn.commit()
         self._success(200, _map_intake_draft(row))
+
+    def _require_intake_draft_document_access(self, data):
+        if "documentId" not in data and "documentVersionId" not in data:
+            return
+        document_id = _optional_text(data, "documentId")
+        version_id = _optional_text(data, "documentVersionId")
+        if not document_id and not version_id:
+            return
+        if not document_id or not version_id:
+            raise DocumentApiError(
+                422,
+                "document_pair_required",
+                "文档和文档版本必须同时提供。",
+            )
+        source = self.read_repository.version(version_id)
+        if not source or str(source.get("document_id") or "") != document_id:
+            raise DocumentApiError(
+                422,
+                "document_version_mismatch",
+                "文档版本与所选文档不匹配。",
+            )
+        self._require_resource_access(source)
 
     def _abandon_intake_draft(self, draft_id):
         self._read_json_body()
@@ -1232,6 +1261,8 @@ def _map_job(row):
         "adapterKey": row["adapter_key"],
         "schemaVersion": row["schema_version"],
         "sourceRecognitionJobId": row.get("source_recognition_job_id") or "",
+        "fallbackReason": row.get("fallback_reason") or "",
+        "fallbackNote": row.get("fallback_note") or "",
         "attempts": int(row["attempts"]),
         "maxAttempts": int(row["max_attempts"]),
         "blockCount": int(row.get("block_count") or 0),

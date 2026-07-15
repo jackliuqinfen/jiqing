@@ -97,6 +97,9 @@ export interface RecognitionJob {
   status: RecognitionStatus
   adapterKey: string
   schemaVersion: string
+  sourceRecognitionJobId: string
+  fallbackReason: string
+  fallbackNote: string
   attempts: number
   maxAttempts: number
   blockCount: number
@@ -118,6 +121,50 @@ export interface StartRecognitionRequest {
 
 export interface RetryRecognitionRequest {
   idempotencyKey: string
+}
+
+export type ContractDraftValue = string | number | string[] | null
+export type ContractDraftValues = Record<string, ContractDraftValue>
+
+export interface ManualReviewRequest {
+  idempotencyKey: string
+  fallbackReason: string
+  fallbackNote?: string
+  values: ContractDraftValues
+}
+
+export interface ExternalImportRequest {
+  idempotencyKey: string
+  fallbackReason: string
+  fallbackNote?: string
+  markdown: string
+}
+
+export interface ProjectIntakeDraft {
+  id: string
+  ownerUserId: string
+  status: 'draft' | 'document_attached' | 'completed' | 'abandoned'
+  documentId: string
+  documentVersionId: string
+  schemaVersion: 'contract.v1'
+  values: ContractDraftValues
+  fallbackReason: string
+  fallbackNote: string
+  completedProjectId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateProjectIntakeDraftRequest {
+  values: ContractDraftValues
+  fallbackReason: string
+  fallbackNote?: string
+  documentId?: string
+  documentVersionId?: string
+}
+
+export interface SaveProjectIntakeDraftRequest extends Partial<CreateProjectIntakeDraftRequest> {
+  completedProjectId?: string
 }
 
 export interface OcrBlock {
@@ -159,6 +206,7 @@ export interface ExtractedField {
   aiValue: ReviewFieldValue
   confidence: number | null
   validationStatus: ReviewValidationStatus
+  sourceKind: 'ocr' | 'external_ai' | 'manual'
   anchors: EvidenceAnchor[]
   decision: ReviewDecision | null
 }

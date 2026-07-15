@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 
 from server import document_repository
@@ -36,7 +37,11 @@ def parse_external_contract_markdown(markdown):
             "外部 AI 结果只能包含一个 json 代码块。",
         )
     try:
-        payload = json.loads(blocks[0])
+        payload = json.loads(
+            blocks[0],
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        )
     except json.JSONDecodeError as exc:
         raise ContractFallbackError(
             "external_json_invalid", "外部 AI 返回的 JSON 无法解析。"
@@ -70,6 +75,10 @@ def parse_external_contract_markdown(markdown):
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
             raise ContractFallbackError(
                 "external_field_value_invalid", f"合同字段 {semantic_key} 的值类型无效。"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ContractFallbackError(
+                "external_field_value_invalid", f"合同字段 {semantic_key} 包含非法数字。"
             )
         raw_value = str(value).strip()
         if not raw_value:
@@ -229,6 +238,19 @@ def _validate_fallback_request(adapter_key, idempotency_key, fallback_reason):
         raise ContractFallbackError("fallback_reason_required", "请选择转入人工复核的原因。")
 
 
+def _strict_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ContractFallbackError("external_json_duplicate_key", f"外部 AI JSON 包含重复字段：{key}。")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value):
+    raise ContractFallbackError("external_json_non_finite", f"外部 AI JSON 包含非法数字：{value}。")
+
+
 def _create_review_for_version(
     conn,
     *,
@@ -253,6 +275,14 @@ def _create_review_for_version(
         max_attempts=1,
         now=now,
     )
+    existing_reason = str(job.get("fallback_reason") or "")
+    existing_note = str(job.get("fallback_note") or "")
+    if (existing_reason and existing_reason != str(fallback_reason).strip()) or (
+        existing_note and existing_note != str(fallback_note or "").strip()
+    ):
+        raise ContractFallbackError(
+            "fallback_idempotency_conflict", "人工复核幂等键已用于其他降级原因。"
+        )
     existing_source_id = job.get("source_recognition_job_id")
     if existing_source_id and existing_source_id != source_job_id:
         raise ContractFallbackError(
@@ -264,6 +294,17 @@ def _create_review_for_version(
             job_id=job["id"],
             source_recognition_job_id=source_job_id,
             now=now,
+        )
+    job = document_repository.record_fallback_provenance(
+        conn,
+        job_id=job["id"],
+        fallback_reason=str(fallback_reason).strip(),
+        fallback_note=str(fallback_note or "").strip(),
+        now=now,
+    )
+    if not job or job.get("fallback_reason") != str(fallback_reason).strip():
+        raise ContractFallbackError(
+            "fallback_idempotency_conflict", "人工复核幂等键已用于其他降级原因。"
         )
     if job["status"] != "review_ready":
         normalized = normalize_extracted_fields(fields or [], "contract.v1")
@@ -283,8 +324,6 @@ def _create_review_for_version(
         now=now,
     )
     snapshot = recognition_job_snapshot(conn, job["id"])
-    snapshot["fallback_reason"] = str(fallback_reason).strip()
-    snapshot["fallback_note"] = str(fallback_note or "").strip()
     snapshot["actor_id"] = str((actor or {}).get("id") or "")
     snapshot["review_id"] = review["id"]
     return snapshot

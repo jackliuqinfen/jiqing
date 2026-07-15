@@ -169,6 +169,23 @@ class PhaseOneExtractionTests(unittest.TestCase):
             {(item["code"], item["field"]) for item in blockers},
         )
 
+    def test_confirmed_manual_source_does_not_require_a_fake_ocr_anchor(self):
+        fields = normalize_extracted_fields(
+            [{**_field("project.name", "人工录入工程", anchors=False), "source_kind": "manual"}],
+            "contract.v1",
+        )
+
+        blockers = build_review_blockers(
+            "construction_contract",
+            fields,
+            reviewer_decisions={"project.name": {"decision": "accepted"}},
+        )
+
+        self.assertNotIn(
+            ("evidence_anchor_missing", "project.name"),
+            {(item["code"], item["field"]) for item in blockers},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
