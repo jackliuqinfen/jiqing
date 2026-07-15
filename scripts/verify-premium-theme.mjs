@@ -117,6 +117,10 @@ for (const selector of [
   assertRule(selector, /box-shadow:\s*0 0 0 3px rgba\(22,\s*93,\s*255,\s*0\.16\),\s*var\(--premium-shadow-card\)\s*!important;/, `${selector} must retain a visible keyboard focus ring`)
   assertRule(selector, /transform:\s*none\s*!important;/, `${selector} must stay stationary while focused`)
 }
+assert.ok(
+  css.lastIndexOf('.summary-card:focus-visible') > css.lastIndexOf('.summary-card.summary-card--active'),
+  'summary focus override must follow the active-state rule so active cards retain the focus ring',
+)
 
 assertRule('.sidebar-resizer::after', /background:\s*transparent\s*!important;/, 'sidebar resizer must be transparent at rest')
 assertRule('.sidebar-resizer::after', /opacity:\s*0\s*!important;/, 'sidebar resizer must be invisible at rest')
