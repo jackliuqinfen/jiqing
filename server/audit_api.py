@@ -126,6 +126,36 @@ FORBIDDEN_ATTACHMENT_SUFFIXES = (
 TEXT_PREVIEW_SUFFIXES = {".txt", ".csv", ".json", ".log", ".md", ".xml", ".yml", ".yaml"}
 INLINE_PREVIEW_PREFIXES = ("image/", "audio/", "video/")
 INLINE_PREVIEW_TYPES = {"application/pdf"}
+MAX_WORKSPACE_BACKGROUND_BYTES = 2 * 1024 * 1024
+WORKSPACE_BACKGROUND_DATA_URL_RE = re.compile(
+    r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$",
+    re.IGNORECASE,
+)
+
+
+def normalize_workspace_background_image(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    match = WORKSPACE_BACKGROUND_DATA_URL_RE.fullmatch(raw)
+    if not match:
+        raise ValueError("工作台背景仅支持 PNG、JPG 或 WebP 图片")
+    try:
+        content = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError("工作台背景文件内容无法识别，请重新选择图片") from exc
+    if len(content) > MAX_WORKSPACE_BACKGROUND_BYTES:
+        raise ValueError("工作台背景不能超过 2 MB")
+
+    mime_type = match.group(1).lower()
+    signatures_valid = {
+        "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+        "image/webp": len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP",
+    }
+    if not signatures_valid[mime_type]:
+        raise ValueError("工作台背景文件内容与图片格式不一致，请重新选择图片")
+    return raw
 
 
 def is_production():
@@ -1290,7 +1320,7 @@ def seed_system_settings(conn):
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
         ("upload_settings", {"maxFileSizeMb": DEFAULT_MAX_UPLOAD_SIZE_MB}, "system", "文件上传设置"),
         ("sidebar_nav_order", {"order": ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]}, "system", "侧边栏模块顺序"),
-        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color", "workspaceBackgroundImage": ""}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
         conn.execute(
@@ -4022,6 +4052,7 @@ class Handler(BaseHTTPRequestHandler):
             value["themePackage"] = ""
         if value.get("sidebarLogoVariant") not in {"color", "white", "black"}:
             value["sidebarLogoVariant"] = "color"
+        value["workspaceBackgroundImage"] = value.get("workspaceBackgroundImage") or ""
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
         self.respond(200, {"success": True, "data": {**value, "theme": self.theme_payload(row) if row else None}})
 
@@ -4047,6 +4078,11 @@ class Handler(BaseHTTPRequestHandler):
         if sidebar_logo_variant not in {"color", "white", "black"}:
             self.respond(400, {"success": False, "error": "侧边栏 LOGO 色彩选择不正确，请重新选择后保存。"})
             return
+        try:
+            workspace_background_image = normalize_workspace_background_image(data.get("workspaceBackgroundImage"))
+        except ValueError as exc:
+            self.respond(400, {"success": False, "error": str(exc)})
+            return
         value = {
             "themeKey": theme_key,
             "darkMode": bool(data.get("darkMode")),
@@ -4055,6 +4091,7 @@ class Handler(BaseHTTPRequestHandler):
             "brandColor": brand_color,
             "themePackage": theme_package,
             "sidebarLogoVariant": sidebar_logo_variant,
+            "workspaceBackgroundImage": workspace_background_image,
         }
         ts = now_iso()
         conn.execute(
@@ -4075,7 +4112,7 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
-        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"})
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color", "workspaceBackgroundImage": ""})
 
     def theme_payload(self, row):
         if not row:

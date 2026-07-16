@@ -74,6 +74,42 @@
           </button>
         </div>
       </div>
+      <div class="workspace-background-panel">
+        <div>
+          <span class="field-label">工作台背景</span>
+          <strong>{{ hasCustomWorkspaceBackground ? '自定义背景' : '系统默认背景' }}</strong>
+          <em>仅影响登录后的工程管理工作台。支持 PNG、JPG、WebP，图片不能超过 2 MB。</em>
+        </div>
+        <div class="workspace-background-editor">
+          <div
+            class="workspace-background-preview"
+            :style="workspaceBackgroundPreviewStyle"
+            role="img"
+            aria-label="当前工作台背景预览"
+          >
+            <span>{{ hasCustomWorkspaceBackground ? '自定义' : '默认' }}</span>
+          </div>
+          <div class="workspace-background-actions">
+            <input
+              ref="workspaceBackgroundInput"
+              class="workspace-background-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              :disabled="savingTheme"
+              @change="handleWorkspaceBackgroundFile"
+            />
+            <AButton size="small" theme="primary" :loading="savingTheme" @click="chooseWorkspaceBackground">更换背景</AButton>
+            <AButton
+              size="small"
+              variant="outline"
+              :disabled="savingTheme || !hasCustomWorkspaceBackground"
+              @click="restoreDefaultWorkspaceBackground"
+            >
+              恢复默认背景
+            </AButton>
+          </div>
+        </div>
+      </div>
       <div class="theme-package-panel">
         <div>
           <span class="field-label">主题商店样式</span>
@@ -280,7 +316,12 @@ import {
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
-import { applyTheme, loadArcoThemePackage, normalizeArcoThemePackage } from '@/ui/theme'
+import {
+  applyTheme,
+  loadArcoThemePackage,
+  normalizeArcoThemePackage,
+  workspaceBackgroundCssValue,
+} from '@/ui/theme'
 import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting, UploadSetting } from '@/types'
 import PageHeader from '@/components/PageHeader.vue'
 
@@ -290,6 +331,7 @@ const savingReg = ref(false)
 const savingLogin = ref(false)
 const savingTheme = ref(false)
 const savingUpload = ref(false)
+const workspaceBackgroundInput = ref<HTMLInputElement | null>(null)
 const themeOptions = ref<ThemeOption[]>([])
 const themePackageInput = ref('')
 const brandFollowDialogVisible = ref(false)
@@ -310,7 +352,13 @@ const themeSettings = reactive<ThemeSetting>({
   brandColor: '#165DFF',
   themePackage: '',
   sidebarLogoVariant: 'color',
+  workspaceBackgroundImage: '',
 })
+
+const hasCustomWorkspaceBackground = computed(() => Boolean(themeSettings.workspaceBackgroundImage))
+const workspaceBackgroundPreviewStyle = computed(() => ({
+  backgroundImage: workspaceBackgroundCssValue(themeSettings.workspaceBackgroundImage),
+}))
 
 const applyScopeOptions = [
   { label: '全局', value: 'global' },
@@ -468,6 +516,7 @@ onMounted(async () => {
       brandColor: currentTheme.brandColor || '#165DFF',
       themePackage: currentTheme.themePackage || '',
       sidebarLogoVariant: currentTheme.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: currentTheme.workspaceBackgroundImage || '',
     })
     themePackageInput.value = currentTheme.themePackage || ''
     applyTheme(currentTheme)
@@ -497,6 +546,64 @@ async function selectSidebarLogoVariant(variant: ThemeSetting['sidebarLogoVarian
   await saveTheme()
 }
 
+function chooseWorkspaceBackground() {
+  workspaceBackgroundInput.value?.click()
+}
+
+function readWorkspaceBackground(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('背景图片读取失败，请重新选择。'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handleWorkspaceBackgroundFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    MessagePlugin.warning('工作台背景仅支持 PNG、JPG 或 WebP 图片')
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    MessagePlugin.warning('工作台背景不能超过 2 MB')
+    return
+  }
+  try {
+    const dataUrl = await readWorkspaceBackground(file)
+    await saveWorkspaceBackground(dataUrl, '工作台背景已更新')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '背景图片读取失败，请重新选择。')
+  }
+}
+
+async function restoreDefaultWorkspaceBackground() {
+  await saveWorkspaceBackground('', '已恢复系统默认背景')
+}
+
+async function saveWorkspaceBackground(value: string, successMessage: string) {
+  const previous = themeSettings.workspaceBackgroundImage || ''
+  savingTheme.value = true
+  try {
+    const next = await updateCurrentTheme({
+      ...themeSettings,
+      brandColor: normalizedBrandColor.value,
+      workspaceBackgroundImage: value,
+    })
+    themeSettings.workspaceBackgroundImage = next.workspaceBackgroundImage || ''
+    applyTheme(next)
+    MessagePlugin.success(successMessage)
+  } catch (err) {
+    themeSettings.workspaceBackgroundImage = previous
+    MessagePlugin.error(err instanceof Error ? err.message : '工作台背景保存失败，请稍后重试。')
+  } finally {
+    savingTheme.value = false
+  }
+}
+
 async function saveTheme() {
   if (brandColorError.value) {
     MessagePlugin.warning(brandColorError.value)
@@ -513,6 +620,7 @@ async function saveTheme() {
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: next.themePackage || '',
       sidebarLogoVariant: next.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: next.workspaceBackgroundImage || '',
     })
     themePackageInput.value = next.themePackage || ''
     applyTheme(next)
@@ -536,6 +644,7 @@ async function resetTheme() {
       brandColor: next.brandColor || '#165DFF',
       themePackage: next.themePackage || '',
       sidebarLogoVariant: next.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: next.workspaceBackgroundImage || '',
     })
     themePackageInput.value = next.themePackage || ''
     applyTheme(next)
@@ -573,6 +682,7 @@ async function applyThemePackage() {
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: next.themePackage || nextPackage,
       sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: next.workspaceBackgroundImage || '',
     })
     themePackageInput.value = next.themePackage || nextPackage
     pendingThemePackage.value = next.themePackage || nextPackage
@@ -621,6 +731,7 @@ async function confirmFollowThemeBrandColor() {
       brandColor: next.brandColor || pendingThemeBrandColor.value,
       themePackage: next.themePackage || pendingThemePackage.value,
       sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: next.workspaceBackgroundImage || '',
     })
     applyTheme(next)
     brandFollowDialogVisible.value = false
@@ -650,6 +761,7 @@ async function clearThemePackage() {
       brandColor: next.brandColor || normalizedBrandColor.value,
       themePackage: '',
       sidebarLogoVariant: next.sidebarLogoVariant || themeSettings.sidebarLogoVariant || 'color',
+      workspaceBackgroundImage: next.workspaceBackgroundImage || '',
     })
     themePackageInput.value = ''
     applyTheme(next)
@@ -721,6 +833,7 @@ async function saveUploadSettings() {
 }
 .brand-color-panel,
 .logo-color-panel,
+.workspace-background-panel,
 .theme-package-panel {
   display: grid;
   grid-template-columns: minmax(220px, .75fr) minmax(360px, 1.25fr);
@@ -733,6 +846,7 @@ async function saveUploadSettings() {
 }
 .brand-color-panel strong,
 .logo-color-panel strong,
+.workspace-background-panel strong,
 .theme-package-panel strong {
   display: block;
   margin: 2px 0;
@@ -741,11 +855,51 @@ async function saveUploadSettings() {
 }
 .brand-color-panel em,
 .logo-color-panel em,
+.workspace-background-panel em,
 .theme-package-panel em {
   display: block;
   color: var(--text-secondary);
   font-size: var(--text-xs);
   font-style: normal;
+}
+.workspace-background-editor {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+.workspace-background-preview {
+  position: relative;
+  min-height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-muted);
+  background-position: center top;
+  background-size: cover;
+  background-repeat: no-repeat;
+  box-shadow: var(--shadow-sm);
+}
+.workspace-background-preview span {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(255, 255, 255, .84);
+  font-size: var(--text-xs);
+  backdrop-filter: blur(8px);
+}
+.workspace-background-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.workspace-background-input {
+  display: none;
 }
 .brand-color-controls {
   display: grid;
@@ -1113,6 +1267,7 @@ async function saveUploadSettings() {
   .theme-current { align-items: flex-start; flex-direction: column; }
   .brand-color-panel,
   .logo-color-panel,
+  .workspace-background-panel,
   .theme-package-panel,
   .theme-scope-panel,
   .theme-preview-board { grid-template-columns: 1fr; }
@@ -1120,10 +1275,10 @@ async function saveUploadSettings() {
   .brand-color-controls :deep(.arco-btn) { grid-column: 1 / -1; }
   .theme-package-controls { grid-template-columns: 1fr; }
   .logo-color-switch { grid-template-columns: 1fr; }
+  .workspace-background-editor { grid-template-columns: 1fr; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .theme-preview-card { padding: var(--space-3); }
   .theme-facts { grid-template-columns: 1fr; }
 }
 </style>
-

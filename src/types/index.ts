@@ -313,6 +313,7 @@ export interface ThemeSetting {
   brandColor?: string
   themePackage?: string
   sidebarLogoVariant?: 'color' | 'white' | 'black'
+  workspaceBackgroundImage?: string
 }
 
 export interface UploadSetting {

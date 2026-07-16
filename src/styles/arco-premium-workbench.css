@@ -11,6 +11,7 @@
  */
 
 :root {
+  --workspace-background-image: url('../assets/workspace-background.png');
   --workspace-bg-top: #eaf4ff;
   --workspace-bg-mid: #f4f8fd;
   --workspace-bg-bottom: #ffffff;
@@ -72,21 +73,16 @@ body::before,
   position: relative;
   isolation: isolate;
   grid-template-rows: var(--premium-header-height) minmax(0, 1fr) !important;
-  background: var(--premium-page-gradient) fixed !important;
+  background-color: var(--premium-page-bg) !important;
+  background-image: var(--workspace-background-image), var(--premium-page-gradient) !important;
+  background-position: center top, center top !important;
+  background-size: cover, cover !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-attachment: fixed, fixed !important;
 }
 
 .system-shell::before {
-  content: '';
-  position: fixed;
-  z-index: -1;
-  inset: var(--premium-header-height) 0 auto 0;
-  height: 360px;
-  pointer-events: none;
-  background:
-    linear-gradient(105deg, rgba(255, 255, 255, 0.3), rgba(184, 221, 255, 0.12)),
-    repeating-linear-gradient(126deg, var(--workspace-grid) 0 1px, transparent 1px 13px);
-  mask-image: linear-gradient(180deg, #000 0, rgba(0, 0, 0, 0.62) 62%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, #000 0, rgba(0, 0, 0, 0.62) 62%, transparent 100%);
+  content: none;
 }
 
 .system-main,
