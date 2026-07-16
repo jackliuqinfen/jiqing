@@ -59,58 +59,40 @@
     </header>
 
     <aside v-if="sidebarMode !== 'hidden'" class="system-sidebar">
-      <div class="system-brand" aria-label="当前模块">
-        <span class="brand-copy">
-          <span class="brand-kicker">当前模块</span>
-          <strong>{{ activeModule?.label || '工作台' }}</strong>
-          <em>{{ activeModuleDescription }}</em>
-        </span>
-      </div>
-
       <nav class="module-nav" aria-label="当前模块业务功能">
-        <p class="nav-section-title">业务功能</p>
-        <router-link
-          v-for="item in currentSideNav"
-          :key="item.key"
-          :to="sideNavTarget(item)"
-          class="module-link"
-          :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
-          :aria-current="isSideNavActive(item) ? 'page' : undefined"
-          :title="item.description || item.label"
-          @click="handleSideNavClick(item, $event)"
-        >
-          <span class="module-link__icon"><AIcon :name="item.icon" /></span>
-          <span>{{ item.label }}</span>
-          <small v-if="item.badge">{{ item.badge }}</small>
-        </router-link>
+        <div class="sidebar-module-heading" :title="activeModule?.label || '工作台'">
+          <span class="sidebar-module-heading__icon"><AIcon :name="activeModule?.icon || 'dashboard'" /></span>
+          <strong>{{ activeModule?.label || '工作台' }}</strong>
+          <span class="sidebar-module-caret" aria-hidden="true" />
+        </div>
+        <div class="sidebar-module-items">
+          <router-link
+            v-for="item in currentSideNav"
+            :key="item.key"
+            :to="sideNavTarget(item)"
+            class="module-link"
+            :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
+            :aria-current="isSideNavActive(item) ? 'page' : undefined"
+            :title="item.description || item.label"
+            @click="handleSideNavClick(item, $event)"
+          >
+            <span class="module-link__icon"><AIcon :name="item.icon" /></span>
+            <span>{{ item.label }}</span>
+            <small v-if="item.badge">{{ item.badge }}</small>
+          </router-link>
+        </div>
       </nav>
 
       <div class="sidebar-foot">
-        <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
-          <button type="button" :class="{ active: sidebarMode === 'full' }" title="展开侧边栏" @click="setSidebarMode('full')">
-            <AIcon name="list" />
-            <span>展开</span>
-          </button>
-          <button type="button" :class="{ active: sidebarMode === 'icon' }" title="折叠为图标栏" @click="setSidebarMode('icon')">
-            <AIcon name="view-module" />
-            <span>窄栏</span>
-          </button>
-          <button type="button" title="完全收起侧边栏" @click="setSidebarMode('hidden')">
-            <AIcon name="eye-invisible" />
-            <span>隐藏</span>
-          </button>
-        </div>
-        <div class="sidebar-actions">
-          <button type="button" class="sidebar-action" @click="router.push(activeModule?.path || '/')">
-            <AIcon name="dashboard" />
-            <span>模块首页</span>
-          </button>
-        </div>
-        <div class="system-status">
-          <span />
-          <strong>系统可用</strong>
-          <em>数据已同步</em>
-        </div>
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :title="sidebarMode === 'full' ? '收起侧边栏' : '展开侧边栏'"
+          @click="toggleSidebarMode"
+        >
+          <AIcon :name="sidebarMode === 'full' ? 'menu-fold' : 'menu-unfold'" />
+          <span>{{ sidebarMode === 'full' ? '收起' : '展开' }}</span>
+        </button>
       </div>
       <button
         type="button"
@@ -197,15 +179,10 @@ const activeModule = computed(() => {
   if (route.path.startsWith('/admin')) return adminModule
   return orderedMainNav.value.find((item) => isTopNavActive(item.path)) || orderedMainNav.value[0]
 })
-const activeModuleDescription = computed(() => {
-  const key = activeModule.value?.path || '/'
-  return moduleDescriptions[key] || '按当前模块聚合业务功能'
-})
 const currentSideNav = computed(() => {
   const key = activeModule.value?.path || '/'
   return sideNavMap[key] || sideNavMap['/']
 })
-const activeSideNav = computed(() => currentSideNav.value.find((item) => isSideNavActive(item)))
 const activeSideNavKey = computed(() => {
   const withQuery = currentSideNav.value.find((item) => !item.disabled && item.query && matchesSideNavQuery(item))
   if (withQuery) return withQuery.key
@@ -219,15 +196,6 @@ const activeSideNavKey = computed(() => {
 })
 
 const adminModule: NavItem = { key: 'admin', path: '/admin/field-configs', label: '后台设置', icon: 'setting', badge: '管理', status: 'enabled' }
-const moduleDescriptions: Record<string, string> = {
-  '/': '经营数据、待办与跨模块总览',
-  '/project-management': '项目主数据、流程与台账',
-  '/materials': '项目资料、证据与归档',
-  '/audit': '审计流程、阶段与附件',
-  '/bidding': '机会、开标与报价分析',
-  '/finance': '结算、发票与收付款',
-  '/admin/field-configs': '字段、选项、用户与系统规则',
-}
 const sideNavMap: Record<string, NavItem[]> = {
   '/': [
     { key: 'home-overview', path: '/', label: '数据总览', icon: 'dashboard', description: '查看系统核心指标和待办提醒' },
@@ -323,6 +291,10 @@ function handleSideNavClick(item: NavItem, event: MouseEvent) {
 function setSidebarMode(mode: SidebarMode) {
   sidebarMode.value = mode
   if (mode === 'full' && sidebarWidth.value < 216) sidebarWidth.value = 240
+}
+
+function toggleSidebarMode() {
+  setSidebarMode(sidebarMode.value === 'full' ? 'icon' : 'full')
 }
 
 onMounted(async () => {
@@ -693,11 +665,11 @@ async function logout() {
   position: relative;
   min-height: calc(100vh - 58px);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: 14px;
-  padding: 18px 12px 14px;
-  background: rgba(249, 252, 255, 0.42);
-  border-right: 1px solid rgba(128, 158, 210, 0.14);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 10px 14px;
+  background: linear-gradient(180deg, rgba(235, 244, 255, 0.94) 0%, rgba(248, 251, 255, 0.98) 52%, #fff 100%);
+  border-right: 0;
   color: var(--text-primary);
   min-width: 0;
 }
@@ -721,129 +693,9 @@ async function logout() {
   font: inherit;
 }
 
-.system-brand {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: auto;
-  padding: 2px 10px 14px;
-  color: var(--text-primary);
-  text-decoration: none;
-  border-bottom: 1px solid rgba(128, 158, 210, 0.14);
-}
-
-.brand-icon {
-  width: 204px;
-  height: 124px;
-  display: grid;
-  align-items: center;
-  justify-items: start;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  overflow: visible;
-}
-
-.brand-icon img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon img) {
-  filter: brightness(0) invert(1);
-}
-
-:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon) {
-  padding: var(--space-3);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-500));
-}
-
-:global(html[data-sidebar-logo='black'] .system-sidebar .brand-icon img) {
-  filter: brightness(0) saturate(100%);
-}
-
-.system-brand strong,
-.system-brand em {
-  display: block;
-  font-style: normal;
-  line-height: 1.25;
-}
-
-.brand-copy { display: grid; gap: 5px; padding-left: 1px; }
-.brand-kicker {
-  color: #7c8ba5;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .08em;
-}
-.system-brand strong { color: #102040; font-size: 18px; font-weight: 800; }
-.system-brand em { color: #6c7a92; font-size: 12px; line-height: 1.45; }
-
 .system-shell--icon .system-sidebar {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-2);
-}
-
-.system-shell--icon .system-brand {
-  min-height: 18px;
-  justify-items: center;
-  padding: 4px 0 10px;
-}
-
-.system-shell--icon .brand-icon {
-  width: 52px;
-  height: 40px;
-  justify-items: center;
-}
-
-.system-shell--icon .brand-copy,
-.system-shell--icon .module-link span,
-.system-shell--icon .module-link small,
-.system-shell--icon .nav-group p,
-.system-shell--icon .route-sense,
-.system-shell--icon .sidebar-context-card,
-.system-shell--icon .sidebar-action span,
-.system-shell--icon .sidebar-collapse-actions span,
-.system-shell--icon .system-status strong,
-.system-shell--icon .system-status em {
-  display: none;
-}
-
-.system-shell--icon .module-link,
-.system-shell--icon .sidebar-action,
-.system-shell--icon .sidebar-collapse-actions button {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.system-shell--icon .system-status {
-  grid-template-columns: 1fr;
-  justify-items: center;
-  padding: var(--space-2);
-}
-
-.system-shell--icon .sidebar-foot {
-  gap: 6px;
-}
-
-.system-shell--icon .sidebar-collapse-actions {
-  grid-template-columns: 1fr;
-}
-
-.system-shell--icon .sidebar-collapse-actions button,
-.system-shell--icon .sidebar-action {
-  width: 100%;
-  height: 34px;
-}
-
-.system-shell--icon .system-status span {
-  grid-row: auto;
 }
 
 .module-nav,
@@ -856,7 +708,46 @@ async function logout() {
   align-self: start;
   min-height: 0;
   overflow: auto;
-  padding: 2px 0;
+  padding: 0;
+}
+
+.sidebar-module-heading {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--color-brand-500);
+}
+
+.sidebar-module-heading__icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.sidebar-module-heading strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-module-caret {
+  width: 8px;
+  height: 8px;
+  justify-self: center;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+}
+
+.sidebar-module-items {
+  display: grid;
+  gap: 4px;
 }
 
 .nav-section-title {
@@ -891,9 +782,9 @@ async function logout() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px 0 34px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -906,26 +797,19 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(22, 93, 255, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+  border-color: transparent;
   color: #0f43d6;
 }
 
 .module-link--active {
-  background: rgba(255, 255, 255, 0.88);
-  font-weight: 600;
-  box-shadow: 0 8px 18px rgba(61, 105, 185, 0.06);
+  background: #fff;
+  font-weight: 700;
+  box-shadow: none;
 }
 
 .module-link--active::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #165dff, #14c9c9);
+  content: none;
 }
 
 .module-link :deep(.arco-icon) { flex: 0 0 auto; }
@@ -936,15 +820,15 @@ async function logout() {
   flex: 0 0 24px !important;
   display: inline-grid;
   place-items: center;
-  color: #6f7f98;
-  background: rgba(239, 245, 255, .7);
+  color: #8b96a8;
+  background: transparent;
   border-radius: 8px;
 }
 
 .module-link--active .module-link__icon,
 .module-link:hover .module-link__icon {
   color: #165dff;
-  background: rgba(22, 93, 255, .08);
+  background: transparent;
 }
 
 .module-link small {
@@ -1063,93 +947,63 @@ async function logout() {
 }
 
 .sidebar-foot {
-  display: grid;
-  gap: var(--space-2);
+  display: flex;
+  justify-content: flex-end;
   align-self: end;
   min-width: 0;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-color);
+  padding: 8px 2px 0;
+  border-top: 0;
 }
 
-.sidebar-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.sidebar-collapse-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  min-width: 0;
-}
-
-.sidebar-collapse-actions button {
-  min-width: 0;
+.sidebar-collapse-toggle {
+  min-width: 62px;
   height: 34px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 6px;
-  color: var(--text-tertiary);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(128, 158, 210, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(31, 64, 108, 0.04);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.sidebar-collapse-actions button:hover,
-.sidebar-collapse-actions button.active {
+.sidebar-collapse-toggle:hover {
   color: var(--color-brand-500);
-  border-color: var(--color-brand-200);
-  background: var(--bg-hover);
+  background: #fff;
 }
 
-.sidebar-action {
-  height: 34px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3);
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font: inherit;
-  text-decoration: none;
+.system-shell--icon .sidebar-module-heading {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 0;
 }
 
-.sidebar-action:hover {
-  color: var(--color-brand-500);
-  border-color: var(--color-brand-200);
-  background: var(--bg-hover);
+.system-shell--icon .sidebar-module-heading strong,
+.system-shell--icon .sidebar-module-caret,
+.system-shell--icon .sidebar-collapse-toggle span {
+  display: none;
 }
 
-.system-status {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 8px;
-  align-items: center;
-  padding: 10px var(--space-3);
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+.system-shell--icon .module-link {
+  justify-content: center;
+  padding-inline: 0;
 }
 
-.system-status span {
-  width: 8px;
-  height: 8px;
-  grid-row: span 2;
-  background: var(--color-success);
-  border-radius: 2px;
+.system-shell--icon .sidebar-foot {
+  justify-content: center;
 }
 
-.system-status strong { font-size: var(--text-xs); font-weight: 600; }
-.system-status em { font-size: 10px; font-style: normal; color: var(--text-tertiary); }
+.system-shell--icon .sidebar-collapse-toggle {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
 
 .sidebar-resizer {
   position: absolute;
@@ -1248,21 +1102,18 @@ async function logout() {
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
-  .system-brand .brand-copy,
+  .sidebar-module-heading strong,
+  .sidebar-module-caret,
   .module-link span,
   .module-link small,
   .nav-group p,
   .route-sense,
   .sidebar-context-card,
-  .sidebar-action span,
-  .system-status strong,
-  .system-status em { display: none; }
-  .brand-icon {
-    width: 52px;
-    height: 39px;
-    justify-items: center;
-  }
+  .sidebar-collapse-toggle span { display: none; }
+  .sidebar-module-heading { grid-template-columns: 1fr; justify-items: center; padding: 0; }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
+  .sidebar-foot { justify-content: center; }
+  .sidebar-collapse-toggle { width: 40px; min-width: 40px; padding: 0; }
   .system-content { padding: var(--space-3); }
 }
 
@@ -1297,9 +1148,6 @@ async function logout() {
     gap: var(--space-3);
     padding: var(--space-3);
   }
-  .system-brand { display: none; }
-  .system-brand strong { font-size: var(--text-md); }
-  .system-brand em { font-size: 11px; }
   .module-nav {
     grid-column: 1 / -1;
     display: flex;
@@ -1308,6 +1156,8 @@ async function logout() {
     padding-bottom: 2px;
     scrollbar-width: none;
   }
+  .sidebar-module-heading { display: none; }
+  .sidebar-module-items { display: flex; gap: var(--space-2); }
   .module-nav::-webkit-scrollbar { display: none; }
   .module-link {
     flex: 0 0 auto;

@@ -37,6 +37,23 @@ assert.match(css, /\.arco-table[\s\S]*background:\s*#fff/)
 assert.match(css, /\.arco-modal[\s\S]*background:\s*#fff/)
 assert.match(layout, /aria-label="平台级模块"/)
 assert.match(layout, /aria-label="当前模块业务功能"/)
+assert.match(layout, /class="sidebar-module-heading"/)
+assert.match(layout, /class="sidebar-collapse-toggle"/)
+assert.doesNotMatch(layout, /class="system-brand"/)
+assert.doesNotMatch(layout, /class="sidebar-collapse-actions"/)
+assert.doesNotMatch(layout, /class="sidebar-action"/)
+assert.doesNotMatch(layout, /class="system-status"/)
+
+assertRule(
+  '.system-sidebar',
+  /background:\s*linear-gradient\(180deg,\s*rgba\(235,\s*244,\s*255,\s*0\.94\)\s*0%,\s*rgba\(248,\s*251,\s*255,\s*0\.98\)\s*52%,\s*#fff\s*100%\)\s*!important;/,
+  'sidebar must use the approved quiet blue-to-white background',
+)
+assertRule('.system-sidebar', /border-right:\s*0\s*!important;/, 'sidebar must not render a boxed divider')
+assertRule('.module-link--active', /background:\s*#fff\s*!important;/, 'active secondary navigation must use a white surface')
+assertRule('.module-link--active', /border-color:\s*transparent\s*!important;/, 'active secondary navigation must remain borderless')
+assertRule('.module-link--active', /box-shadow:\s*none\s*!important;/, 'active secondary navigation must remain flat')
+assertRule('.sidebar-collapse-toggle', /background:\s*rgba\(255,\s*255,\s*255,\s*0\.9\)\s*!important;/, 'collapse control must use the quiet floating treatment')
 
 assertRule(
   '.audit-main .toolbar',
