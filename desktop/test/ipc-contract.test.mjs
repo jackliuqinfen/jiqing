@@ -100,6 +100,53 @@ test('logout-equivalent session clear removes project scope but keeps local root
   assert.deepEqual(state.selectedProjectRefs, [])
 })
 
+test('controller delegates validated sessions and folder state to one sync engine', async () => {
+  const calls = []
+  const completed = {
+    status: 'completed',
+    localRoot: 'C:\\ERP Files',
+    selectedProjectRefs: ['project:p-1', 'audit:a-2'],
+    completedFiles: 1,
+    totalFiles: 1,
+    failedFiles: 0,
+    bytesDownloaded: 8,
+    lastSuccessAt: '2026-07-27T10:05:00.000Z',
+    message: '服务器资料已同步到本地',
+  }
+  const engine = {
+    getState: () => completed,
+    hasActiveSession: () => false,
+    setLocalRoot(path) {
+      calls.push(['root', path])
+      return { ...completed, localRoot: path }
+    },
+    async start(request) {
+      calls.push(['start', request])
+      return completed
+    },
+    pause() {
+      calls.push(['pause'])
+      return { ...completed, status: 'paused' }
+    },
+    clearSession() {
+      calls.push(['clear'])
+    },
+  }
+  const controller = createDesktopIpcController({ syncEngine: engine })
+
+  controller.setLocalRoot('C:\\ERP Files')
+  assert.deepEqual(await controller.start(validStartRequest()), completed)
+  controller.pause()
+  controller.clearSession()
+
+  assert.deepEqual(calls, [
+    ['root', 'C:\\ERP Files'],
+    ['start', validStartRequest()],
+    ['pause'],
+    ['clear'],
+  ])
+})
+
 function createIpcHarness() {
   const handlers = new Map()
   return {
@@ -205,4 +252,49 @@ test('folder handlers use only the selected in-memory root', async () => {
   )
   await harness.handlers.get(DESKTOP_IPC_CHANNELS.openSyncFolder)(event)
   assert.deepEqual(opened, ['C:\\ERP Files'])
+})
+
+test('async synchronization emits only the resolved serializable state', async () => {
+  const harness = createIpcHarness()
+  const emitted = []
+  const completed = {
+    status: 'completed',
+    localRoot: 'C:\\ERP Files',
+    selectedProjectRefs: ['project:p-1', 'audit:a-2'],
+    completedFiles: 1,
+    totalFiles: 1,
+    failedFiles: 0,
+    bytesDownloaded: 8,
+    lastSuccessAt: '2026-07-27T10:05:00.000Z',
+    message: '服务器资料已同步到本地',
+  }
+  registerDesktopIpcHandlers({
+    ipcMain: harness.ipcMain,
+    allowedOrigin: TRUSTED_ORIGIN,
+    appVersion: '1.0.0',
+    releaseChannel: 'development',
+    controller: {
+      getState: () => completed,
+      async start() {
+        await Promise.resolve()
+        return completed
+      },
+      pause: () => ({ ...completed, status: 'paused' }),
+      setLocalRoot: () => completed,
+    },
+    async selectFolder() {
+      return ''
+    },
+    async openFolder() {},
+    emitState: (state) => emitted.push(state),
+  })
+  const event = { senderFrame: { url: `${TRUSTED_ORIGIN}/#/materials` } }
+
+  const returned = await harness.handlers.get(
+    DESKTOP_IPC_CHANNELS.startSync
+  )(event, validStartRequest())
+
+  assert.deepEqual(returned, completed)
+  assert.deepEqual(emitted, [completed])
+  assert.equal(emitted[0] instanceof Promise, false)
 })

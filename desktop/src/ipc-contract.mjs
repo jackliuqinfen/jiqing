@@ -96,7 +96,33 @@ function publicState(state) {
   })
 }
 
-export function createDesktopIpcController() {
+export function createDesktopIpcController({ syncEngine = null } = {}) {
+  if (syncEngine) {
+    return Object.freeze({
+      getState() {
+        return syncEngine.getState()
+      },
+      hasActiveSession() {
+        return syncEngine.hasActiveSession()
+      },
+      setLocalRoot(localRoot) {
+        if (!isBoundedNonBlankString(localRoot, 32767)) {
+          throw new Error('invalid local sync root')
+        }
+        return syncEngine.setLocalRoot(localRoot)
+      },
+      start(value) {
+        return syncEngine.start(validateSyncStartRequest(value))
+      },
+      pause() {
+        return syncEngine.pause()
+      },
+      clearSession() {
+        syncEngine.clearSession()
+      },
+    })
+  }
+
   let privateSession = null
   let state = createInitialState()
 
@@ -217,11 +243,11 @@ export function registerDesktopIpcHandlers({
   })
   handle(DESKTOP_IPC_CHANNELS.startSync, async (args) => {
     const request = assertOneArgument(args)
-    return emit(controller.start(request))
+    return emit(await controller.start(request))
   })
   handle(DESKTOP_IPC_CHANNELS.pauseSync, async (args) => {
     assertNoArguments(args)
-    return emit(controller.pause())
+    return emit(await controller.pause())
   })
   handle(DESKTOP_IPC_CHANNELS.openSyncFolder, async (args) => {
     assertNoArguments(args)

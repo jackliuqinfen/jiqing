@@ -10,6 +10,10 @@ const main = readFileSync(
 test('main process registers the bounded desktop IPC controller', () => {
   assert.match(main, /registerDesktopIpcHandlers/)
   assert.match(main, /createDesktopIpcController/)
+  assert.match(main, /new SyncEngine/)
+  assert.match(main, /new DesktopApiClient/)
+  assert.match(main, /fetchImpl:\s*net\.fetch/)
+  assert.match(main, /app\.getPath\(['"]userData['"]\)/)
   assert.match(main, /app\.getVersion\(\)/)
   assert.match(main, /config\.releaseChannel/)
 })

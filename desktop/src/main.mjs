@@ -35,12 +35,14 @@ import {
   isReviewedExternalUrl,
   normalizeWindowBounds,
 } from './security.mjs'
+import { DesktopApiClient } from './sync/api-client.mjs'
+import { SyncEngine } from './sync/sync-engine.mjs'
 
 const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
 const config = loadDesktopConfig(process.env)
 const sessionPartition = 'desktop-erp-memory'
-const desktopIpcController = createDesktopIpcController()
+let desktopIpcController = null
 let mainWindow = null
 let desktopIpcRegistered = false
 
@@ -133,6 +135,9 @@ function emitDesktopSyncState(state) {
 
 function registerDesktopBridge() {
   if (desktopIpcRegistered) return
+  if (!desktopIpcController) {
+    throw new Error('desktop synchronization engine is not ready')
+  }
   registerDesktopIpcHandlers({
     ipcMain,
     allowedOrigin: config.origin,
@@ -158,7 +163,9 @@ function protectWebContents(window) {
   currentSession.webRequest.onBeforeRequest(
     { urls: [`${config.origin}/api/auth/logout`] },
     (details, callback) => {
-      if (details.method === 'POST') desktopIpcController.clearSession()
+      if (details.method === 'POST' && desktopIpcController) {
+        desktopIpcController.clearSession()
+      }
       callback({})
     },
   )
@@ -228,8 +235,11 @@ async function createMainWindow() {
   const navigationGuard = protectWebContents(window)
   window.once('ready-to-show', () => window.show())
   window.on('close', () => saveWindowBounds(window))
+  window.webContents.once('destroyed', () => {
+    if (desktopIpcController) desktopIpcController.clearSession()
+  })
   window.on('closed', () => {
-    desktopIpcController.clearSession()
+    if (desktopIpcController) desktopIpcController.clearSession()
     if (mainWindow === window) mainWindow = null
   })
 
@@ -251,6 +261,17 @@ if (!ownsSingleInstance) {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
     registerAppProtocol(protocol, net, uiRoot)
+    const apiClient = new DesktopApiClient({
+      origin: config.origin,
+      fetchImpl: net.fetch,
+    })
+    const syncEngine = new SyncEngine({
+      apiClient,
+      appDataPath: app.getPath('userData'),
+      environmentOrigin: config.origin,
+      emitState: emitDesktopSyncState,
+    })
+    desktopIpcController = createDesktopIpcController({ syncEngine })
     registerDesktopBridge()
     mainWindow = await createMainWindow()
 
@@ -266,6 +287,6 @@ if (!ownsSingleInstance) {
   })
 
   app.on('before-quit', () => {
-    desktopIpcController.clearSession()
+    if (desktopIpcController) desktopIpcController.clearSession()
   })
 }
