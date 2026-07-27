@@ -52,6 +52,19 @@ test('physical path canonicalization fails closed on non-ENOENT errors', () => {
   )
 })
 
+test('physical path canonicalization rejects ENOENT through the filesystem root', () => {
+  const missing = Object.assign(new Error('not found'), { code: 'ENOENT' })
+  assert.throws(
+    () => canonicalizePath(
+      join('Z:\\', 'missing', 'JiqingERP'),
+      () => {
+        throw missing
+      },
+    ),
+    /unable to resolve physical path boundary/i,
+  )
+})
+
 test('normalizes unsafe Windows names deterministically', () => {
   assert.equal(safeSegment('合同:最终版?.pdf'), '合同_最终版_.pdf')
   assert.equal(safeSegment('CON'), '_CON')
