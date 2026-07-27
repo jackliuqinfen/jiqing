@@ -1327,6 +1327,7 @@ def seed_system_settings(conn):
             "desktop_sync_policy",
             {
                 "enabled": False,
+                "enabledByDefault": False,
                 "allowedRoles": ["admin"],
                 "allowedUserIds": [],
                 "projectSelectionMode": "user_select",
@@ -4064,6 +4065,7 @@ class Handler(BaseHTTPRequestHandler):
         if key == "upload_settings":
             value = {"maxFileSizeMb": clamp_upload_size_mb((value or {}).get("maxFileSizeMb"))}
         if key == "desktop_sync_policy":
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
             ).fetchone()

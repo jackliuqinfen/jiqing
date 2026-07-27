@@ -50,6 +50,39 @@ class DesktopSyncPolicyTest(unittest.TestCase):
         self.assertFalse(viewer["enabledForCurrentUser"])
         self.assertTrue(admin["enabledForCurrentUser"])
 
+    def test_normalizer_rejects_untrusted_boolean_and_numeric_values(self):
+        policy = normalize_desktop_sync_policy({
+            "enabled": "false",
+            "enabledByDefault": "true",
+            "allowFolderSelection": "false",
+            "removeLocalFilesOnRevocation": 1,
+            "maxFileSizeMb": "not-a-number",
+            "maxLocalStorageGb": {},
+            "pollIntervalSeconds": [],
+            "policyVersion": "unknown",
+        })
+        self.assertFalse(policy["enabled"])
+        self.assertFalse(policy["enabledByDefault"])
+        self.assertTrue(policy["allowFolderSelection"])
+        self.assertFalse(policy["removeLocalFilesOnRevocation"])
+        self.assertEqual(policy["maxFileSizeBytes"], 100 * 1024 * 1024)
+        self.assertEqual(policy["maxLocalStorageBytes"], 10 * 1024 * 1024 * 1024)
+        self.assertEqual(policy["pollIntervalSeconds"], 300)
+        self.assertEqual(policy["policyVersion"], 1)
+
+    def test_normalizer_preserves_normalized_byte_values(self):
+        normalized = normalize_desktop_sync_policy({
+            "enabled": True,
+            "maxFileSizeMb": 2,
+            "maxLocalStorageGb": 3,
+        })
+        renormalized = normalize_desktop_sync_policy(normalized)
+        effective = effective_desktop_sync_policy(normalized, {"id": "admin", "role": "admin"})
+        self.assertEqual(renormalized["maxFileSizeBytes"], 2 * 1024 * 1024)
+        self.assertEqual(renormalized["maxLocalStorageBytes"], 3 * 1024 * 1024 * 1024)
+        self.assertEqual(effective["maxFileSizeBytes"], 2 * 1024 * 1024)
+        self.assertEqual(effective["maxLocalStorageBytes"], 3 * 1024 * 1024 * 1024)
+
 
 class DesktopSyncPolicyApiContractTest(unittest.TestCase):
     @classmethod
@@ -64,6 +97,11 @@ class DesktopSyncPolicyApiContractTest(unittest.TestCase):
         cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.server_thread.start()
         cls._create_user("admin-user", "desktop-admin", "admin")
+        with audit_api.connect() as conn:
+            row = conn.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+            ).fetchone()
+        cls.initial_policy = json.loads(row["setting_value"])
 
     @classmethod
     def tearDownClass(cls):
@@ -127,6 +165,12 @@ class DesktopSyncPolicyApiContractTest(unittest.TestCase):
         self.assertFalse(payload["success"])
 
     def test_policy_setting_uses_display_units_and_policy_endpoint_uses_bytes(self):
+        with audit_api.connect() as conn:
+            row = conn.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+            ).fetchone()
+        previous_version = json.loads(row["setting_value"])["policyVersion"]
+
         status, _headers, payload = self.request(
             "PUT",
             "/api/system/settings/desktop_sync_policy",
@@ -143,7 +187,7 @@ class DesktopSyncPolicyApiContractTest(unittest.TestCase):
         stored = json.loads(row["setting_value"])
         self.assertEqual(stored["maxFileSizeMb"], 2)
         self.assertEqual(stored["maxLocalStorageGb"], 3)
-        self.assertEqual(stored["policyVersion"], 2)
+        self.assertEqual(stored["policyVersion"], previous_version + 1)
         self.assertNotIn("maxFileSizeBytes", stored)
         self.assertNotIn("maxLocalStorageBytes", stored)
 
@@ -153,6 +197,108 @@ class DesktopSyncPolicyApiContractTest(unittest.TestCase):
         self.assertEqual(policy["data"]["maxLocalStorageBytes"], 3 * 1024 * 1024 * 1024)
         self.assertNotIn("maxFileSizeMb", policy["data"])
         self.assertNotIn("maxLocalStorageGb", policy["data"])
+
+    def test_initial_policy_includes_enabled_by_default(self):
+        self.assertIn("enabledByDefault", self.initial_policy)
+        self.assertFalse(self.initial_policy["enabledByDefault"])
+
+    def test_invalid_policy_values_are_conservatively_normalized(self):
+        status, _headers, payload = self.request(
+            "PUT",
+            "/api/system/settings/desktop_sync_policy",
+            {"value": {
+                "enabled": "false",
+                "maxFileSizeMb": "not-a-number",
+                "maxLocalStorageGb": {},
+                "pollIntervalSeconds": [],
+            }},
+            "admin-user",
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["success"])
+
+        status, _headers, policy = self.request("GET", "/api/desktop/policy", user_id="admin-user")
+        self.assertEqual(status, 200)
+        self.assertFalse(policy["data"]["enabled"])
+        self.assertEqual(policy["data"]["maxFileSizeBytes"], 100 * 1024 * 1024)
+        self.assertEqual(policy["data"]["maxLocalStorageBytes"], 10 * 1024 * 1024 * 1024)
+        self.assertEqual(policy["data"]["pollIntervalSeconds"], 300)
+
+    def test_concurrent_policy_updates_increment_version_without_loss(self):
+        barrier = threading.Barrier(2)
+        errors = []
+
+        with audit_api.connect() as conn:
+            conn.execute(
+                "UPDATE system_settings SET setting_value = ? WHERE setting_key = 'desktop_sync_policy'",
+                (json.dumps({
+                    "enabled": False,
+                    "enabledByDefault": False,
+                    "allowedRoles": ["admin"],
+                    "allowedUserIds": [],
+                    "projectSelectionMode": "user_select",
+                    "allowedProjectRefs": [],
+                    "allowedCategoryKeys": [],
+                    "allowedExtensions": [".pdf"],
+                    "maxFileSizeMb": 100,
+                    "maxLocalStorageGb": 10,
+                    "pollIntervalSeconds": 300,
+                    "allowFolderSelection": True,
+                    "removeLocalFilesOnRevocation": False,
+                    "policyVersion": 1,
+                }),),
+            )
+
+        class CoordinatedConnection:
+            def __init__(self, conn):
+                self.conn = conn
+
+            def execute(self, statement, parameters=()):
+                result = self.conn.execute(statement, parameters)
+                if (
+                    statement.startswith("SELECT setting_value FROM system_settings")
+                    and "desktop_sync_policy" in statement
+                ):
+                    try:
+                        barrier.wait(timeout=1)
+                    except threading.BrokenBarrierError:
+                        pass
+                return result
+
+            def commit(self):
+                self.conn.commit()
+
+        def update(max_file_size_mb):
+            try:
+                with audit_api.connect() as conn:
+                    handler = object.__new__(audit_api.Handler)
+                    handler.require_role = lambda _conn, _roles: {"username": "desktop-admin"}
+                    handler.write_operation_log = lambda *_args: None
+                    handler.respond = lambda *_args: None
+                    audit_api.Handler.set_system_setting(
+                        handler,
+                        CoordinatedConnection(conn),
+                        "desktop_sync_policy",
+                        {"value": {"maxFileSizeMb": max_file_size_mb}},
+                    )
+            except Exception as exc:
+                errors.append(exc)
+
+        first = threading.Thread(target=update, args=(2,))
+        second = threading.Thread(target=update, args=(3,))
+        first.start()
+        second.start()
+        first.join(timeout=5)
+        second.join(timeout=5)
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(errors, [])
+
+        with audit_api.connect() as conn:
+            row = conn.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+            ).fetchone()
+        self.assertEqual(json.loads(row["setting_value"])["policyVersion"], 3)
 
 
 if __name__ == "__main__":

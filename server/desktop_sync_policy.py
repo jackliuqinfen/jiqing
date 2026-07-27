@@ -33,6 +33,33 @@ def _unique_strings(values):
     return result
 
 
+def _trusted_bool(value, default):
+    return value if isinstance(value, bool) else default
+
+
+def _bounded_int(value, default, minimum, maximum):
+    if isinstance(value, bool):
+        return default
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return max(minimum, min(maximum, normalized))
+
+
+def _normalized_size_bytes(raw, display_key, bytes_key, default_bytes, maximum_bytes, unit_bytes):
+    if display_key in raw:
+        return _bounded_int(
+            raw.get(display_key),
+            default_bytes // unit_bytes,
+            1,
+            maximum_bytes // unit_bytes,
+        ) * unit_bytes
+    if bytes_key in raw:
+        return _bounded_int(raw.get(bytes_key), default_bytes, unit_bytes, maximum_bytes)
+    return default_bytes
+
+
 def normalize_desktop_sync_policy(value):
     raw = value if isinstance(value, dict) else {}
     roles = [role for role in _unique_strings(raw.get("allowedRoles")) if role in ALLOWED_ROLES]
@@ -43,13 +70,26 @@ def normalize_desktop_sync_policy(value):
             suffix = f".{suffix}"
         if suffix[1:].isalnum() and suffix not in extensions:
             extensions.append(suffix)
-    file_mb = max(1, min(500, int(raw.get("maxFileSizeMb", 100) or 100)))
-    storage_gb = max(1, min(500, int(raw.get("maxLocalStorageGb", 10) or 10)))
-    interval = max(60, min(3600, int(raw.get("pollIntervalSeconds", 300) or 300)))
+    max_file_size_bytes = _normalized_size_bytes(
+        raw,
+        "maxFileSizeMb",
+        "maxFileSizeBytes",
+        100 * 1024 * 1024,
+        500 * 1024 * 1024,
+        1024 * 1024,
+    )
+    max_local_storage_bytes = _normalized_size_bytes(
+        raw,
+        "maxLocalStorageGb",
+        "maxLocalStorageBytes",
+        10 * 1024 * 1024 * 1024,
+        500 * 1024 * 1024 * 1024,
+        1024 * 1024 * 1024,
+    )
     return {
         **DEFAULT_DESKTOP_SYNC_POLICY,
-        "enabled": bool(raw.get("enabled", False)),
-        "enabledByDefault": bool(raw.get("enabledByDefault", False)),
+        "enabled": _trusted_bool(raw.get("enabled"), False),
+        "enabledByDefault": _trusted_bool(raw.get("enabledByDefault"), False),
         "allowedRoles": roles or ["admin"],
         "allowedUserIds": _unique_strings(raw.get("allowedUserIds")),
         "projectSelectionMode": (
@@ -60,12 +100,12 @@ def normalize_desktop_sync_policy(value):
         "allowedProjectRefs": _unique_strings(raw.get("allowedProjectRefs")),
         "allowedCategoryKeys": _unique_strings(raw.get("allowedCategoryKeys")),
         "allowedExtensions": extensions or list(DEFAULT_DESKTOP_SYNC_POLICY["allowedExtensions"]),
-        "maxFileSizeBytes": file_mb * 1024 * 1024,
-        "maxLocalStorageBytes": storage_gb * 1024 * 1024 * 1024,
-        "pollIntervalSeconds": interval,
-        "allowFolderSelection": bool(raw.get("allowFolderSelection", True)),
-        "removeLocalFilesOnRevocation": bool(raw.get("removeLocalFilesOnRevocation", False)),
-        "policyVersion": max(1, int(raw.get("policyVersion", 1) or 1)),
+        "maxFileSizeBytes": max_file_size_bytes,
+        "maxLocalStorageBytes": max_local_storage_bytes,
+        "pollIntervalSeconds": _bounded_int(raw.get("pollIntervalSeconds"), 300, 60, 3600),
+        "allowFolderSelection": _trusted_bool(raw.get("allowFolderSelection"), True),
+        "removeLocalFilesOnRevocation": _trusted_bool(raw.get("removeLocalFilesOnRevocation"), False),
+        "policyVersion": _bounded_int(raw.get("policyVersion"), 1, 1, 2 ** 31 - 1),
     }
 
 
