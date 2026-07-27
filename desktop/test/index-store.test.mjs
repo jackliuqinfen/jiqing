@@ -109,7 +109,7 @@ test('bounds the index filename for a valid long Unicode user id', async (t) => 
   assert.ok(Buffer.byteLength(store.filePath.split(/[\\/]/).at(-1)) <= 200)
 })
 
-test('concurrent saves use independent temporary files', async (t) => {
+test('concurrent saves commit in invocation order with independent temporary files', async (t) => {
   const appDataPath = temporaryDirectory(t)
   const store = new SyncIndexStore({
     appDataPath,
@@ -141,12 +141,15 @@ test('concurrent saves use independent temporary files', async (t) => {
   ])
   assert.equal(boundary, 'before-commit')
   const secondSave = store.save(second)
+  const ordering = await Promise.race([
+    secondSave.then(() => 'completed'),
+    new Promise((resolve) => setTimeout(() => resolve('waiting'), 20)),
+  ])
+  assert.equal(ordering, 'waiting')
   releaseFirst()
   await Promise.all([firstSave, secondSave])
 
-  assert.ok(['first', 'second'].includes(
-    (await store.load()).cursorBySelection.scope,
-  ))
+  assert.equal((await store.load()).cursorBySelection.scope, 'second')
   assert.equal(
     readdirSync(store.directoryPath).some((name) => name.includes('.tmp-')),
     false,

@@ -11,16 +11,25 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  rename as renameFile,
+  rm as removeFile,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SyncApiError } from '../src/sync/api-client.mjs'
+import {
+  DesktopApiClient,
+  SyncApiError,
+} from '../src/sync/api-client.mjs'
 import { SyncIndexStore } from '../src/sync/index-store.mjs'
 import { SyncEngine } from '../src/sync/sync-engine.mjs'
 
 const ORIGIN = 'https://erp.example.cn'
 const PROJECT_REF = 'project:p-1'
+const OTHER_PROJECT_REF = 'project:p-2'
 
 function digest(content) {
   return createHash('sha256').update(content).digest('hex')
@@ -49,6 +58,15 @@ function entry(revision, content, overrides = {}) {
   }
 }
 
+function missingEntry(revision, overrides = {}) {
+  return entry(revision, Buffer.alloc(0), {
+    availability: 'missing',
+    sha256: '',
+    downloadPath: null,
+    ...overrides,
+  })
+}
+
 class FakeApiClient {
   constructor({
     manifests,
@@ -73,6 +91,7 @@ class FakeApiClient {
     this.activeDownloads = 0
     this.maximumActiveDownloads = 0
     this.run = 0
+    this.expectedCursor = ''
     this.aborted = false
     this.contentByPath = new Map()
     for (const manifest of manifests) {
@@ -114,12 +133,18 @@ class FakeApiClient {
   }
 
   async getManifest(_token, { cursor }) {
+    if (cursor !== this.expectedCursor) {
+      throw new Error(
+        `manifest cursor mismatch: expected ${this.expectedCursor}, received ${cursor}`,
+      )
+    }
     this.manifestCalls.push(cursor)
     const items = this.manifests[Math.min(this.run, this.manifests.length - 1)]
     this.run += 1
+    this.expectedCursor = `resume-${this.run}`
     return {
       items: items.map(({ _content, ...item }) => item),
-      nextCursor: `resume-${this.run}`,
+      nextCursor: this.expectedCursor,
       hasMore: false,
       policyVersion: this.policy.policyVersion,
     }
@@ -174,6 +199,7 @@ function createTestEngine(t, options) {
     api,
     states,
     localRoot,
+    appDataPath,
     output(filename) {
       return join(
         localRoot,
@@ -235,7 +261,7 @@ test('restores an indexed missing file only on a later explicit start', async (t
   const harness = createTestEngine(t, {
     manifests: [
       [entry('doc-1-v1', content)],
-      [entry('doc-1-v1', content)],
+      [],
     ],
   })
   await harness.engine.start(session())
@@ -247,6 +273,86 @@ test('restores an indexed missing file only on a later explicit start', async (t
 
   assert.equal(readFileSync(harness.output('施工合同.pdf'), 'utf8'), 'contract')
   assert.equal(harness.api.downloadCalls, 2)
+  assert.deepEqual(harness.api.manifestCalls, ['', 'resume-1'])
+})
+
+test('records a missing manifest source without blocking siblings or cursor advancement', async (t) => {
+  const harness = createTestEngine(t, {
+    manifests: [
+      [
+        missingEntry('missing-r1', {
+          sourceId: 'missing-doc',
+          originalName: '缺失资料.pdf',
+        }),
+        entry('available-r1', Buffer.from('available'), {
+          sourceId: 'available-doc',
+          originalName: '可用资料.pdf',
+        }),
+      ],
+      [],
+    ],
+  })
+
+  await harness.engine.start(session())
+  await harness.engine.start(session())
+
+  assert.equal(
+    readFileSync(harness.output('可用资料.pdf'), 'utf8'),
+    'available',
+  )
+  assert.equal(harness.api.downloadCalls, 1)
+  assert.deepEqual(harness.api.manifestCalls, ['', 'resume-1'])
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const index = await store.load()
+  assert.equal(index.files['project_file:missing-doc'].status, 'server_missing')
+  assert.equal(index.cursorBySelection[PROJECT_REF], 'resume-2')
+})
+
+test('restores selected missing files and does not retry unselected failures', async (t) => {
+  const content = Buffer.from('selected')
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('selected-r1', content)],
+      [],
+    ],
+  })
+  await harness.engine.start(session())
+  chmodSync(harness.output('施工合同.pdf'), 0o666)
+  unlinkSync(harness.output('施工合同.pdf'))
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const index = await store.load()
+  const unselected = entry('other-r1', Buffer.from('other'), {
+    projectRef: OTHER_PROJECT_REF,
+    projectCode: '20260727-JQ-002',
+    projectName: '未选择项目',
+    sourceId: 'other-doc',
+  })
+  const { _content, ...unselectedItem } = unselected
+  index.files['project_file:other-doc'] = {
+    ...unselectedItem,
+    relativePath: 'other/category/file.pdf',
+    physicalFiles: [],
+    status: 'failed',
+    lastErrorCode: 'download_failed',
+    pendingItem: unselectedItem,
+  }
+  await store.save(index)
+
+  await harness.engine.start(session())
+
+  assert.equal(readFileSync(harness.output('施工合同.pdf'), 'utf8'), 'selected')
+  assert.equal(harness.api.downloadCalls, 2)
+  assert.equal(harness.engine.getState().status, 'completed')
+  assert.deepEqual(harness.api.manifestCalls, ['', 'resume-1'])
 })
 
 test('never overwrites a locally modified file', async (t) => {
@@ -430,6 +536,77 @@ test('pause clears the token, aborts transfers, and wins over late completion', 
   assert.equal(existsSync(harness.output('施工合同.pdf')), false)
 })
 
+test('real API aborts preserve pause and logout state instead of surfacing offline', async (t) => {
+  for (const action of ['pause', 'clearSession']) {
+    const base = mkdtempSync(join(tmpdir(), 'jiqing-real-abort-'))
+    t.after(() => rmSync(base, { recursive: true, force: true }))
+    const localRoot = join(base, 'visible')
+    const downloadEntered = deferred()
+    const content = Buffer.from('contract')
+    const item = entry('r-1', content)
+    const fetchImpl = async (url, { signal }) => {
+      const path = new URL(url).pathname
+      const dataByPath = {
+        '/api/auth/me': {
+          id: 'user-1',
+          isActive: true,
+        },
+        '/api/desktop/policy': {
+          enabled: true,
+          enabledForCurrentUser: true,
+          maxFileSizeBytes: 1024,
+          maxLocalStorageBytes: 1024,
+          policyVersion: 1,
+        },
+        '/api/desktop/sync/projects': [{
+          projectRef: PROJECT_REF,
+          totalFileSizeBytes: content.length,
+        }],
+        '/api/desktop/sync/manifest': {
+          items: [{ ...item, _content: undefined }],
+          nextCursor: 'resume-1',
+          hasMore: false,
+          policyVersion: 1,
+        },
+      }
+      if (path.includes('/download')) {
+        downloadEntered.resolve()
+        return new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), {
+            once: true,
+          })
+        })
+      }
+      return new Response(JSON.stringify({
+        success: true,
+        data: dataByPath[path],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    const engine = new SyncEngine({
+      apiClient: new DesktopApiClient({
+        origin: ORIGIN,
+        fetchImpl,
+        timeoutMs: 5_000,
+      }),
+      appDataPath: join(base, 'app-data'),
+      environmentOrigin: ORIGIN,
+    })
+    engine.setLocalRoot(localRoot)
+
+    const running = engine.start(session())
+    await downloadEntered.promise
+    engine[action]()
+
+    await assert.doesNotReject(running)
+    assert.equal(engine.getState().status, 'paused')
+    assert.equal(engine.hasActiveSession(), false)
+    assert.equal(existsSync(join(localRoot, '施工合同.pdf')), false)
+  }
+})
+
 test('pause during an awaited part hash prevents file and cursor publication', async (t) => {
   const hashEntered = deferred()
   const releaseHash = deferred()
@@ -579,6 +756,18 @@ test('a same-user replacement run waits for cancellation and publishes only its 
       },
     },
   })
+  let snapshot = 0
+  harness.api.getManifest = async (_token, { cursor }) => {
+    assert.equal(cursor, '')
+    harness.api.manifestCalls.push(cursor)
+    const items = harness.api.manifests[snapshot++]
+    return {
+      items: items.map(({ _content, ...item }) => item),
+      nextCursor: `replacement-${snapshot}`,
+      hasMore: false,
+      policyVersion: 1,
+    }
+  }
 
   const first = harness.engine.start(session())
   const boundary = await Promise.race([
@@ -598,6 +787,77 @@ test('a same-user replacement run waits for cancellation and publishes only its 
     readdirSync(join(harness.output('施工合同.pdf'), '..'))
       .some((name) => name.startsWith('.jiqing-part-')),
     false,
+  )
+})
+
+test('a root replacement waits for the prior user index transaction to unwind', async (t) => {
+  const saveEntered = deferred()
+  const releaseSave = deferred()
+  let held = false
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('root-one'))],
+      [entry('r-2', Buffer.from('root-two'))],
+    ],
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          async save(index, options) {
+            if (Object.keys(index.files).length > 0 && !held) {
+              held = true
+              saveEntered.resolve()
+              await releaseSave.promise
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+    },
+  })
+  let snapshot = 0
+  harness.api.getManifest = async (_token, { cursor }) => {
+    assert.equal(cursor, '')
+    harness.api.manifestCalls.push(cursor)
+    const items = harness.api.manifests[snapshot++]
+    return {
+      items: items.map(({ _content, ...item }) => item),
+      nextCursor: `root-replacement-${snapshot}`,
+      hasMore: false,
+      policyVersion: 1,
+    }
+  }
+  const secondRoot = join(harness.localRoot, '..', 'visible-two')
+
+  const first = harness.engine.start(session())
+  await saveEntered.promise
+  harness.engine.setLocalRoot(secondRoot)
+  const second = harness.engine.start(session())
+
+  const ordering = await Promise.race([
+    second.then(() => 'completed'),
+    new Promise((resolve) => setTimeout(() => resolve('waiting'), 30)),
+  ])
+  assert.equal(ordering, 'waiting')
+  assert.equal(harness.api.policyCalls, 1)
+
+  releaseSave.resolve()
+  await Promise.all([first, second])
+
+  assert.equal(existsSync(harness.output('施工合同.pdf')), false)
+  assert.equal(
+    readFileSync(join(
+      secondRoot,
+      '20260727-JQ-001_区直学校维修',
+      '合同文件',
+      '施工合同.pdf',
+    ), 'utf8'),
+    'root-two',
   )
 })
 
@@ -648,6 +908,159 @@ test('a failed server update preserves the trusted baseline for the next retry',
 
   assert.equal(readFileSync(harness.output('施工合同.pdf'), 'utf8'), 'server-v2')
   assert.equal(existsSync(harness.output('施工合同_服务器新版.pdf')), false)
+})
+
+test('pause during trusted-backup cleanup keeps the committed replacement', async (t) => {
+  const cleanupEntered = deferred()
+  const releaseCleanup = deferred()
+  let held = false
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('server-v1'))],
+      [entry('r-2', Buffer.from('server-v2'))],
+    ],
+    engineOptions: {
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-backup-') && !held) {
+          held = true
+          cleanupEntered.resolve()
+          await releaseCleanup.promise
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+
+  const updating = harness.engine.start(session())
+  const boundary = await Promise.race([
+    cleanupEntered.promise.then(() => 'cleanup'),
+    updating.then(() => 'completed'),
+  ])
+  assert.equal(boundary, 'cleanup')
+  harness.engine.pause()
+  releaseCleanup.resolve()
+  await updating
+
+  assert.equal(harness.engine.getState().status, 'paused')
+  assert.equal(readFileSync(harness.output('施工合同.pdf'), 'utf8'), 'server-v2')
+  assert.equal(
+    readdirSync(harness.localRoot, { recursive: true })
+      .some((name) => String(name).includes('.jiqing-backup-')),
+    false,
+  )
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  assert.equal(
+    (await store.load()).files['project_file:doc-1'].sourceRevision,
+    'r-2',
+  )
+})
+
+test('failed replacement rollback preserves both copies and records an explicit failure', async (t) => {
+  let failUpdateSave = true
+  let failRestore = true
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('server-v1'))],
+      [entry('r-2', Buffer.from('server-v2'))],
+    ],
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-2' && failUpdateSave) {
+              failUpdateSave = false
+              throw new Error('index commit denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async renameFile(source, destination) {
+        if (source.includes('.jiqing-backup-') && failRestore) {
+          failRestore = false
+          throw new Error('trusted backup restore denied')
+        }
+        return renameFile(source, destination)
+      },
+    },
+  })
+  await harness.engine.start(session())
+
+  await harness.engine.start(session())
+
+  assert.equal(harness.engine.getState().status, 'partial_failure')
+  const files = readdirSync(harness.localRoot, { recursive: true })
+    .map(String)
+  assert.equal(files.some((name) => name.includes('.jiqing-backup-')), true)
+  assert.equal(files.some((name) => name.includes('.jiqing-rollback-')), true)
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  assert.equal(
+    (await store.load()).files['project_file:doc-1'].lastErrorCode,
+    'publication_rollback_failed',
+  )
+})
+
+test('failed first publication never leaves an unindexed final path', async (t) => {
+  let failIndexSave = true
+  const harness = createTestEngine(t, {
+    manifests: [[entry('r-1', Buffer.from('server-v1'))]],
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            if (Object.keys(index.files).length > 0 && failIndexSave) {
+              failIndexSave = false
+              throw new Error('index commit denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-rollback-')) {
+          throw new Error('rollback cleanup denied')
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+
+  await harness.engine.start(session())
+
+  assert.equal(existsSync(harness.output('施工合同.pdf')), false)
+  const files = readdirSync(harness.localRoot, { recursive: true }).map(String)
+  assert.equal(files.some((name) => name.includes('.jiqing-rollback-')), true)
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  assert.equal(
+    (await store.load()).files['project_file:doc-1'].lastErrorCode,
+    'publication_rollback_failed',
+  )
 })
 
 test('quota is recalculated when a local file changes during download', async (t) => {
@@ -705,6 +1118,32 @@ test('quota includes older indexed conflict files', async (t) => {
     '123456',
   )
   assert.equal(harness.engine.getState().status, 'partial_failure')
+})
+
+test('concurrent new files exactly filling quota both publish', async (t) => {
+  const harness = createTestEngine(t, {
+    manifests: [[
+      entry('r-1', Buffer.from('12345'), {
+        sourceId: 'doc-1',
+        originalName: '一.pdf',
+      }),
+      entry('r-2', Buffer.from('67890'), {
+        sourceId: 'doc-2',
+        originalName: '二.pdf',
+      }),
+    ]],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 10,
+    },
+    downloadGate: () => new Promise((resolve) => setTimeout(resolve, 5)),
+  })
+
+  await harness.engine.start(session())
+
+  assert.equal(harness.engine.getState().completedFiles, 2)
+  assert.equal(harness.engine.getState().failedFiles, 0)
+  assert.equal(harness.engine.getState().status, 'completed')
 })
 
 test('read-only preparation failure leaves no visible or indexed file', async (t) => {

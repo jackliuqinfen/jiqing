@@ -8,7 +8,7 @@ import {
   rm,
   stat,
 } from 'node:fs/promises'
-import { dirname, posix } from 'node:path'
+import { join, posix } from 'node:path'
 
 import { SyncApiError } from './api-client.mjs'
 import { SyncIndexStore } from './index-store.mjs'
@@ -32,8 +32,8 @@ class RunPausedError extends Error {
 }
 
 class FileSyncError extends Error {
-  constructor(code, message = code) {
-    super(message)
+  constructor(code, message = code, options = {}) {
+    super(message, options)
     this.name = 'FileSyncError'
     this.code = code
   }
@@ -113,7 +113,7 @@ function itemSnapshot(item) {
 }
 
 function validateManifestItem(item) {
-  if (!isPlainObject(item)
+  const invalidCommonShape = !isPlainObject(item)
     || !isNonEmptyString(item.projectRef)
     || typeof item.projectCode !== 'string'
     || typeof item.projectName !== 'string'
@@ -122,11 +122,19 @@ function validateManifestItem(item) {
     || !isNonEmptyString(item.sourceRevision)
     || !isNonEmptyString(item.originalName, 1024)
     || typeof item.categoryName !== 'string'
-    || !/^[a-f0-9]{64}$/i.test(item.sha256)
-    || item.availability !== 'available'
-    || !isNonEmptyString(item.downloadPath, 2048)
     || !Number.isSafeInteger(item.fileSize)
-    || item.fileSize < 0) {
+    || item.fileSize < 0
+  const invalidAvailableShape = item?.availability === 'available'
+    && (
+      !/^[a-f0-9]{64}$/i.test(item.sha256)
+      || !isNonEmptyString(item.downloadPath, 2048)
+    )
+  const invalidMissingShape = item?.availability === 'missing'
+    && (item.sha256 !== '' || item.downloadPath !== null)
+  if (invalidCommonShape
+    || !['available', 'missing'].includes(item?.availability)
+    || invalidAvailableShape
+    || invalidMissingShape) {
     throw new SyncApiError('Malformed manifest item', 'request_failed')
   }
 }
@@ -224,6 +232,8 @@ export class SyncEngine {
     indexStoreFactory,
     hashFile = sha256File,
     prepareReadOnly = (filePath) => chmod(filePath, 0o444),
+    removeFile = rm,
+    renameFile = rename,
   }) {
     if (!apiClient
       || !isNonEmptyString(appDataPath, 4096)
@@ -244,6 +254,8 @@ export class SyncEngine {
     }))
     this.hashFile = hashFile
     this.prepareReadOnly = prepareReadOnly
+    this.removeFile = removeFile
+    this.renameFile = renameFile
     this.state = createInitialState()
     this.activeRun = null
     this.nextRunId = 1
@@ -323,10 +335,10 @@ export class SyncEngine {
 
       await mkdir(run.root, { recursive: true })
       this.assertActive(run)
-      const physicalRoot = await resolvePhysicalPath(run.root, '.')
+      await resolvePhysicalPath(run.root, '.')
       this.assertActive(run)
 
-      const lockKey = `${run.authoritativeUserId}\n${physicalRoot.toLocaleLowerCase('en-US')}`
+      const lockKey = `${this.environmentOrigin}\n${run.authoritativeUserId}`
       const lock = this.getLock(lockKey)
       await lock.run(async () => {
         this.assertActive(run)
@@ -334,7 +346,9 @@ export class SyncEngine {
       })
     } catch (error) {
       if (!initialEmissionCompleted) throw error
-      if (error instanceof RunPausedError) return this.getState()
+      if (error instanceof RunPausedError || !this.isActive(run)) {
+        return this.getState()
+      }
       this.applyRunError(run, error)
     } finally {
       run.token = null
@@ -376,7 +390,7 @@ export class SyncEngine {
     this.emitIfActive(run)
 
     const processed = new Set()
-    await this.retryFailures(run, store, index, policy, processed)
+    await this.retryFailures(run, store, index, policy, processed, projectRefs)
 
     const scopeKey = manifestScopeKey(projectRefs)
     let cursor = index.cursorBySelection[scopeKey] || ''
@@ -443,9 +457,30 @@ export class SyncEngine {
     this.emitIfActive(run)
   }
 
-  async retryFailures(run, store, index, policy, processed) {
-    const records = Object.values(index.files)
-      .filter((record) => ['failed', 'update_failed'].includes(record?.status))
+  async retryFailures(run, store, index, policy, processed, projectRefs) {
+    const records = []
+    for (const record of Object.values(index.files)) {
+      if (!projectRefs.includes(record?.projectRef)) continue
+      if (['failed', 'update_failed'].includes(record?.status)) {
+        records.push(record)
+        continue
+      }
+      if (!['synced', 'local_modified'].includes(record?.status)
+        || !record.relativePath) {
+        continue
+      }
+
+      let missing = true
+      try {
+        const filePath = await resolvePhysicalPath(run.root, record.relativePath)
+        this.assertActive(run)
+        missing = !await pathExists(filePath)
+        this.assertActive(run)
+      } catch (error) {
+        if (error instanceof RunPausedError) throw error
+      }
+      if (missing) records.push(record)
+    }
 
     this.state.totalFiles += records.length
     this.emitIfActive(run)
@@ -507,8 +542,9 @@ export class SyncEngine {
         'permission_changed',
       )
     }
-    if (item.availability !== 'available') {
-      throw new FileSyncError('file_unavailable')
+    if (item.availability === 'missing') {
+      await this.recordUnavailable(run, store, index, item)
+      return
     }
     if (item.fileSize > Number(policy.maxFileSizeBytes)
       || !Number.isSafeInteger(policy.maxLocalStorageBytes)
@@ -603,15 +639,20 @@ export class SyncEngine {
       if (downloadedHash !== item.sha256) throw new FileSyncError('integrity_mismatch')
 
       await run.commitMutex.run(async () => {
-        await this.publishItem(
-          run,
-          store,
-          index,
-          policy,
-          item,
-          partPath,
-          reservedBytes,
-        )
+        try {
+          await this.publishItem(
+            run,
+            store,
+            index,
+            policy,
+            item,
+            partPath,
+            reservedBytes,
+          )
+        } finally {
+          run.reservedBytes = Math.max(0, run.reservedBytes - reservedBytes)
+          reservedBytes = 0
+        }
       })
     } finally {
       await rm(partPath, { force: true }).catch(() => {})
@@ -683,7 +724,7 @@ export class SyncEngine {
     this.assertActive(run)
 
     const backupPath = destination.ownedExisting
-      ? `${destinationPath}.jiqing-backup-${randomUUID()}`
+      ? join(run.root, `.jiqing-backup-${randomUUID()}`)
       : null
     let backupCreated = false
     let destinationPublished = false
@@ -691,13 +732,13 @@ export class SyncEngine {
     try {
       if (backupPath) {
         this.assertActive(run)
-        await rename(destinationPath, backupPath)
+        await this.renameFile(destinationPath, backupPath)
         backupCreated = true
         this.assertActive(run)
       }
 
       this.assertActive(run)
-      await rename(partPath, destinationPath)
+      await this.renameFile(partPath, destinationPath)
       destinationPublished = true
       this.assertActive(run)
 
@@ -708,27 +749,81 @@ export class SyncEngine {
       this.assertActive(run)
       await this.saveIndex(run, store, index)
       this.assertActive(run)
-
-      if (backupCreated) {
-        await rm(backupPath, { force: true })
-        this.assertActive(run)
-      }
-
-      this.state.completedFiles += 1
-      this.emitIfActive(run)
     } catch (error) {
       if (previousRecord === undefined) delete index.files[key]
       else index.files[key] = previousRecord
-      await this.persistRollback(store, index, error)
-
-      if (destinationPublished) {
-        await rm(destinationPath, { force: true }).catch(() => {})
+      const rollbackErrors = []
+      try {
+        await this.rollbackPublication({
+          run,
+          destinationPath,
+          backupPath,
+          backupCreated,
+          destinationPublished,
+        })
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
       }
-      if (backupCreated) {
-        await rename(backupPath, destinationPath).catch(() => {})
+      try {
+        await this.persistRollback(store, index, error)
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
+      }
+      if (rollbackErrors.length > 0) {
+        throw new FileSyncError(
+          'publication_rollback_failed',
+          'Replacement publication could not be rolled back safely',
+          { cause: new AggregateError([error, ...rollbackErrors]) },
+        )
       }
       throw error
     }
+
+    if (backupCreated) {
+      try {
+        await this.removeFile(backupPath, { force: true })
+      } catch (cause) {
+        throw new FileSyncError(
+          'backup_cleanup_failed',
+          'Committed replacement backup could not be removed',
+          { cause },
+        )
+      }
+    }
+    this.assertActive(run)
+    this.state.completedFiles += 1
+    this.emitIfActive(run)
+  }
+
+  async rollbackPublication({
+    run,
+    destinationPath,
+    backupPath,
+    backupCreated,
+    destinationPublished,
+  }) {
+    if (!destinationPublished) {
+      if (backupCreated) {
+        await this.renameFile(backupPath, destinationPath)
+      }
+      return
+    }
+
+    if (!backupCreated) {
+      const displacedPath = join(run.root, `.jiqing-rollback-${randomUUID()}`)
+      await this.renameFile(destinationPath, displacedPath)
+      await this.removeFile(displacedPath, { force: true })
+      return
+    }
+
+    const displacedPath = join(run.root, `.jiqing-rollback-${randomUUID()}`)
+    await this.renameFile(destinationPath, displacedPath)
+    try {
+      await this.renameFile(backupPath, destinationPath)
+    } catch (error) {
+      throw error
+    }
+    await this.removeFile(displacedPath, { force: true })
   }
 
   async chooseDestination(run, index, key, desiredRelativePath, previousRecord) {
@@ -847,6 +942,45 @@ export class SyncEngine {
     })
   }
 
+  async recordUnavailable(run, store, index, item) {
+    await run.commitMutex.run(async () => {
+      this.assertActive(run)
+      const key = sourceKey(item)
+      const previous = cloneRecord(index.files[key])
+      if (previous?.relativePath && isNonEmptyString(previous.sha256, 128)) {
+        index.files[key] = {
+          ...previous,
+          status: 'server_missing',
+          lastErrorCode: 'file_unavailable',
+          pendingItem: itemSnapshot(item),
+        }
+      } else {
+        index.files[key] = {
+          ...itemSnapshot(item),
+          relativePath: null,
+          physicalFiles: [],
+          status: 'server_missing',
+          lastErrorCode: 'file_unavailable',
+          pendingItem: null,
+          lastVerifiedAt: '',
+        }
+      }
+
+      try {
+        await this.saveIndex(run, store, index)
+      } catch (error) {
+        if (previous === undefined) delete index.files[key]
+        else index.files[key] = previous
+        await this.persistRollback(store, index, error)
+        throw error
+      }
+
+      this.assertActive(run)
+      this.state.failedFiles += 1
+      this.emitIfActive(run)
+    })
+  }
+
   async commitCursor(run, store, index, scopeKey, nextCursor) {
     await run.commitMutex.run(async () => {
       this.assertActive(run)
@@ -878,7 +1012,11 @@ export class SyncEngine {
     try {
       await store.save(index)
     } catch (rollbackError) {
-      originalError.rollbackError = rollbackError
+      throw new FileSyncError(
+        'index_rollback_failed',
+        'The synchronization index could not be rolled back safely',
+        { cause: new AggregateError([originalError, rollbackError]) },
+      )
     }
   }
 
@@ -899,9 +1037,13 @@ export class SyncEngine {
   }
 
   assertActive(run) {
-    if (this.activeRun !== run || run.cancelled || !run.token) {
+    if (!this.isActive(run)) {
       throw new RunPausedError()
     }
+  }
+
+  isActive(run) {
+    return this.activeRun === run && !run.cancelled && Boolean(run.token)
   }
 
   emitIfActive(run) {

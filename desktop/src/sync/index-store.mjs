@@ -9,6 +9,7 @@ import {
 import { dirname, join } from 'node:path'
 
 const SCHEMA_VERSION = 1
+const saveQueues = new Map()
 
 function environmentKey(origin) {
   return createHash('sha256').update(origin, 'utf8').digest('hex')
@@ -109,21 +110,36 @@ export class SyncIndexStore {
       throw new Error('invalid sync index')
     }
 
-    await mkdir(this.directoryPath, { recursive: true })
-    const temporaryPath = `${this.filePath}.tmp-${randomUUID()}`
-    let handle
+    const previousSave = saveQueues.get(this.filePath) ?? Promise.resolve()
+    let releaseSave
+    const currentSave = new Promise((resolve) => {
+      releaseSave = resolve
+    })
+    saveQueues.set(this.filePath, currentSave)
+    await previousSave
+
     try {
-      handle = await open(temporaryPath, 'w', 0o600)
-      await handle.writeFile(`${JSON.stringify(index, null, 2)}\n`, 'utf8')
-      await handle.sync()
-      await handle.close()
-      handle = null
-      await beforeCommit()
-      await rename(temporaryPath, this.filePath)
-    } catch (error) {
-      await handle?.close().catch(() => {})
-      await rm(temporaryPath, { force: true }).catch(() => {})
-      throw error
+      await mkdir(this.directoryPath, { recursive: true })
+      const temporaryPath = `${this.filePath}.tmp-${randomUUID()}`
+      let handle
+      try {
+        handle = await open(temporaryPath, 'w', 0o600)
+        await handle.writeFile(`${JSON.stringify(index, null, 2)}\n`, 'utf8')
+        await handle.sync()
+        await handle.close()
+        handle = null
+        await beforeCommit()
+        await rename(temporaryPath, this.filePath)
+      } catch (error) {
+        await handle?.close().catch(() => {})
+        await rm(temporaryPath, { force: true }).catch(() => {})
+        throw error
+      }
+    } finally {
+      releaseSave()
+      if (saveQueues.get(this.filePath) === currentSave) {
+        saveQueues.delete(this.filePath)
+      }
     }
   }
 }

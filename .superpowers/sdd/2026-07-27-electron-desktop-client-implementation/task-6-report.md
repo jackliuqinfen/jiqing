@@ -352,3 +352,167 @@ all exited 0; Desktop IPC contract verified; no diff errors
   central server.
 - A packaged Electron build was not manually exercised for real Office/PDF
   read-only behavior or adversarial junction replacement timing.
+
+---
+
+# Fix Round 2/5
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+All round 2 findings were addressed without changing the exact six-method IPC
+surface, preload sandboxing, GET-only synchronization direction, or Task 7 UI.
+
+## TDD Evidence
+
+### Red
+
+The first round 2 regression batch used cursor-honest manifests, a real
+`DesktopApiClient`/`AbortController` cancellation path, cross-root replacement,
+and exact-boundary quota:
+
+```text
+node --test test/index-store.test.mjs test/sync-engine.test.mjs
+tests 40, pass 33, fail 7
+```
+
+The failures demonstrated:
+
+- a deleted indexed file was not restored when the committed resume cursor
+  returned no old row;
+- one valid `availability: "missing"` item rejected the whole page and blocked
+  its available sibling;
+- an unselected failed project was retried while a selected missing file was
+  ignored;
+- real request abort surfaced `RunPausedError` from `emitIfActive`;
+- a root replacement completed before the old root transaction unwound;
+- two concurrent five-byte files failed to fill an exact ten-byte quota.
+
+Replacement transaction tests failed before the commit point and explicit
+rollback handling were moved:
+
+```text
+node --test --test-name-pattern="trusted-backup cleanup|failed replacement rollback" test/sync-engine.test.mjs
+tests 2, pass 0, fail 2
+```
+
+A surrounding first-publication rollback test also failed before visible
+unindexed content was displaced to a hidden rollback path:
+
+```text
+node --test --test-name-pattern="failed first publication" test/sync-engine.test.mjs
+tests 1, pass 0, fail 1
+```
+
+The strengthened concurrent-index test was mutation-checked with save
+serialization disabled:
+
+```text
+node --test --test-name-pattern="concurrent saves commit" test/index-store.test.mjs
+tests 1, pass 0, fail 1
+actual ordering "completed"; expected "waiting"
+```
+
+### Green
+
+Focused synchronization and boundary suite:
+
+```text
+node --test test/api-client.test.mjs test/index-store.test.mjs test/path-policy.test.mjs test/sync-engine.test.mjs
+tests 61, pass 61, fail 0, cancelled 0, skipped 0, todo 0
+```
+
+Final required desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 104, pass 104, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1955.5543
+```
+
+Required static and contract verification:
+
+```text
+node scripts/verify-desktop-ipc.mjs
+Desktop IPC contract verified
+
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+all exited 0
+
+git diff --check
+exit 0, no diff errors
+```
+
+## Fixes Delivered
+
+- Manifest validation now accepts the server’s valid missing-source shape:
+  `availability: "missing"`, empty `sha256`, and `downloadPath: null`.
+  Missing sources are recorded as `server_missing`, count as unavailable, do not
+  block available siblings, and do not prevent page cursor advancement.
+- Explicit starts inspect selected-project index records before requesting the
+  manifest cursor. Missing local files in `synced` or `local_modified` records
+  are restored from their trusted indexed metadata; failed records from
+  unselected projects are not retried.
+- The standard fake API now enforces committed resume cursors. Restoration tests
+  return an empty page after the terminal cursor instead of replaying old rows.
+- Pause and session clear now outrank the `offline` error produced by a real
+  aborted fetch. Start resolves with the already-emitted paused/cleared state
+  and cannot call `emitIfActive` for a canceled run.
+- Engine mutation locks are keyed by environment and authoritative user index
+  partition rather than root. A root replacement may authenticate and prepare
+  its directory, but policy, index, publication, and cursor work wait until the
+  canceled root transaction has rolled back and released the partition lock.
+- Index-store saves are serialized by physical partition path in invocation
+  order. Temporary names remain unique, but a delayed earlier save can no longer
+  overwrite a later committed save.
+- Replacement publication has an explicit commit point. Before commit, rollback
+  restores the trusted backup. After commit, backup cleanup is outside rollback,
+  so cancellation cannot delete the replacement after deleting the only old
+  copy.
+- Rollback failures are explicit `publication_rollback_failed` or
+  `index_rollback_failed` errors. Failed restoration preserves trusted and new
+  physical copies on hidden backup/rollback paths; failed first publication
+  cannot leave an unindexed final path visible.
+- Successful publication consumes its quota reservation while still holding the
+  publication mutex. The next worker sees either reserved bytes or indexed used
+  bytes, never both, so exact-boundary concurrent downloads succeed.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- The renderer bridge remains exactly six request methods and one state event;
+  `desktop/src/ipc-contract.mjs`, `desktop/src/preload.cjs`, and all Task 7
+  renderer files are unchanged.
+- All network operations remain authenticated GET requests. No upload, DELETE,
+  server rename, watcher, fabricated project/file, or server mutation was added.
+- Tokens remain per-run, memory-only, unlogged, and cleared by pause, logout,
+  replacement, renderer destruction through the existing controller, and app
+  exit.
+- Missing server sources advance only after the index has recorded their
+  unavailable status. Missing local files are inspected only on an explicit
+  start and only for selected projects.
+- Index and cursor mutations share the authoritative user partition lock across
+  root changes; final-path mutation, quota transition, and per-run reservations
+  share the publication mutex.
+- Replacement rollback never discards the new copy until the old trusted backup
+  is restored. Any failed rollback remains visible to the engine as an explicit
+  failure code and preserves recoverable physical copies.
+
+## Concerns
+
+- Tests use temporary NTFS directories and controlled HTTP responses. This round
+  did not run an authenticated end-to-end synchronization against a live central
+  server.
+- A packaged Electron build was not manually exercised for Office/PDF read-only
+  behavior or adversarial process-level filesystem interference.
