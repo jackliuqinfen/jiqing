@@ -39,6 +39,10 @@ from server.lifecycle_repository import (
     transition_project,
 )
 from server.document_api import DocumentApi
+from server.desktop_sync_policy import (
+    effective_desktop_sync_policy,
+    normalize_desktop_sync_policy,
+)
 from server.migrations import apply_pending_migrations
 from server.recognition.registry import (
     build_recognition_adapter,
@@ -1319,6 +1323,26 @@ def seed_system_settings(conn):
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
         ("upload_settings", {"maxFileSizeMb": DEFAULT_MAX_UPLOAD_SIZE_MB}, "system", "文件上传设置"),
+        (
+            "desktop_sync_policy",
+            {
+                "enabled": False,
+                "allowedRoles": ["admin"],
+                "allowedUserIds": [],
+                "projectSelectionMode": "user_select",
+                "allowedProjectRefs": [],
+                "allowedCategoryKeys": [],
+                "allowedExtensions": [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".webp", ".txt"],
+                "maxFileSizeMb": 100,
+                "maxLocalStorageGb": 10,
+                "pollIntervalSeconds": 300,
+                "allowFolderSelection": True,
+                "removeLocalFilesOnRevocation": False,
+                "policyVersion": 1,
+            },
+            "system",
+            "Windows 客户端本地只读同步策略",
+        ),
         ("sidebar_nav_order", {"order": ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]}, "system", "侧边栏模块顺序"),
         ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color", "workspaceBackgroundImage": ""}, "theme", "当前主题"),
     ]
@@ -4006,6 +4030,31 @@ class Handler(BaseHTTPRequestHandler):
         next_order.extend([item for item in allowed if item not in next_order])
         self.respond(200, {"success": True, "data": {"order": next_order}})
 
+    def desktop_bootstrap(self, conn):
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        policy = normalize_desktop_sync_policy(value)
+        self.respond(200, {"success": True, "data": {
+            "environmentName": os.environ.get("APP_ENV_NAME", "工程管理系统"),
+            "minimumDesktopVersion": os.environ.get("MINIMUM_DESKTOP_VERSION", "1.0.0"),
+            "syncPolicyVersion": policy["policyVersion"],
+        }})
+
+    def desktop_policy(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        self.respond(200, {
+            "success": True,
+            "data": effective_desktop_sync_policy(value, row_dict(user)),
+        })
+
     def set_system_setting(self, conn, key, data):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -4014,6 +4063,29 @@ class Handler(BaseHTTPRequestHandler):
         value = data.get("value")
         if key == "upload_settings":
             value = {"maxFileSizeMb": clamp_upload_size_mb((value or {}).get("maxFileSizeMb"))}
+        if key == "desktop_sync_policy":
+            row = conn.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+            ).fetchone()
+            previous = json.loads(row["setting_value"] or "{}") if row else {}
+            previous_policy = normalize_desktop_sync_policy(previous)
+            policy = normalize_desktop_sync_policy(value)
+            value = {
+                "enabled": policy["enabled"],
+                "enabledByDefault": policy["enabledByDefault"],
+                "allowedRoles": policy["allowedRoles"],
+                "allowedUserIds": policy["allowedUserIds"],
+                "projectSelectionMode": policy["projectSelectionMode"],
+                "allowedProjectRefs": policy["allowedProjectRefs"],
+                "allowedCategoryKeys": policy["allowedCategoryKeys"],
+                "allowedExtensions": policy["allowedExtensions"],
+                "maxFileSizeMb": policy["maxFileSizeBytes"] // (1024 * 1024),
+                "maxLocalStorageGb": policy["maxLocalStorageBytes"] // (1024 * 1024 * 1024),
+                "pollIntervalSeconds": policy["pollIntervalSeconds"],
+                "allowFolderSelection": policy["allowFolderSelection"],
+                "removeLocalFilesOnRevocation": policy["removeLocalFilesOnRevocation"],
+                "policyVersion": previous_policy["policyVersion"] + 1,
+            }
         if key == "sidebar_nav_order":
             allowed = ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]
             submitted = value.get("order") if isinstance(value, dict) else []
@@ -4189,6 +4261,10 @@ class Handler(BaseHTTPRequestHandler):
                             },
                         },
                     )
+                elif path == "/api/desktop/bootstrap":
+                    self.desktop_bootstrap(conn)
+                elif path == "/api/desktop/policy":
+                    self.desktop_policy(conn)
                 elif path.startswith("/api/audit/") and not self.require_user(conn):
                     return
                 elif path == "/api/auth/me":
