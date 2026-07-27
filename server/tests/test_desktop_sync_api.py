@@ -90,8 +90,10 @@ class DesktopSyncApiContractTest(unittest.TestCase):
         upload_root = Path(os.environ["UPLOAD_ROOT"])
         files = {
             "project-records/project-1/one.pdf": b"one",
+            "project-records/project-1/big.pdf": b"large-metadata-only",
             "project-records/project-2/two.pdf": b"two",
             "audit-projects/audit-1/audit.pdf": b"audit",
+            "audit-projects/audit-2/audit.pdf": b"audit-two",
         }
         for relative_path, content in files.items():
             target = upload_root / relative_path
@@ -111,13 +113,16 @@ class DesktopSyncApiContractTest(unittest.TestCase):
                     ("project-2", "PRJ-002", "办公楼改造", now, now),
                 ],
             )
-            conn.execute(
+            conn.executemany(
                 """
                 INSERT INTO audit_projects
                 (id, project_id, project_code, project_name, created_at, updated_at)
-                VALUES ('audit-1', 'project-1', 'AUD-001', '学校维修审计', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (now, now),
+                [
+                    ("audit-1", "project-1", "AUD-001", "学校维修审计", now, now),
+                    ("audit-2", "project-2", "AUD-002", "办公楼改造审计", now, now),
+                ],
             )
             conn.executemany(
                 """
@@ -147,19 +152,52 @@ class DesktopSyncApiContractTest(unittest.TestCase):
                         "project-records/project-2/two.pdf",
                         "2026-07-27T08:30:00Z",
                     ),
+                    (
+                        "file-big",
+                        "project-1",
+                        "大体积资料",
+                        "big.pdf",
+                        "big.pdf",
+                        "project-records/project-1/big.pdf",
+                        "2026-07-27T08:45:00Z",
+                    ),
                 ],
             )
             conn.execute(
                 """
+                UPDATE project_files
+                SET file_size = 2097152
+                WHERE id = 'file-big'
+                """
+            )
+            conn.executemany(
+                """
                 INSERT INTO audit_project_attachments
                 (id, project_id, file_name, file_url, original_name, stored_name,
                  file_ext, mime_type, file_size, relative_path, uploaded_at, created_at)
-                VALUES ('attachment-1', 'audit-1', 'audit.pdf',
-                        'audit-projects/audit-1/audit.pdf', 'audit.pdf', 'audit.pdf',
-                        '.pdf', 'application/pdf', 5,
-                        'audit-projects/audit-1/audit.pdf',
-                        '2026-07-27T09:00:00Z', '2026-07-27T09:00:00Z')
-                """
+                VALUES (?, ?, 'audit.pdf', ?, 'audit.pdf', 'audit.pdf',
+                        '.pdf', 'application/pdf', ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        "attachment-1",
+                        "audit-1",
+                        "audit-projects/audit-1/audit.pdf",
+                        5,
+                        "audit-projects/audit-1/audit.pdf",
+                        "2026-07-27T09:00:00Z",
+                        "2026-07-27T09:00:00Z",
+                    ),
+                    (
+                        "attachment-2",
+                        "audit-2",
+                        "audit-projects/audit-2/audit.pdf",
+                        9,
+                        "audit-projects/audit-2/audit.pdf",
+                        "2026-07-27T09:30:00Z",
+                        "2026-07-27T09:30:00Z",
+                    ),
+                ],
             )
 
     def setUp(self):
@@ -193,6 +231,22 @@ class DesktopSyncApiContractTest(unittest.TestCase):
                     dict(error.headers),
                     json.loads(error.read().decode("utf-8")),
                 )
+
+    def request_raw(self, method, path, user_id=None):
+        headers = {}
+        if user_id:
+            headers["Authorization"] = f"Bearer {self.token(user_id)}"
+        request = Request(
+            f"{self.base_url}{path}",
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, dict(response.headers), response.read()
+        except HTTPError as error:
+            with error:
+                return error.code, dict(error.headers), error.read()
 
     def enable_policy(self, **overrides):
         policy = {
@@ -231,13 +285,29 @@ class DesktopSyncApiContractTest(unittest.TestCase):
         self.assertEqual(status, 200)
         return payload["data"]
 
+    def sync_download_path(self, source_type, source_id, revision):
+        return (
+            f"/api/desktop/sync/files/{source_type}/{source_id}/download"
+            f"?revision={quote(revision, safe='')}"
+        )
+
     def test_sync_routes_require_authentication(self):
         status, _headers, payload = self.request(
             "GET",
             "/api/desktop/sync/projects",
         )
+        download_status, _headers, download_payload = self.request(
+            "GET",
+            self.sync_download_path(
+                "project_file",
+                "file-1",
+                "file-1:1:3:2026-07-27T08:00:00Z",
+            ),
+        )
         self.assertEqual(status, 401)
         self.assertFalse(payload["success"])
+        self.assertEqual(download_status, 401)
+        self.assertFalse(download_payload["success"])
 
     def test_disabled_policy_returns_403(self):
         status, _headers, payload = self.request(
@@ -245,8 +315,22 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             "/api/desktop/sync/projects",
             user_id="editor-user",
         )
+        download_status, _headers, download_payload = self.request(
+            "GET",
+            self.sync_download_path(
+                "project_file",
+                "file-1",
+                "file-1:1:3:2026-07-27T08:00:00Z",
+            ),
+            user_id="editor-user",
+        )
         self.assertEqual(status, 403)
         self.assertEqual(payload["code"], "desktop_sync_disabled")
+        self.assertEqual(download_status, 403)
+        self.assertEqual(
+            download_payload["code"],
+            "desktop_sync_disabled",
+        )
 
     def test_manifest_intersects_admin_assigned_projects(self):
         self.enable_policy(
@@ -280,6 +364,37 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             second["items"][0]["sourceId"],
         )
 
+    def test_manifest_exposes_complete_task_6_contract(self):
+        self.enable_policy(policyVersion=9)
+        status, _headers, roots_payload = self.request(
+            "GET",
+            "/api/desktop/sync/projects",
+            user_id="editor-user",
+        )
+        result = self.manifest()
+        project_file = next(
+            item for item in result["items"] if item["sourceId"] == "file-1"
+        )
+        audit_attachment = next(
+            item
+            for item in result["items"]
+            if item["sourceId"] == "attachment-1"
+        )
+        project_root = next(
+            item
+            for item in roots_payload["data"]
+            if item["projectRef"] == "project:project-1"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result["policyVersion"], 9)
+        self.assertEqual(project_file["categoryName"], "合同文件")
+        self.assertEqual(project_file["versionNo"], 1)
+        self.assertEqual(audit_attachment["categoryName"], "审计附件")
+        self.assertEqual(audit_attachment["versionNo"], 1)
+        self.assertEqual(project_root["totalFileSizeBytes"], 2097160)
+        self.assertTrue(result["nextCursor"])
+
     def test_invalid_cursor_returns_structured_400(self):
         self.enable_policy()
         refs = quote("project:project-1", safe="")
@@ -292,7 +407,7 @@ class DesktopSyncApiContractTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_sync_cursor")
 
-    def test_existing_project_scope_filters_roots_manifest_and_downloads(self):
+    def test_existing_project_scope_filters_sync_and_web_download(self):
         self.enable_policy()
         status, _headers, roots_payload = self.request(
             "GET",
@@ -308,7 +423,7 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             f"/api/desktop/sync/manifest?projectRefs={requested}",
             user_id="limited-user",
         )
-        download_status, _headers, download_payload = self.request(
+        download_status, _headers, download_body = self.request_raw(
             "GET",
             "/api/project-files/file-2/download",
             user_id="limited-user",
@@ -325,21 +440,164 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             {"project:project-1"},
         )
         self.assertEqual(download_status, 403)
-        self.assertFalse(download_payload["success"])
+        self.assertFalse(json.loads(download_body.decode("utf-8"))["success"])
 
-    def test_manifest_reads_do_not_write_operation_logs(self):
+    def test_sync_download_rechecks_project_category_extension_and_size_policy(self):
+        cases = [
+            (
+                "admin assigned project",
+                "project_file",
+                "file-2",
+                "file-2:1:3:2026-07-27T08:30:00Z",
+                "/api/project-files/file-2/download",
+                {
+                    "projectSelectionMode": "admin_assigned",
+                    "allowedProjectRefs": ["project:project-1"],
+                },
+            ),
+            (
+                "category",
+                "project_file",
+                "file-1",
+                "file-1:1:3:2026-07-27T08:00:00Z",
+                "/api/project-files/file-1/download",
+                {"allowedCategoryKeys": ["drawing"]},
+            ),
+            (
+                "extension",
+                "project_file",
+                "file-1",
+                "file-1:1:3:2026-07-27T08:00:00Z",
+                "/api/project-files/file-1/download",
+                {"allowedExtensions": [".docx"]},
+            ),
+            (
+                "size",
+                "project_file",
+                "file-big",
+                "file-big:1:2097152:2026-07-27T08:45:00Z",
+                "/api/project-files/file-big/download",
+                {"maxFileSizeMb": 1},
+            ),
+        ]
+        for label, source_type, source_id, revision, web_path, policy in cases:
+            with self.subTest(label=label):
+                self.enable_policy(**policy)
+                status, _headers, body = self.request_raw(
+                    "GET",
+                    self.sync_download_path(source_type, source_id, revision),
+                    user_id="editor-user",
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(
+                    json.loads(body.decode("utf-8"))["code"],
+                    "desktop_sync_source_forbidden",
+                )
+                web_status, _headers, _web_body = self.request_raw(
+                    "GET",
+                    web_path,
+                    user_id="editor-user",
+                )
+                self.assertEqual(web_status, 200)
+
+    def test_allowed_sync_download_rechecks_exact_source_revision(self):
+        self.enable_policy()
+        result = self.manifest()
+        item = next(
+            entry for entry in result["items"] if entry["sourceId"] == "file-1"
+        )
+        allowed_status, _headers, allowed_body = self.request_raw(
+            "GET",
+            item["downloadPath"],
+            user_id="editor-user",
+        )
+        self.assertEqual(allowed_status, 200)
+        self.assertEqual(allowed_body, b"one")
+
+        try:
+            with audit_api.connect() as conn:
+                conn.execute(
+                    "UPDATE project_files SET version_no = 2 WHERE id = 'file-1'"
+                )
+            stale_status, _headers, stale_body = self.request_raw(
+                "GET",
+                item["downloadPath"],
+                user_id="editor-user",
+            )
+            self.assertEqual(stale_status, 409)
+            self.assertEqual(
+                json.loads(stale_body.decode("utf-8"))["code"],
+                "desktop_sync_revision_changed",
+            )
+        finally:
+            with audit_api.connect() as conn:
+                conn.execute(
+                    "UPDATE project_files SET version_no = 1 WHERE id = 'file-1'"
+                )
+
+    def test_out_of_scope_audit_attachment_sync_download_is_forbidden(self):
+        self.enable_policy()
+        revision = "attachment-2:9:2026-07-27T09:30:00Z"
+        sync_status, _headers, sync_body = self.request_raw(
+            "GET",
+            self.sync_download_path(
+                "audit_attachment",
+                "attachment-2",
+                revision,
+            ),
+            user_id="limited-user",
+        )
+        web_status, _headers, web_body = self.request_raw(
+            "GET",
+            "/api/audit/attachments/attachment-2/download",
+            user_id="limited-user",
+        )
+
+        self.assertEqual(sync_status, 403)
+        self.assertEqual(
+            json.loads(sync_body.decode("utf-8"))["code"],
+            "desktop_sync_source_forbidden",
+        )
+        self.assertEqual(web_status, 403)
+        self.assertFalse(json.loads(web_body.decode("utf-8"))["success"])
+
+    def test_sync_reads_do_not_write_business_or_audit_logs(self):
         self.enable_policy()
         with audit_api.connect() as conn:
-            before = conn.execute(
-                "SELECT COUNT(*) AS count FROM system_operation_logs"
-            ).fetchone()["count"]
+            before = {
+                table: conn.execute(
+                    f"SELECT COUNT(*) AS count FROM {table}"
+                ).fetchone()["count"]
+                for table in (
+                    "system_operation_logs",
+                    "project_operation_logs",
+                    "audit_project_logs",
+                )
+            }
 
-        self.manifest()
+        self.request(
+            "GET",
+            "/api/desktop/sync/projects",
+            user_id="editor-user",
+        )
+        result = self.manifest()
+        item = next(
+            entry for entry in result["items"] if entry["sourceId"] == "file-1"
+        )
+        download_status, _headers, _body = self.request_raw(
+            "GET",
+            item["downloadPath"],
+            user_id="editor-user",
+        )
 
         with audit_api.connect() as conn:
-            after = conn.execute(
-                "SELECT COUNT(*) AS count FROM system_operation_logs"
-            ).fetchone()["count"]
+            after = {
+                table: conn.execute(
+                    f"SELECT COUNT(*) AS count FROM {table}"
+                ).fetchone()["count"]
+                for table in before
+            }
+        self.assertEqual(download_status, 200)
         self.assertEqual(after, before)
 
 

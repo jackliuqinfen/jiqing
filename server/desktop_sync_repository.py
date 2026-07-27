@@ -5,9 +5,12 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 
 HASH_CHUNK_SIZE = 1024 * 1024
+CURSOR_VERSION = 2
+SOURCE_TYPES = ("project_file", "audit_attachment")
 
 
 class InvalidSyncCursor(ValueError):
@@ -42,13 +45,13 @@ def source_revision(source_type, row):
     )
 
 
-def encode_cursor(item):
-    payload = json.dumps(
-        [item["uploadedAt"], item["sourceType"], item["sourceId"]],
+def encode_cursor(payload):
+    raw = json.dumps(
+        payload,
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
 def decode_cursor(cursor):
@@ -61,13 +64,31 @@ def decode_cursor(cursor):
         value = json.loads(payload.decode("utf-8"))
     except (UnicodeEncodeError, ValueError, json.JSONDecodeError) as exc:
         raise InvalidSyncCursor("Invalid desktop sync cursor") from exc
-    if (
-        not isinstance(value, list)
-        or len(value) != 3
-        or not all(isinstance(item, str) and item for item in value)
-    ):
+    if not isinstance(value, dict) or value.get("v") != CURSOR_VERSION:
         raise InvalidSyncCursor("Invalid desktop sync cursor")
-    return tuple(value)
+    mode = value.get("mode")
+    if mode == "resume":
+        processed = _decode_watermarks(value.get("processed"))
+        return {"mode": mode, "processed": processed}
+    if mode == "page":
+        lower = _decode_watermarks(value.get("lower"))
+        snapshot = _decode_watermarks(value.get("snapshot"))
+        after = value.get("after")
+        if (
+            not isinstance(after, list)
+            or len(after) != 3
+            or not all(isinstance(item, str) and item for item in after)
+        ):
+            raise InvalidSyncCursor("Invalid desktop sync cursor")
+        if any(lower[key] > snapshot[key] for key in SOURCE_TYPES):
+            raise InvalidSyncCursor("Invalid desktop sync cursor")
+        return {
+            "mode": mode,
+            "lower": lower,
+            "snapshot": snapshot,
+            "after": tuple(after),
+        }
+    raise InvalidSyncCursor("Invalid desktop sync cursor")
 
 
 def list_sync_project_roots(conn, policy):
@@ -83,11 +104,13 @@ def list_sync_project_roots(conn, policy):
                 "projectCode": item["projectCode"],
                 "projectName": item["projectName"],
                 "fileCount": 0,
+                "totalFileSizeBytes": 0,
             },
         )
         if not root["auditProjectId"] and item["auditProjectId"]:
             root["auditProjectId"] = item["auditProjectId"]
         root["fileCount"] += 1
+        root["totalFileSizeBytes"] += item["fileSize"]
     return sorted(
         roots.values(),
         key=lambda item: (item["projectName"], item["projectRef"]),
@@ -102,17 +125,35 @@ def list_sync_manifest(
     limit,
     path_resolver,
 ):
-    cursor_key = decode_cursor(cursor)
+    cursor_state = decode_cursor(cursor)
     requested_refs = {
         str(project_ref).strip()
         for project_ref in project_refs or []
         if str(project_ref).strip()
     }
     page_limit = _clamp_limit(limit)
+    # SQLite rowids provide an insertion high-water mark for the current
+    # server. Rows inserted after this snapshot are deferred to the resume pass.
+    if cursor_state is None:
+        lower = {source_type: 0 for source_type in SOURCE_TYPES}
+        snapshot = _source_high_water(conn)
+        cursor_key = None
+    elif cursor_state["mode"] == "resume":
+        lower = cursor_state["processed"]
+        snapshot = _source_high_water(conn)
+        cursor_key = None
+    else:
+        lower = cursor_state["lower"]
+        snapshot = cursor_state["snapshot"]
+        cursor_key = cursor_state["after"]
     rows = [
         item
         for item in _eligible_source_rows(conn, policy)
-        if item["projectRef"] in requested_refs
+        if (
+            item["projectRef"] in requested_refs
+            and lower[item["sourceType"]] < item["_sequence"]
+            and item["_sequence"] <= snapshot[item["sourceType"]]
+        )
     ]
     rows.sort(
         key=lambda item: (
@@ -121,7 +162,7 @@ def list_sync_manifest(
             item["sourceId"],
         )
     )
-    if cursor_key:
+    if cursor_key is not None:
         rows = [
             item
             for item in rows
@@ -137,8 +178,39 @@ def list_sync_manifest(
     has_more = len(selected) > page_limit
     selected = selected[:page_limit]
     items = [_manifest_item(conn, item, path_resolver) for item in selected]
-    next_cursor = encode_cursor(items[-1]) if has_more and items else ""
-    return {"items": items, "nextCursor": next_cursor}
+    if has_more:
+        next_cursor = encode_cursor({
+            "v": CURSOR_VERSION,
+            "mode": "page",
+            "lower": lower,
+            "snapshot": snapshot,
+            "after": [
+                items[-1]["uploadedAt"],
+                items[-1]["sourceType"],
+                items[-1]["sourceId"],
+            ],
+        })
+    else:
+        next_cursor = encode_cursor({
+            "v": CURSOR_VERSION,
+            "mode": "resume",
+            "processed": snapshot,
+        })
+    return {
+        "items": items,
+        "nextCursor": next_cursor,
+        "hasMore": has_more,
+        "policyVersion": int(policy.get("policyVersion") or 1),
+    }
+
+
+def find_sync_source(conn, policy, source_type, source_id):
+    if source_type not in SOURCE_TYPES:
+        return None
+    for item in _eligible_source_rows(conn, policy):
+        if item["sourceType"] == source_type and item["sourceId"] == source_id:
+            return item
+    return None
 
 
 def _eligible_source_rows(conn, policy):
@@ -151,10 +223,14 @@ def _project_file_rows(conn):
         """
         SELECT
           f.*,
+          f.rowid AS source_sequence,
           p.project_code AS canonical_project_code,
-          p.project_name AS canonical_project_name
+          p.project_name AS canonical_project_name,
+          c.category_name AS category_name
         FROM project_files f
         JOIN project_records p ON p.id = f.project_id
+        LEFT JOIN project_document_categories c
+          ON c.category_key = f.category_key
         WHERE COALESCE(f.is_deleted, 0) = 0
           AND COALESCE(f.is_current, 0) = 1
           AND COALESCE(p.is_deleted, 0) = 0
@@ -169,10 +245,17 @@ def _project_file_rows(conn):
             "projectName": row["canonical_project_name"] or "",
             "sourceType": "project_file",
             "sourceId": row["id"],
+            "_sequence": int(row["source_sequence"]),
             "sourceRevision": source_revision("project_file", row),
             "displayName": row["display_name"] or row["original_name"],
             "originalName": row["original_name"],
             "categoryKey": row["category_key"],
+            "categoryName": (
+                row["category_name"]
+                or row["category_key"]
+                or "项目资料"
+            ),
+            "versionNo": int(row["version_no"] or 1),
             "fileExt": _normalized_extension(
                 row["file_ext"],
                 row["original_name"],
@@ -191,6 +274,7 @@ def _audit_attachment_rows(conn):
         """
         SELECT
           a.*,
+          a.rowid AS source_sequence,
           audit.project_id AS canonical_project_id,
           audit.project_code AS audit_project_code,
           audit.project_name AS audit_project_name,
@@ -231,10 +315,13 @@ def _audit_attachment_rows(conn):
                 or "",
                 "sourceType": "audit_attachment",
                 "sourceId": row["id"],
+                "_sequence": int(row["source_sequence"]),
                 "sourceRevision": source_revision("audit_attachment", row),
                 "displayName": original_name,
                 "originalName": original_name,
                 "categoryKey": "audit_attachment",
+                "categoryName": "审计附件",
+                "versionNo": 1,
                 "fileExt": _normalized_extension(row["file_ext"], original_name),
                 "mimeType": row["mime_type"] or "",
                 "fileSize": int(row["file_size"] or 0),
@@ -277,16 +364,16 @@ def _manifest_item(conn, item, path_resolver):
             availability = "available"
             sha256 = _cached_sha256(conn, item, path)
             download_path = (
-                f"/api/project-files/{item['sourceId']}/download"
-                if item["sourceType"] == "project_file"
-                else f"/api/audit/attachments/{item['sourceId']}/download"
+                f"/api/desktop/sync/files/{item['sourceType']}/"
+                f"{quote(item['sourceId'], safe='')}/download"
+                f"?revision={quote(item['sourceRevision'], safe='')}"
             )
     except (OSError, TypeError, ValueError):
         pass
     return {
         key: value
         for key, value in item.items()
-        if key != "relativePath"
+        if key not in {"relativePath", "_sequence"}
     } | {
         "availability": availability,
         "sha256": sha256,
@@ -346,6 +433,38 @@ def _normalized_extension(file_ext, filename):
     if value and not value.startswith("."):
         value = f".{value}"
     return value
+
+
+def _source_high_water(conn):
+    return {
+        "project_file": _max_rowid(conn, "project_files"),
+        "audit_attachment": _max_rowid(conn, "audit_project_attachments"),
+    }
+
+
+def _max_rowid(conn, table_name):
+    row = conn.execute(
+        f"SELECT COALESCE(MAX(rowid), 0) AS value FROM {table_name}"
+    ).fetchone()
+    return int(row["value"] or 0)
+
+
+def _decode_watermarks(value):
+    if not isinstance(value, dict) or set(value) != set(SOURCE_TYPES):
+        raise InvalidSyncCursor("Invalid desktop sync cursor")
+    result = {}
+    for source_type in SOURCE_TYPES:
+        watermark = value[source_type]
+        if isinstance(watermark, bool):
+            raise InvalidSyncCursor("Invalid desktop sync cursor")
+        try:
+            watermark = int(watermark)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise InvalidSyncCursor("Invalid desktop sync cursor") from exc
+        if watermark < 0:
+            raise InvalidSyncCursor("Invalid desktop sync cursor")
+        result[source_type] = watermark
+    return result
 
 
 def _clamp_limit(limit):

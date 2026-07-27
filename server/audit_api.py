@@ -45,6 +45,7 @@ from server.desktop_sync_policy import (
 )
 from server.desktop_sync_repository import (
     InvalidSyncCursor,
+    find_sync_source,
     list_sync_manifest,
     list_sync_project_roots,
 )
@@ -4167,6 +4168,63 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.respond(200, {"success": True, "data": result})
 
+    def desktop_sync_download(self, conn, source_type, source_id, params):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        source = find_sync_source(conn, policy, source_type, source_id)
+        if (
+            source is None
+            or not self.source_project_allowed(
+                conn,
+                user,
+                source["canonicalProjectId"],
+            )
+        ):
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_source_forbidden",
+                "error": "该资料不在当前桌面同步授权范围内",
+            })
+            return
+        requested_revision = (
+            params.get("revision", [""])[0] or ""
+        ).strip()
+        if requested_revision != source["sourceRevision"]:
+            self.respond(409, {
+                "success": False,
+                "code": "desktop_sync_revision_changed",
+                "error": "资料版本已变化，请刷新同步清单",
+            })
+            return
+        try:
+            path = safe_attachment_path(source["relativePath"])
+        except (OSError, TypeError, ValueError):
+            self.not_found()
+            return
+        if not path.is_file():
+            self.not_found()
+            return
+        mime_type = (
+            source["mimeType"]
+            or mimetypes.guess_type(source["originalName"])[0]
+            or "application/octet-stream"
+        )
+        self.respond_file(
+            path,
+            mime_type,
+            source["originalName"],
+            inline=False,
+        )
+
     def source_project_allowed(self, conn, user, canonical_project_id):
         actor = {
             "id": user["id"],
@@ -4397,6 +4455,20 @@ class Handler(BaseHTTPRequestHandler):
                     self.desktop_sync_projects(conn)
                 elif path == "/api/desktop/sync/manifest":
                     self.desktop_sync_manifest(conn, params)
+                elif re.match(
+                    r"^/api/desktop/sync/files/([^/]+)/([^/]+)/download$",
+                    path,
+                ):
+                    match = re.match(
+                        r"^/api/desktop/sync/files/([^/]+)/([^/]+)/download$",
+                        path,
+                    )
+                    self.desktop_sync_download(
+                        conn,
+                        unquote(match.group(1)),
+                        unquote(match.group(2)),
+                        params,
+                    )
                 elif path.startswith("/api/audit/") and not self.require_user(conn):
                     return
                 elif path == "/api/auth/me":

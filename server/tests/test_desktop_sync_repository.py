@@ -40,6 +40,10 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
               uploaded_at TEXT NOT NULL,
               is_deleted INTEGER DEFAULT 0
             );
+            CREATE TABLE project_document_categories (
+              category_key TEXT PRIMARY KEY,
+              category_name TEXT NOT NULL
+            );
             CREATE TABLE audit_projects (
               id TEXT PRIMARY KEY,
               project_id TEXT DEFAULT '',
@@ -81,6 +85,13 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
                 ("project-1", "PRJ-001", "区直学校维修"),
                 ("project-2", "PRJ-002", "办公楼改造"),
             ],
+        )
+        self.conn.execute(
+            """
+            INSERT INTO project_document_categories
+            (category_key, category_name)
+            VALUES ('contract', '合同文件')
+            """
         )
         self.conn.executemany(
             """
@@ -143,6 +154,7 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
             "allowedCategoryKeys": [],
             "allowedExtensions": [".pdf"],
             "maxFileSizeBytes": 1024 * 1024,
+            "policyVersion": 7,
         }
 
     def tearDown(self):
@@ -175,6 +187,7 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
         self.assertEqual(project["fileCount"], 2)
         self.assertEqual(project["projectName"], "区直学校维修")
         self.assertEqual(project["auditProjectId"], "audit-1")
+        self.assertEqual(project["totalFileSizeBytes"], 22)
 
     def test_unlinked_audit_project_keeps_an_independent_root(self):
         roots = list_sync_project_roots(self.conn, self.policy)
@@ -195,6 +208,23 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
             all(item["downloadPath"].startswith("/api/") for item in entries)
         )
         self.assertTrue(all(item["sourceRevision"] for item in entries))
+        self.assertEqual(result["policyVersion"], 7)
+        project_file = next(
+            item for item in entries if item["sourceType"] == "project_file"
+        )
+        audit_attachment = next(
+            item for item in entries if item["sourceType"] == "audit_attachment"
+        )
+        self.assertEqual(project_file["categoryName"], "合同文件")
+        self.assertEqual(project_file["versionNo"], 1)
+        self.assertEqual(audit_attachment["categoryName"], "审计附件")
+        self.assertEqual(audit_attachment["versionNo"], 1)
+        self.assertTrue(
+            all(
+                item["downloadPath"].startswith("/api/desktop/sync/files/")
+                for item in entries
+            )
+        )
 
     def test_hash_cache_reuses_an_immutable_source_revision(self):
         first = self.manifest(["project:project-1"])
@@ -213,6 +243,41 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
 
         self.assertEqual(first_item["sha256"], second_item["sha256"])
         self.assertEqual(first_item["sha256"], hashlib.sha256(b"project-file").hexdigest())
+        self.assertEqual(len(cache_rows), 2)
+
+    def test_hash_cache_invalidates_when_source_revision_changes(self):
+        first = self.manifest(["project:project-1"])
+        first_item = next(
+            item for item in first["items"] if item["sourceId"] == "file-1"
+        )
+        self._write("project-1/contract.pdf", b"revised-file")
+        self.conn.execute(
+            """
+            UPDATE project_files
+            SET version_no = 2, file_size = 12
+            WHERE id = 'file-1'
+            """
+        )
+
+        second = self.manifest(["project:project-1"])
+        second_item = next(
+            item for item in second["items"] if item["sourceId"] == "file-1"
+        )
+        cache_rows = self.conn.execute(
+            """
+            SELECT revision_key, sha256
+            FROM desktop_sync_hash_cache
+            WHERE source_type = 'project_file' AND source_id = 'file-1'
+            ORDER BY revision_key
+            """
+        ).fetchall()
+
+        self.assertNotEqual(first_item["sourceRevision"], second_item["sourceRevision"])
+        self.assertNotEqual(first_item["sha256"], second_item["sha256"])
+        self.assertEqual(
+            second_item["sha256"],
+            hashlib.sha256(b"revised-file").hexdigest(),
+        )
         self.assertEqual(len(cache_rows), 2)
 
     def test_missing_file_remains_in_root_and_manifest_without_download(self):
@@ -244,6 +309,61 @@ class DesktopSyncRepositoryTest(unittest.TestCase):
             first["items"][0]["sourceId"],
             second["items"][0]["sourceId"],
         )
+
+    def test_snapshot_defers_same_second_smaller_id_without_skip_or_duplicate(self):
+        first = self.manifest(["project:project-1"], limit=1)
+        self._write("project-1/late.pdf", b"late")
+        self.conn.execute(
+            """
+            INSERT INTO project_files
+            (id, project_id, category_key, display_name, original_name, file_ext,
+             mime_type, file_size, relative_path, version_no, is_current,
+             uploaded_at, is_deleted)
+            VALUES
+            ('aaa-late', 'project-1', 'contract', '后插资料', 'late.pdf', '.pdf',
+             'application/pdf', 4, 'project-1/late.pdf', 1, 1,
+             '2026-07-27T08:00:00Z', 0)
+            """
+        )
+
+        final_page = self.manifest(
+            ["project:project-1"],
+            cursor=first["nextCursor"],
+            limit=1,
+        )
+        resumed = self.manifest(
+            ["project:project-1"],
+            cursor=final_page["nextCursor"],
+            limit=10,
+        )
+
+        self.assertTrue(first["hasMore"])
+        self.assertFalse(final_page["hasMore"])
+        self.assertTrue(final_page["nextCursor"])
+        self.assertEqual(
+            {first["items"][0]["sourceId"], final_page["items"][0]["sourceId"]},
+            {"file-1", "attachment-1"},
+        )
+        self.assertEqual(
+            [item["sourceId"] for item in resumed["items"]],
+            ["aaa-late"],
+        )
+        self.assertFalse(resumed["hasMore"])
+        self.assertTrue(resumed["nextCursor"])
+
+    def test_only_page_returns_nonempty_resume_watermark(self):
+        result = self.manifest(["audit:audit-2"], limit=200)
+        resumed = self.manifest(
+            ["audit:audit-2"],
+            cursor=result["nextCursor"],
+            limit=200,
+        )
+
+        self.assertFalse(result["hasMore"])
+        self.assertTrue(result["nextCursor"])
+        self.assertEqual(resumed["items"], [])
+        self.assertFalse(resumed["hasMore"])
+        self.assertTrue(resumed["nextCursor"])
 
 
 if __name__ == "__main__":
