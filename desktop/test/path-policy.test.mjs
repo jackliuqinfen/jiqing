@@ -12,6 +12,7 @@ import { dirname, join, sep } from 'node:path'
 import {
   appendFilenameSuffix,
   buildRelativePath,
+  canonicalizePath,
   pathsOverlap,
   resolvePhysicalPath,
   resolveWithinRoot,
@@ -36,6 +37,19 @@ test('detects equal, parent, and child path overlap without matching siblings', 
     join('C:\\', 'Program Files', 'JiqingERP Files'),
     installationDirectory,
   ), false)
+})
+
+test('physical path canonicalization fails closed on non-ENOENT errors', () => {
+  const denied = Object.assign(new Error('access denied'), { code: 'EACCES' })
+  assert.throws(
+    () => canonicalizePath(
+      join('C:\\', 'Program Files', 'JiqingERP'),
+      () => {
+        throw denied
+      },
+    ),
+    /unable to resolve physical path boundary/i,
+  )
 })
 
 test('normalizes unsafe Windows names deterministically', () => {

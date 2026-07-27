@@ -26,9 +26,7 @@ test('folder actions are wired through Electron dialog and shell without rendere
 })
 
 test('internal-test window title survives remote page title updates', () => {
-  assert.match(main, /page-title-updated/)
-  assert.match(main, /event\.preventDefault\(\)/)
-  assert.match(main, /window\.setTitle/)
+  assert.match(main, /installEnvironmentTitleGuard/)
   assert.match(main, /config\.environmentLabel/)
 })
 

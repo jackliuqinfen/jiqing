@@ -41,6 +41,10 @@ import {
 import { DesktopApiClient } from './sync/api-client.mjs'
 import { SyncEngine } from './sync/sync-engine.mjs'
 import { pathsOverlap } from './sync/path-policy.mjs'
+import {
+  desktopWindowTitle,
+  installEnvironmentTitleGuard,
+} from './window-title.mjs'
 
 const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
@@ -252,9 +256,7 @@ async function loadApplication(window, navigationGuard) {
 
 async function createMainWindow() {
   const restoredBounds = readWindowBounds()
-  const windowTitle = config.environmentLabel
-    ? `集庆工程管理 - ${config.environmentLabel}`
-    : '集庆工程管理'
+  const windowTitle = desktopWindowTitle(config.environmentLabel)
   const window = new BrowserWindow({
     width: restoredBounds?.width ?? 1440,
     height: restoredBounds?.height ?? 900,
@@ -274,9 +276,10 @@ async function createMainWindow() {
   })
 
   const navigationGuard = protectWebContents(window)
-  window.webContents.on('page-title-updated', (event) => {
-    event.preventDefault()
-    window.setTitle(windowTitle)
+  installEnvironmentTitleGuard({
+    webContents: window.webContents,
+    window,
+    environmentLabel: config.environmentLabel,
   })
   window.once('ready-to-show', () => window.show())
   window.on('close', () => saveWindowBounds(window))

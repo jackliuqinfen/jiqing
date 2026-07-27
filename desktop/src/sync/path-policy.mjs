@@ -138,18 +138,30 @@ function isInside(root, target) {
   )
 }
 
-export function canonicalizePath(value) {
+export function canonicalizePath(
+  value,
+  realpathImpl = realpathSync.native,
+) {
   let current = resolve(value)
   const missingSegments = []
   while (true) {
     try {
       return resolve(
-        realpathSync.native(current),
+        realpathImpl(current),
         ...missingSegments,
       )
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new Error('unable to resolve physical path boundary', {
+          cause: error,
+        })
+      }
       const parent = dirname(current)
-      if (parent === current) return resolve(value)
+      if (parent === current) {
+        throw new Error('unable to resolve physical path boundary', {
+          cause: error,
+        })
+      }
       missingSegments.unshift(basename(current))
       current = parent
     }
