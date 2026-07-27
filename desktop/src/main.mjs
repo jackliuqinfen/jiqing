@@ -19,7 +19,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { registerAppProtocol } from './app-protocol.mjs'
-import { loadDesktopConfig } from './config.mjs'
+import {
+  loadDesktopConfig,
+  readEmbeddedReleaseProfile,
+} from './config.mjs'
 import {
   createDesktopIpcController,
   DESKTOP_IPC_CHANNELS,
@@ -40,7 +43,16 @@ import { SyncEngine } from './sync/sync-engine.mjs'
 
 const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
-const config = loadDesktopConfig(process.env)
+const embeddedProfile = app.isPackaged
+  ? readEmbeddedReleaseProfile(
+      new URL('./release-profile.generated.json', import.meta.url),
+    )
+  : null
+const config = loadDesktopConfig({
+  embeddedProfile,
+  env: process.env,
+  isPackaged: app.isPackaged,
+})
 const sessionPartition = 'desktop-erp-memory'
 let desktopIpcController = null
 let mainWindow = null

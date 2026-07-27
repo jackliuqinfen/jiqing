@@ -1,8 +1,11 @@
+import { readFileSync } from 'node:fs'
+
 const RELEASE_CHANNELS = new Set([
   'development',
   'internal-test',
   'production',
 ])
+const EMBEDDED_PROFILE_SCHEMA_VERSION = 1
 
 const ENVIRONMENT_LABELS = Object.freeze({
   development: '开发环境',
@@ -37,7 +40,7 @@ function parseServerOrigin(value) {
   })
 }
 
-export function loadDesktopConfig(env = {}) {
+function configFromEnvironment(env) {
   const releaseChannel = String(env.DESKTOP_RELEASE_CHANNEL || '').trim()
   if (!RELEASE_CHANNELS.has(releaseChannel)) {
     throw new Error('invalid desktop release channel')
@@ -55,5 +58,77 @@ export function loadDesktopConfig(env = {}) {
     healthUrl: `${parsed.origin}/api/health`,
     bootstrapUrl: `${parsed.origin}/api/desktop/bootstrap`,
     healthTimeoutMs: 8000,
+  })
+}
+
+export function validateEmbeddedReleaseProfile(value) {
+  if (
+    !value
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || value.schemaVersion !== EMBEDDED_PROFILE_SCHEMA_VERSION
+    || !RELEASE_CHANNELS.has(value.releaseChannel)
+  ) {
+    throw new Error('invalid embedded release profile')
+  }
+
+  const parsed = parseServerOrigin(value.serverOrigin)
+  if (value.releaseChannel === 'production' && parsed.protocol !== 'https:') {
+    throw new Error('production desktop server URL requires HTTPS')
+  }
+
+  return Object.freeze({
+    schemaVersion: EMBEDDED_PROFILE_SCHEMA_VERSION,
+    releaseChannel: value.releaseChannel,
+    serverOrigin: parsed.origin,
+  })
+}
+
+export function readEmbeddedReleaseProfile(profileUrl) {
+  try {
+    const parsed = JSON.parse(readFileSync(profileUrl, 'utf8'))
+    return validateEmbeddedReleaseProfile(parsed)
+  } catch (error) {
+    if (
+      error instanceof Error
+      && (
+        error.message.includes('embedded release profile')
+        || error.message.includes('requires HTTPS')
+      )
+    ) {
+      throw error
+    }
+    throw new Error('invalid embedded release profile')
+  }
+}
+
+export function createEmbeddedReleaseProfile(env = {}) {
+  const config = configFromEnvironment(env)
+  return Object.freeze({
+    schemaVersion: EMBEDDED_PROFILE_SCHEMA_VERSION,
+    releaseChannel: config.releaseChannel,
+    serverOrigin: config.origin,
+  })
+}
+
+export function loadDesktopConfig(input = {}) {
+  const usesOptionsShape = (
+    Object.hasOwn(input, 'isPackaged')
+    || Object.hasOwn(input, 'embeddedProfile')
+    || Object.hasOwn(input, 'env')
+  )
+  if (!usesOptionsShape) return configFromEnvironment(input)
+
+  const {
+    embeddedProfile,
+    env = {},
+    isPackaged = false,
+  } = input
+  if (!isPackaged) return configFromEnvironment(env)
+
+  const profile = validateEmbeddedReleaseProfile(embeddedProfile)
+  return configFromEnvironment({
+    DESKTOP_RELEASE_CHANNEL: profile.releaseChannel,
+    DESKTOP_SERVER_URL: profile.serverOrigin,
   })
 }

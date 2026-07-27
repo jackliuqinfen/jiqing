@@ -6,6 +6,8 @@ node_modules/
 dist/
 dist-ssr/
 release-temp/
+desktop/dist/
+desktop/src/release-profile.generated.json
 *.zip
 *.local
 
