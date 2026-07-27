@@ -6,9 +6,26 @@ import {
   rename,
   rm,
 } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import {
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  resolve,
+} from 'node:path'
 
 const SCHEMA_VERSION = 1
+const RECOVERY_ENTRY_KEYS = Object.freeze([
+  'accountedBytes',
+  'cleanupFiles',
+  'createdAt',
+  'id',
+  'physicalFiles',
+  'rootPath',
+  'sourceKey',
+  'type',
+])
+const RECOVERY_TRANSACTION_ID = /^[a-f0-9]{32}$/
 const saveQueues = new Map()
 
 function environmentKey(origin) {
@@ -30,18 +47,62 @@ function isStringArray(value) {
     && value.every((item) => typeof item === 'string' && item.length > 0)
 }
 
+function hasExactKeys(value, expectedKeys) {
+  const keys = Object.keys(value).sort()
+  return keys.length === expectedKeys.length
+    && keys.every((key, index) => key === expectedKeys[index])
+}
+
+function isCanonicalAbsolutePath(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 4096
+    && isAbsolute(value)
+    && normalize(value) === value
+    && resolve(value) === value
+}
+
+function isRecoveryRelativePath(value, transactionId) {
+  return value === `.jiqing-backup-${transactionId}`
+    || value === `.jiqing-rollback-${transactionId}`
+}
+
+function isIsoTimestamp(value) {
+  if (typeof value !== 'string') return false
+  const parsed = new Date(value)
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
+}
+
 function isValidRecoveryEntries(entries) {
   return isPlainObject(entries)
     && Object.entries(entries).every(([id, entry]) => (
       isPlainObject(entry)
+      && hasExactKeys(entry, RECOVERY_ENTRY_KEYS)
+      && RECOVERY_TRANSACTION_ID.test(id)
       && entry.id === id
       && typeof entry.sourceKey === 'string'
+      && entry.sourceKey.length > 0
+      && entry.sourceKey.length <= 1024
       && ['cleanup_pending', 'manual_recovery'].includes(entry.type)
+      && isCanonicalAbsolutePath(entry.rootPath)
       && isStringArray(entry.physicalFiles)
+      && entry.physicalFiles.length > 0
+      && new Set(entry.physicalFiles).size === entry.physicalFiles.length
+      && entry.physicalFiles.every(
+        (relativePath) => isRecoveryRelativePath(relativePath, id),
+      )
       && isStringArray(entry.cleanupFiles)
+      && new Set(entry.cleanupFiles).size === entry.cleanupFiles.length
+      && entry.cleanupFiles.every(
+        (relativePath) => entry.physicalFiles.includes(relativePath),
+      )
+      && (
+        (entry.type === 'cleanup_pending' && entry.cleanupFiles.length === 1)
+        || (entry.type === 'manual_recovery' && entry.cleanupFiles.length === 0)
+      )
       && Number.isSafeInteger(entry.accountedBytes)
       && entry.accountedBytes >= 0
-      && typeof entry.createdAt === 'string'
+      && isIsoTimestamp(entry.createdAt)
     ))
 }
 

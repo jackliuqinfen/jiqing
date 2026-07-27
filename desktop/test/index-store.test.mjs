@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -207,33 +208,70 @@ test('rejects an index belonging to another environment or user', async (t) => {
   )
 })
 
-test('quarantines malformed recovery ledger entries', async (t) => {
-  const appDataPath = temporaryDirectory(t)
-  const store = new SyncIndexStore({
-    appDataPath,
-    environmentOrigin: 'https://erp.example.cn',
-    userId: 'user-1',
-  })
-  const index = createEmptyIndex('https://erp.example.cn', 'user-1')
-  index.recoveryEntries.invalid = {
-    id: 'invalid',
-    type: 'cleanup_pending',
-    physicalFiles: '.jiqing-backup-invalid',
-    cleanupFiles: [],
-    accountedBytes: 5,
-    createdAt: '2026-07-27T10:05:00.000Z',
+test('quarantines every malformed recovery ledger shape', async (t) => {
+  const transactionId = 'a'.repeat(32)
+  const cases = [
+    ['unexpected key', (entry) => ({ ...entry, arbitrary: true })],
+    ['invalid transaction id', (entry) => ({
+      ...entry,
+      id: 'invalid',
+    })],
+    ['relative bound root', (entry) => ({
+      ...entry,
+      rootPath: 'relative-root',
+    })],
+    ['non-canonical bound root', (entry) => ({
+      ...entry,
+      rootPath: `${entry.rootPath}\\.`,
+    })],
+    ['traversal physical path', (entry) => ({
+      ...entry,
+      physicalFiles: ['../outside.txt'],
+      cleanupFiles: ['../outside.txt'],
+    })],
+    ['arbitrary physical path', (entry) => ({
+      ...entry,
+      physicalFiles: ['keep.txt'],
+      cleanupFiles: ['keep.txt'],
+    })],
+    ['mismatched recovery name', (entry) => ({
+      ...entry,
+      physicalFiles: [`.jiqing-backup-${'b'.repeat(32)}`],
+      cleanupFiles: [`.jiqing-backup-${'b'.repeat(32)}`],
+    })],
+    ['cleanup outside physical files', (entry) => ({
+      ...entry,
+      cleanupFiles: [`.jiqing-rollback-${transactionId}`],
+    })],
+  ]
+
+  for (const [name, mutate] of cases) {
+    await t.test(name, async (t) => {
+      const appDataPath = temporaryDirectory(t)
+      const store = new SyncIndexStore({
+        appDataPath,
+        environmentOrigin: 'https://erp.example.cn',
+        userId: 'user-1',
+      })
+      const index = createEmptyIndex('https://erp.example.cn', 'user-1')
+      const entry = {
+        id: transactionId,
+        sourceKey: 'project_file:doc-1',
+        type: 'cleanup_pending',
+        rootPath: realpathSync(appDataPath),
+        physicalFiles: [`.jiqing-backup-${transactionId}`],
+        cleanupFiles: [`.jiqing-backup-${transactionId}`],
+        accountedBytes: 5,
+        createdAt: '2026-07-27T10:05:00.000Z',
+      }
+      index.recoveryEntries[transactionId] = mutate(entry)
+      await store.save(createEmptyIndex('https://erp.example.cn', 'user-1'))
+      writeFileSync(store.filePath, JSON.stringify(index), 'utf8')
+
+      assert.deepEqual(
+        await store.load(),
+        createEmptyIndex('https://erp.example.cn', 'user-1'),
+      )
+    })
   }
-  await store.save(createEmptyIndex('https://erp.example.cn', 'user-1'))
-  writeFileSync(
-    store.filePath,
-    JSON.stringify(index),
-    'utf8',
-  )
-
-  const recovered = await store.load()
-
-  assert.deepEqual(
-    recovered,
-    createEmptyIndex('https://erp.example.cn', 'user-1'),
-  )
 })

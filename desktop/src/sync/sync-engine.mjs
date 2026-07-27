@@ -4,11 +4,12 @@ import {
   access,
   chmod,
   mkdir,
+  realpath,
   rename,
   rm,
   stat,
 } from 'node:fs/promises'
-import { posix } from 'node:path'
+import { normalize, posix } from 'node:path'
 
 import { SyncApiError } from './api-client.mjs'
 import { SyncIndexStore } from './index-store.mjs'
@@ -228,6 +229,7 @@ function createRecoveryEntry({
   id,
   source,
   type,
+  rootPath,
   physicalFiles,
   cleanupFiles,
   accountedBytes,
@@ -237,11 +239,17 @@ function createRecoveryEntry({
     id,
     sourceKey: source,
     type,
+    rootPath,
     physicalFiles: [...new Set(physicalFiles)],
     cleanupFiles: [...new Set(cleanupFiles)],
     accountedBytes,
     createdAt: now.toISOString(),
   }
+}
+
+function physicalPathKey(value) {
+  const normalized = normalize(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
 function errorCode(error) {
@@ -342,6 +350,7 @@ export class SyncEngine {
       token: authToken,
       cancelled: false,
       root: this.state.localRoot,
+      physicalRoot: null,
       commitMutex: new AsyncMutex(),
       authoritativeUserId: null,
       reservedBytes: 0,
@@ -367,6 +376,8 @@ export class SyncEngine {
       await mkdir(run.root, { recursive: true })
       this.assertActive(run)
       await resolvePhysicalPath(run.root, '.')
+      this.assertActive(run)
+      run.physicalRoot = await realpath(run.root)
       this.assertActive(run)
 
       const lockKey = `${this.environmentOrigin}\n${run.authoritativeUserId}`
@@ -799,7 +810,6 @@ export class SyncEngine {
         previousRecord,
         transactionId,
         destinationPath,
-        destinationRelativePath: destination.relativePath,
         backupPath,
         backupRelativePath,
         rollbackRelativePath,
@@ -815,6 +825,13 @@ export class SyncEngine {
         await this.persistRollback(store, index, error)
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError)
+        if (rollback.entry) {
+          try {
+            await this.persistRecoveryEntry(store, index, rollback.entry)
+          } catch (trackingError) {
+            rollbackErrors.push(trackingError)
+          }
+        }
       }
       if (rollbackErrors.length > 0) {
         throw new FileSyncError(
@@ -834,13 +851,18 @@ export class SyncEngine {
           id: transactionId,
           source: key,
           type: 'cleanup_pending',
+          rootPath: run.physicalRoot,
           physicalFiles: [backupRelativePath],
           cleanupFiles: [backupRelativePath],
           accountedBytes: replacedSize,
           now: this.now(),
         })
         try {
-          await this.saveIndex(run, store, index)
+          await this.persistRecoveryEntry(
+            store,
+            index,
+            index.recoveryEntries[transactionId],
+          )
         } catch (trackingError) {
           throw new FileSyncError(
             'recovery_tracking_failed',
@@ -866,7 +888,6 @@ export class SyncEngine {
     previousRecord,
     transactionId,
     destinationPath,
-    destinationRelativePath,
     backupPath,
     backupRelativePath,
     rollbackRelativePath,
@@ -893,6 +914,7 @@ export class SyncEngine {
               id: transactionId,
               source: sourceKey(item),
               type: 'manual_recovery',
+              rootPath: run.physicalRoot,
               physicalFiles,
               cleanupFiles: [],
               accountedBytes,
@@ -916,8 +938,6 @@ export class SyncEngine {
       accountedBytes += item.fileSize
     } catch (error) {
       errors.push(error)
-      physicalFiles.push(destinationRelativePath)
-      accountedBytes += item.fileSize
     }
 
     if (backupCreated) {
@@ -936,15 +956,18 @@ export class SyncEngine {
     }
 
     return {
-      entry: createRecoveryEntry({
-        id: transactionId,
-        source: sourceKey(item),
-        type: errors.length > 0 ? 'manual_recovery' : 'cleanup_pending',
-        physicalFiles,
-        cleanupFiles: errors.length > 0 ? [] : [rollbackRelativePath],
-        accountedBytes,
-        now: this.now(),
-      }),
+      entry: physicalFiles.length > 0
+        ? createRecoveryEntry({
+            id: transactionId,
+            source: sourceKey(item),
+            type: errors.length > 0 ? 'manual_recovery' : 'cleanup_pending',
+            rootPath: run.physicalRoot,
+            physicalFiles,
+            cleanupFiles: errors.length > 0 ? [] : [rollbackRelativePath],
+            accountedBytes,
+            now: this.now(),
+          })
+        : null,
       errors,
     }
   }
@@ -1010,21 +1033,45 @@ export class SyncEngine {
         relativePaths.add(relativePath)
       }
     }
-    for (const entry of Object.values(index.recoveryEntries ?? {})) {
-      for (const relativePath of entry?.physicalFiles ?? []) {
-        if (isNonEmptyString(relativePath, 220)) {
-          relativePaths.add(relativePath)
-        }
-      }
-    }
 
     let total = 0
+    const countedPaths = new Set()
     for (const relativePath of relativePaths) {
       const filePath = await resolvePhysicalPath(run.root, relativePath)
       this.assertActive(run)
       const details = await stat(filePath).catch(() => null)
       this.assertActive(run)
-      if (details?.isFile()) total += details.size
+      if (details?.isFile()) {
+        countedPaths.add(`${physicalPathKey(run.physicalRoot)}\0${relativePath}`)
+        total += details.size
+      }
+    }
+
+    for (const entry of Object.values(index.recoveryEntries ?? {})) {
+      let observedBytes = 0
+      let fullyObserved = true
+      for (const relativePath of entry.physicalFiles) {
+        const storageKey = `${physicalPathKey(entry.rootPath)}\0${relativePath}`
+        if (countedPaths.has(storageKey)) continue
+        countedPaths.add(storageKey)
+        try {
+          const filePath = await this.resolveRecoveryPath(entry, relativePath)
+          this.assertActive(run)
+          const details = await stat(filePath)
+          this.assertActive(run)
+          if (!details.isFile()) {
+            fullyObserved = false
+          } else {
+            observedBytes += details.size
+          }
+        } catch (error) {
+          if (error instanceof RunPausedError) throw error
+          fullyObserved = false
+        }
+      }
+      total += fullyObserved
+        ? observedBytes
+        : Math.max(observedBytes, entry.accountedBytes)
     }
     return total
   }
@@ -1040,10 +1087,9 @@ export class SyncEngine {
       let cleanupFailed = false
       for (const relativePath of entry.cleanupFiles) {
         try {
-          const filePath = await resolvePhysicalPath(run.root, relativePath)
+          const filePath = await this.resolveRecoveryPath(entry, relativePath)
           this.assertActive(run)
           await this.removeFile(filePath, { force: true })
-          this.assertActive(run)
         } catch (error) {
           if (error instanceof RunPausedError) throw error
           cleanupFailed = true
@@ -1056,15 +1102,64 @@ export class SyncEngine {
         continue
       }
 
-      const previous = structuredClone(entry)
-      delete index.recoveryEntries[id]
       try {
-        await this.saveIndex(run, store, index)
+        await this.removeRecoveryEntry(store, index, id, entry)
       } catch (error) {
-        index.recoveryEntries[id] = previous
-        await this.persistRollback(store, index, error)
         throw error
       }
+      this.assertActive(run)
+    }
+  }
+
+  async resolveRecoveryPath(entry, relativePath) {
+    const currentPhysicalRoot = await realpath(entry.rootPath)
+    if (physicalPathKey(currentPhysicalRoot)
+      !== physicalPathKey(entry.rootPath)) {
+      throw new FileSyncError(
+        'recovery_root_changed',
+        'Recovery root no longer resolves to its recorded physical path',
+      )
+    }
+    return resolvePhysicalPath(entry.rootPath, relativePath)
+  }
+
+  async persistRecoveryEntry(store, index, entry) {
+    try {
+      // The caller holds the authoritative-user lock; reload so only the
+      // recovery ledger, never run state or cursors, crosses cancellation.
+      const durableIndex = await store.load()
+      durableIndex.recoveryEntries ??= {}
+      durableIndex.recoveryEntries[entry.id] = structuredClone(entry)
+      await store.save(durableIndex)
+      index.recoveryEntries[entry.id] = structuredClone(entry)
+    } catch (cause) {
+      throw new FileSyncError(
+        'recovery_tracking_failed',
+        'Recovery artifacts could not be tracked durably',
+        { cause },
+      )
+    }
+  }
+
+  async removeRecoveryEntry(store, index, id, expectedEntry) {
+    try {
+      const durableIndex = await store.load()
+      const durableEntry = durableIndex.recoveryEntries?.[id]
+      if (durableEntry
+        && JSON.stringify(durableEntry) !== JSON.stringify(expectedEntry)) {
+        throw new Error('recovery ledger changed during cleanup')
+      }
+      if (durableEntry) {
+        delete durableIndex.recoveryEntries[id]
+        await store.save(durableIndex)
+      }
+      delete index.recoveryEntries[id]
+    } catch (cause) {
+      throw new FileSyncError(
+        'recovery_tracking_failed',
+        'Recovery cleanup could not be committed durably',
+        { cause },
+      )
     }
   }
 

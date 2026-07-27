@@ -4,8 +4,10 @@ import { createHash } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   unlinkSync,
@@ -960,6 +962,60 @@ test('pause during trusted-backup cleanup keeps the committed replacement', asyn
   )
 })
 
+test('root replacement after cleanup failure still persists recovery tracking', async (t) => {
+  const cleanupEntered = deferred()
+  const releaseCleanup = deferred()
+  let held = false
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('server-v1'))],
+      [entry('r-2', Buffer.from('server-v2'))],
+    ],
+    engineOptions: {
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-backup-') && !held) {
+          held = true
+          cleanupEntered.resolve()
+          await releaseCleanup.promise
+          throw new Error('backup cleanup denied')
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+
+  const updating = harness.engine.start(session())
+  const boundary = await Promise.race([
+    cleanupEntered.promise.then(() => 'cleanup'),
+    updating.then(() => 'completed'),
+  ])
+  assert.equal(boundary, 'cleanup')
+  const replacementRoot = join(harness.localRoot, '..', 'replacement-root')
+  harness.engine.setLocalRoot(replacementRoot)
+  releaseCleanup.resolve()
+  await updating
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const index = await store.load()
+  const recoveryEntries = Object.values(index.recoveryEntries)
+  assert.equal(harness.engine.getState().status, 'paused')
+  assert.equal(harness.engine.getState().localRoot, replacementRoot)
+  assert.equal(recoveryEntries.length, 1)
+  assert.equal(recoveryEntries[0].rootPath, realpathSync(harness.localRoot))
+  assert.equal(
+    readFileSync(
+      join(harness.localRoot, recoveryEntries[0].physicalFiles[0]),
+      'utf8',
+    ),
+    'server-v1',
+  )
+})
+
 test('failed replacement rollback preserves both copies and records an explicit failure', async (t) => {
   let failUpdateSave = true
   let failRestore = true
@@ -1102,6 +1158,86 @@ test('index rollback failure preserves both revisions in quota-accounted recover
   assert.equal(harness.engine.getState().status, 'partial_failure')
 })
 
+test('pause after index rollback failure still persists recovery tracking', async (t) => {
+  const rollbackSaveEntered = deferred()
+  const releaseRollbackSave = deferred()
+  let publicationSaveFailed = false
+  let rollbackSaveFailed = false
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+    ],
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          async save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-2' && !publicationSaveFailed) {
+              publicationSaveFailed = true
+              throw new Error('publication index save denied')
+            }
+            if (record?.sourceRevision === 'r-1'
+              && Object.keys(index.recoveryEntries ?? {}).length > 0
+              && !rollbackSaveFailed) {
+              rollbackSaveFailed = true
+              rollbackSaveEntered.resolve()
+              await releaseRollbackSave.promise
+              throw new Error('rollback index save denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+    },
+  })
+  await harness.engine.start(session())
+
+  const updating = harness.engine.start(session())
+  const boundary = await Promise.race([
+    rollbackSaveEntered.promise.then(() => 'rollback-save'),
+    updating.then(() => 'completed'),
+  ])
+  assert.equal(boundary, 'rollback-save')
+  harness.engine.pause()
+  releaseRollbackSave.resolve()
+  await updating
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const index = await store.load()
+  const recoveryEntries = Object.values(index.recoveryEntries)
+  assert.equal(harness.engine.getState().status, 'paused')
+  assert.equal(recoveryEntries.length, 1)
+  assert.equal(recoveryEntries[0].rootPath, realpathSync(harness.localRoot))
+  assert.equal(
+    readFileSync(
+      join(harness.localRoot, recoveryEntries[0].physicalFiles[0]),
+      'utf8',
+    ),
+    'new-2',
+  )
+  assert.equal(
+    readFileSync(
+      join(
+        harness.localRoot,
+        index.files['project_file:doc-1'].relativePath,
+      ),
+      'utf8',
+    ),
+    'old-1',
+  )
+})
+
 test('cleanup-pending backups stay quota-accounted until a later explicit cleanup succeeds', async (t) => {
   let cleanupAttempts = 0
   const harness = createTestEngine(t, {
@@ -1165,6 +1301,108 @@ test('cleanup-pending backups stay quota-accounted until a later explicit cleanu
       .map(String)
       .some((name) => name.includes('.jiqing-backup-')),
     false,
+  )
+})
+
+test('root change keeps recovery cleanup and quota bound to the artifact root', async (t) => {
+  const cleanupPaths = []
+  let rootA
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+      [entry('r-3', Buffer.from('sixsix'), {
+        sourceId: 'doc-2',
+        originalName: '杩藉姞璧勬枡.pdf',
+      })],
+    ],
+    policy: {
+      maxFileSizeBytes: 6,
+      maxLocalStorageBytes: 10,
+    },
+    engineOptions: {
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-backup-')) {
+          cleanupPaths.push(path)
+          if (rootA && path.startsWith(rootA)) {
+            throw new Error('root A cleanup deferred')
+          }
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  mkdirSync(harness.localRoot, { recursive: true })
+  rootA = realpathSync(harness.localRoot)
+  await harness.engine.start(session())
+  await harness.engine.start(session())
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  let index = await store.load()
+  const [recovery] = Object.values(index.recoveryEntries)
+  assert.equal(recovery.rootPath, rootA)
+  const rootAArtifact = join(rootA, recovery.physicalFiles[0])
+  assert.equal(readFileSync(rootAArtifact, 'utf8'), 'old-1')
+
+  const rootB = join(harness.localRoot, '..', 'visible-b')
+  mkdirSync(rootB, { recursive: true })
+  const rootBSentinel = join(rootB, recovery.physicalFiles[0])
+  writeFileSync(rootBSentinel, 'keep-root-b', 'utf8')
+  harness.engine.setLocalRoot(rootB)
+  await harness.engine.start(session())
+
+  index = await store.load()
+  assert.equal(readFileSync(rootAArtifact, 'utf8'), 'old-1')
+  assert.equal(readFileSync(rootBSentinel, 'utf8'), 'keep-root-b')
+  assert.equal(Object.keys(index.recoveryEntries).length, 1)
+  assert.ok(cleanupPaths.length >= 2)
+  assert.equal(
+    cleanupPaths.slice(1).every((path) => path.startsWith(rootA)),
+    true,
+  )
+  assert.equal(
+    index.files['project_file:doc-2'].lastErrorCode,
+    'policy_storage_limit',
+  )
+  assert.equal(index.files['project_file:doc-2'].relativePath, null)
+})
+
+test('malformed recovery ledger never deletes a selected-root file', async (t) => {
+  const harness = createTestEngine(t, { manifests: [[]] })
+  mkdirSync(harness.localRoot, { recursive: true })
+  const sentinel = join(harness.localRoot, 'keep.txt')
+  writeFileSync(sentinel, 'keep-me', 'utf8')
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const index = await store.load()
+  const transactionId = 'a'.repeat(32)
+  index.recoveryEntries[transactionId] = {
+    id: transactionId,
+    sourceKey: 'project_file:doc-1',
+    type: 'cleanup_pending',
+    rootPath: realpathSync(harness.localRoot),
+    physicalFiles: ['keep.txt'],
+    cleanupFiles: ['keep.txt'],
+    accountedBytes: 7,
+    createdAt: '2026-07-27T10:05:00.000Z',
+  }
+  await store.save(await store.load())
+  writeFileSync(store.filePath, JSON.stringify(index), 'utf8')
+
+  await harness.engine.start(session())
+
+  assert.equal(readFileSync(sentinel, 'utf8'), 'keep-me')
+  assert.equal(
+    readdirSync(store.directoryPath)
+      .some((name) => name.includes('.corrupt-')),
+    true,
   )
 })
 

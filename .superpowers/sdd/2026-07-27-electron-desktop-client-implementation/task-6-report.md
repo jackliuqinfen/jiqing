@@ -656,3 +656,143 @@ exit 0, no diff errors
 - Tests use temporary NTFS directories and controlled HTTP responses. This round
   did not run authenticated synchronization against a live central server or a
   packaged Electron client.
+
+---
+
+# Fix Round 4/5
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+All round 4 findings were addressed without changing the six-method IPC
+surface, sandboxed preload, authenticated GET-only synchronization, server
+authority, or Task 7 UI.
+
+## TDD Evidence
+
+### Red
+
+The initial round 4 regression run was:
+
+```text
+node --test desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 58, pass 46, fail 12, cancelled 0, skipped 0, todo 0
+duration_ms 1674.9368
+```
+
+Eleven failures demonstrated the intended production defects:
+
+- cancellation during index rollback or failed backup cleanup left zero durable
+  recovery entries;
+- permissive ledger validation accepted unexpected keys, relative/noncanonical
+  roots, traversal/arbitrary paths, transaction-name mismatches, and cleanup
+  paths outside `physicalFiles`;
+- a malformed ledger deleted `keep.txt` from the selected root.
+
+One additional failure was a test-fixture setup error (`realpathSync` before the
+temporary root existed); the root was created explicitly before the production
+implementation was changed.
+
+### Green
+
+Final focused recovery/index suite:
+
+```text
+node --test desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 58, pass 58, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 2158.0609
+```
+
+Final required desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 119, pass 119, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1902.6308
+```
+
+Required contract and static verification:
+
+```text
+node scripts/verify-desktop-ipc.mjs
+Desktop IPC contract verified
+
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+all exited 0
+
+git diff --check
+exit 0, no diff errors
+Git emitted only existing LF-to-CRLF working-copy notices
+```
+
+## Fixes Delivered
+
+- Added a recovery-only durable index transaction. It reloads the latest
+  per-user index and mutates only `recoveryEntries`, so cancellation cannot
+  prevent already-created artifacts from being recorded and the path cannot
+  advance a cursor or publish success.
+- Kept recovery-only writes inside the existing authoritative-user partition
+  lock. A replacement run waits until the canceled run has completed its
+  recovery write.
+- Added cancellation-boundary tests for both an index rollback save failure
+  followed by pause and a committed-backup cleanup failure followed by local
+  root replacement. Both prove the retained bytes and ledger survive.
+- Bound every recovery entry to the canonical physical root returned by
+  `realpath`. Cleanup revalidates that exact root and applies physical
+  containment checks before removing a reserved artifact.
+- Changed recovery quota scans to account each entry against its bound root.
+  Missing or inaccessible recovery paths conservatively retain
+  `accountedBytes`.
+- Added a root A to root B regression with an identically named root B
+  sentinel. Cleanup remains directed at root A, root B is untouched, the ledger
+  remains present after deferred cleanup, and root A bytes continue to block an
+  over-quota publication under root B.
+- Hardened recovery-ledger validation to require exact keys and types, a
+  lowercase 32-hex transaction ID, a canonical absolute root, unique
+  engine-reserved root-relative filenames correlated to the transaction ID,
+  valid ISO time, and `cleanupFiles` as a subset of `physicalFiles`.
+- Invalid ledger data quarantines the index before recovery processing. The
+  adversarial engine test proves an arbitrary selected-root file is not
+  deleted.
+- Durable cleanup-ledger removal also reloads and mutates only recovery
+  metadata. If persistence fails after physical cleanup, the existing ledger
+  remains as a conservative quota reservation for a later explicit start.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- Recovery-only persistence has no run-activity assertion and carries no token,
+  network call, cursor mutation, file-success record, or state-success
+  emission. It records only artifacts that filesystem rollback or failed
+  cleanup already created.
+- Automatic recovery deletion accepts only `.jiqing-backup-<transaction>` or
+  `.jiqing-rollback-<transaction>` at the recorded physical root. Manual
+  recovery entries remain nondeleting.
+- Existing-root reparse/junction checks and realpath containment are applied
+  again at cleanup time, not trusted from index validation alone.
+- Old-root recovery entries remain in the same authoritative-user index across
+  root selection changes and remain quota-accounted until deletion succeeds.
+- `desktop/src/ipc-contract.mjs`, `desktop/src/preload.cjs`, main-process IPC,
+  renderer files, and dependency manifests are unchanged.
+- All synchronization network behavior remains authenticated GET-only. No
+  upload, server delete, server rename, local watcher, fabricated business
+  data, or fabricated success was added.
+
+## Concerns
+
+- `manual_recovery` entries intentionally remain durable and quota-accounted
+  until an operator resolves them; Task 6 has no recovery-management UI.
+- Tests use temporary NTFS directories and controlled HTTP responses. This round
+  did not run authenticated synchronization against a live central server or a
+  packaged Electron client.
