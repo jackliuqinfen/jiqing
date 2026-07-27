@@ -220,7 +220,7 @@ async function createMainWindow() {
       : '集庆工程管理',
     icon: join(app.getAppPath(), 'assets', 'icon.ico'),
     webPreferences: createSecureWebPreferences({
-      preload: join(moduleRoot, 'preload.mjs'),
+      preload: join(moduleRoot, 'preload.cjs'),
       partition: sessionPartition,
     }),
   })
