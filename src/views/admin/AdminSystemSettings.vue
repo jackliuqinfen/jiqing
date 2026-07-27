@@ -301,11 +301,32 @@
 
     <ACard class="settings-card desktop-sync-card" title="本地资料同步" :bordered="true">
       <template #actions>
-        <AButton size="small" theme="primary" :loading="savingDesktopSync" @click="saveDesktopSyncSettings">保存同步策略</AButton>
+        <AButton
+          size="small"
+          theme="primary"
+          :loading="savingDesktopSync || desktopSyncPolicyLoading"
+          :disabled="!desktopSyncPolicyLoaded || desktopSyncPolicyLoading"
+          @click="saveDesktopSyncSettings"
+        >
+          保存同步策略
+        </AButton>
       </template>
 
       <AAlert type="info" class="desktop-sync-intro">
         服务器到本地只读同步，本地新增或修改不会自动上传。
+      </AAlert>
+
+      <div v-if="desktopSyncPolicyLoadError" class="desktop-sync-load-error">
+        <AAlert type="error">
+          {{ desktopSyncPolicyLoadError }}
+        </AAlert>
+        <AButton size="small" :loading="desktopSyncPolicyLoading" @click="retryDesktopSyncPolicy">
+          重新加载同步策略
+        </AButton>
+      </div>
+
+      <AAlert v-if="desktopSyncValidationError" type="error" class="desktop-sync-validation-error">
+        {{ desktopSyncValidationError }}
       </AAlert>
 
       <AForm :model="desktopSyncSettings" label-align="left" label-width="180px" class="settings-form desktop-sync-form">
@@ -338,7 +359,7 @@
             mode="multiple"
             allow-clear
             :loading="loadingDesktopUsers"
-            :options="desktopUserOptions"
+            :options="desktopUserSelectOptions"
             placeholder="选择允许同步的用户"
           />
           <p v-if="desktopUsersEmptyText" class="desktop-sync-empty">{{ desktopUsersEmptyText }}</p>
@@ -368,7 +389,7 @@
             mode="multiple"
             allow-clear
             :loading="loadingDesktopProjects"
-            :options="desktopProjectOptions"
+            :options="desktopProjectSelectOptions"
             placeholder="选择允许同步的项目"
           />
           <p v-if="desktopProjectsEmptyText" class="desktop-sync-empty">{{ desktopProjectsEmptyText }}</p>
@@ -380,18 +401,20 @@
             mode="multiple"
             allow-clear
             :loading="loadingDesktopCategories"
-            :options="desktopCategoryOptions"
+            :options="desktopCategorySelectOptions"
             placeholder="选择允许同步的资料分类"
           />
           <p v-if="desktopCategoriesEmptyText" class="desktop-sync-empty">{{ desktopCategoriesEmptyText }}</p>
         </AFormItem>
 
-        <AFormItem label="允许的文件格式" help="输入扩展名后按回车确认；保存时会自动转为小写并补全英文句点。">
+        <AFormItem
+          label="允许的文件格式"
+          help="至少保留 1 种，最多 30 种；每个扩展名不超过 16 个字符。保存时会转为小写并补全英文句点。"
+        >
           <ASelect
             v-model="desktopSyncSettings.allowedExtensions"
             mode="multiple"
             allow-create
-            allow-clear
             :options="desktopExtensionOptions"
             placeholder="例如 .pdf、.docx"
           />
@@ -472,6 +495,10 @@ const savingLogin = ref(false)
 const savingTheme = ref(false)
 const savingUpload = ref(false)
 const savingDesktopSync = ref(false)
+const desktopSyncPolicyLoading = ref(false)
+const desktopSyncPolicyLoaded = ref(false)
+const desktopSyncPolicyLoadError = ref('')
+const desktopSyncValidationError = ref('')
 const loadingDesktopUsers = ref(false)
 const loadingDesktopProjects = ref(false)
 const loadingDesktopCategories = ref(false)
@@ -497,6 +524,8 @@ const DEFAULT_DESKTOP_EXTENSIONS = [
   '.pdf', '.doc', '.docx', '.xls', '.xlsx',
   '.jpg', '.jpeg', '.png', '.webp', '.txt',
 ]
+const MAX_DESKTOP_EXTENSION_COUNT = 30
+const MAX_DESKTOP_EXTENSION_LENGTH = 16
 const desktopUserOptions = ref<SelectOption[]>([])
 const desktopProjectOptions = ref<SelectOption[]>([])
 const desktopCategoryOptions = ref<SelectOption[]>([])
@@ -551,6 +580,29 @@ const hasCustomWorkspaceBackground = computed(() => Boolean(themeSettings.worksp
 const workspaceBackgroundPreviewStyle = computed(() => ({
   backgroundImage: workspaceBackgroundCssValue(themeSettings.workspaceBackgroundImage),
 }))
+
+function withRetainedDesktopOptions(options: SelectOption[], values: string[]) {
+  const retained = [...options]
+  const knownValues = new Set(options.map((option) => option.value))
+  for (const value of uniqueDesktopSyncStrings(values)) {
+    if (knownValues.has(value)) continue
+    retained.push({ label: `已保留配置：${value}`, value })
+  }
+  return retained
+}
+
+const desktopUserSelectOptions = computed(() => withRetainedDesktopOptions(
+  desktopUserOptions.value,
+  desktopSyncSettings.allowedUserIds,
+))
+const desktopProjectSelectOptions = computed(() => withRetainedDesktopOptions(
+  desktopProjectOptions.value,
+  desktopSyncSettings.allowedProjectRefs,
+))
+const desktopCategorySelectOptions = computed(() => withRetainedDesktopOptions(
+  desktopCategoryOptions.value,
+  desktopSyncSettings.allowedCategoryKeys,
+))
 
 const desktopUsersEmptyText = computed(() => {
   if (loadingDesktopUsers.value || desktopUserOptions.value.length) return ''
@@ -729,13 +781,28 @@ function boundedDesktopSyncInteger(value: unknown, fallback: number, minimum: nu
   return Math.max(minimum, Math.min(maximum, normalized))
 }
 
-function normalizeDesktopSyncExtensions(value: unknown) {
+function inspectDesktopSyncExtensions(value: unknown) {
   const result: string[] = []
+  let hasInvalidValue = false
   for (const item of uniqueDesktopSyncStrings(value)) {
     const suffix = item.toLowerCase().startsWith('.') ? item.toLowerCase() : `.${item.toLowerCase()}`
-    if (/^\.[a-z0-9]+$/.test(suffix) && !result.includes(suffix)) result.push(suffix)
+    if (!/^\.[a-z0-9]+$/.test(suffix) || suffix.length > MAX_DESKTOP_EXTENSION_LENGTH) {
+      hasInvalidValue = true
+      continue
+    }
+    if (!result.includes(suffix)) result.push(suffix)
   }
-  return result.length ? result : [...DEFAULT_DESKTOP_EXTENSIONS]
+  return {
+    values: result,
+    hasInvalidValue,
+    exceedsCount: result.length > MAX_DESKTOP_EXTENSION_COUNT,
+  }
+}
+
+function normalizeDesktopSyncExtensions(value: unknown) {
+  const inspected = inspectDesktopSyncExtensions(value)
+  const values = inspected.values.slice(0, MAX_DESKTOP_EXTENSION_COUNT)
+  return values.length ? values : [...DEFAULT_DESKTOP_EXTENSIONS]
 }
 
 function desktopDisplayUnit(
@@ -782,10 +849,42 @@ function normalizeDesktopSyncPolicy(value: unknown): DesktopSyncPolicySetting {
   }
 }
 
+function validateDesktopSyncSettings() {
+  if (!desktopSyncPolicyLoaded.value) {
+    return '同步策略尚未成功加载，请重新加载后再保存。'
+  }
+  const roles = uniqueDesktopSyncStrings(desktopSyncSettings.allowedRoles)
+    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
+  if (!roles.length) {
+    return '请至少保留一个允许使用的角色。'
+  }
+  const extensions = inspectDesktopSyncExtensions(desktopSyncSettings.allowedExtensions)
+  if (extensions.hasInvalidValue) {
+    return `文件扩展名只能包含英文和数字，且含句点总长度不能超过 ${MAX_DESKTOP_EXTENSION_LENGTH} 个字符。`
+  }
+  if (extensions.exceedsCount) {
+    return `允许同步的文件格式最多为 ${MAX_DESKTOP_EXTENSION_COUNT} 种。`
+  }
+  if (!extensions.values.length) {
+    return '请至少保留一种允许同步的文件格式。'
+  }
+  return ''
+}
+
 function toggleDesktopRole(role: AdminRole, checked: boolean) {
+  if (
+    !checked
+    && desktopSyncSettings.allowedRoles.includes(role)
+    && desktopSyncSettings.allowedRoles.length === 1
+  ) {
+    desktopSyncValidationError.value = '请至少保留一个允许使用的角色。'
+    MessagePlugin.warning(desktopSyncValidationError.value)
+    return
+  }
   const next = desktopSyncSettings.allowedRoles.filter((item) => item !== role)
   if (checked) next.push(role)
   desktopSyncSettings.allowedRoles = next
+  desktopSyncValidationError.value = ''
 }
 
 async function fetchDesktopSyncProjectRoots() {
@@ -836,7 +935,6 @@ async function loadDesktopSyncUsers() {
       }))
   } catch {
     desktopUsersLoadFailed.value = true
-    desktopUserOptions.value = []
   } finally {
     loadingDesktopUsers.value = false
   }
@@ -864,7 +962,6 @@ async function loadDesktopSyncProjects() {
       }))
     } catch {
       desktopProjectsLoadFailed.value = true
-      desktopProjectOptions.value = []
     }
   } finally {
     loadingDesktopProjects.value = false
@@ -881,7 +978,6 @@ async function loadDesktopSyncCategories() {
       .map((category) => ({ label: category.categoryName, value: category.categoryKey }))
   } catch {
     desktopCategoriesLoadFailed.value = true
-    desktopCategoryOptions.value = []
   } finally {
     loadingDesktopCategories.value = false
   }
@@ -895,21 +991,41 @@ async function loadDesktopSyncResources() {
   ])
 }
 
+async function loadDesktopSyncPolicy() {
+  desktopSyncPolicyLoading.value = true
+  desktopSyncPolicyLoaded.value = false
+  desktopSyncPolicyLoadError.value = ''
+  desktopSyncValidationError.value = ''
+  try {
+    const setting = await getSystemSetting('desktop_sync_policy')
+    const policy = normalizeDesktopSyncPolicy(setting?.value)
+    Object.assign(desktopSyncSettings, policy)
+    desktopSyncPolicyLoaded.value = true
+  } catch {
+    desktopSyncPolicyLoadError.value = '本地资料同步策略加载失败。为避免覆盖已有配置，当前禁止保存。'
+  } finally {
+    desktopSyncPolicyLoading.value = false
+  }
+}
+
+async function retryDesktopSyncPolicy() {
+  await loadDesktopSyncPolicy()
+}
+
 onMounted(async () => {
   void loadDesktopSyncResources()
+  void loadDesktopSyncPolicy()
   try {
-    const [reg, login, upload, desktopSync, themes, currentTheme] = await Promise.all([
+    const [reg, login, upload, themes, currentTheme] = await Promise.all([
       getSystemSetting('registration_open'),
       getSystemSetting('login_rules'),
       getSystemSetting('upload_settings'),
-      getSystemSetting('desktop_sync_policy'),
       getThemeOptions(),
       getCurrentTheme(),
     ])
     if (reg) Object.assign(regSettings, reg.value as RegistrationSetting)
     if (login) Object.assign(loginRulesSettings, login.value as LoginRulesSetting)
     if (upload) Object.assign(uploadSettings, normalizeUploadSettings(upload.value as UploadSetting))
-    if (desktopSync) Object.assign(desktopSyncSettings, normalizeDesktopSyncPolicy(desktopSync.value))
     themeOptions.value = themes
     Object.assign(themeSettings, {
       themeKey: currentTheme.themeKey,
@@ -1208,15 +1324,28 @@ async function saveUploadSettings() {
 }
 
 async function saveDesktopSyncSettings() {
+  desktopSyncValidationError.value = validateDesktopSyncSettings()
+  if (desktopSyncValidationError.value) {
+    MessagePlugin.warning(desktopSyncValidationError.value)
+    return
+  }
+  const allowedRoles = uniqueDesktopSyncStrings(desktopSyncSettings.allowedRoles)
+    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
+  const allowedExtensions = inspectDesktopSyncExtensions(desktopSyncSettings.allowedExtensions).values
   savingDesktopSync.value = true
   try {
-    const normalized = normalizeDesktopSyncPolicy(desktopSyncSettings)
+    const normalized = normalizeDesktopSyncPolicy({
+      ...desktopSyncSettings,
+      allowedRoles,
+      allowedExtensions,
+    })
     Object.assign(desktopSyncSettings, normalized)
     await setSystemSetting(
       'desktop_sync_policy',
       { ...normalized },
-      authStore.user?.username || 'admin',
+      authStore.username,
     )
+    desktopSyncValidationError.value = ''
     MessagePlugin.success('本地资料同步策略已保存')
   } catch (err) {
     MessagePlugin.error(err instanceof Error ? err.message : '同步策略保存失败，请稍后重试。')
@@ -1243,8 +1372,19 @@ async function saveDesktopSyncSettings() {
 }
 .switch-text { margin-left: var(--space-3); font-size: var(--text-sm); color: var(--text-secondary); }
 .desktop-sync-intro,
+.desktop-sync-validation-error,
 .desktop-sync-warning {
   margin-bottom: var(--space-4);
+}
+.desktop-sync-load-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.desktop-sync-load-error :deep(.arco-alert) {
+  flex: 1;
+  min-width: 0;
 }
 .desktop-sync-form :deep(.arco-form-item-content-flex) {
   min-width: 0;
