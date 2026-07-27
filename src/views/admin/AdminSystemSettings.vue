@@ -298,6 +298,135 @@
         建议日常资料控制在 100MB 以内。超过该限制时，系统会提示员工压缩文件或联系管理员调整上限。
       </p>
     </ACard>
+
+    <ACard class="settings-card desktop-sync-card" title="本地资料同步" :bordered="true">
+      <template #actions>
+        <AButton size="small" theme="primary" :loading="savingDesktopSync" @click="saveDesktopSyncSettings">保存同步策略</AButton>
+      </template>
+
+      <AAlert type="info" class="desktop-sync-intro">
+        服务器到本地只读同步，本地新增或修改不会自动上传。
+      </AAlert>
+
+      <AForm :model="desktopSyncSettings" label-align="left" label-width="180px" class="settings-form desktop-sync-form">
+        <AFormItem label="启用本地资料同步" help="总开关默认关闭。关闭后，所有客户端都不能获取同步清单或下载同步文件。">
+          <ASwitch v-model="desktopSyncSettings.enabled" size="medium" />
+          <span class="switch-text">{{ desktopSyncSettings.enabled ? '已启用' : '已关闭' }}</span>
+        </AFormItem>
+
+        <AFormItem label="客户端首次默认启用" help="仅控制已获授权用户首次使用客户端时的初始选择，不会绕过上方总开关或服务器权限。">
+          <ASwitch v-model="desktopSyncSettings.enabledByDefault" size="medium" />
+          <span class="switch-text">{{ desktopSyncSettings.enabledByDefault ? '默认勾选' : '默认不勾选' }}</span>
+        </AFormItem>
+
+        <AFormItem label="允许使用的角色" help="用户符合任一允许角色，或被单独加入允许用户，才具备同步资格。">
+          <div class="desktop-sync-checkboxes">
+            <ACheckbox
+              v-for="role in desktopRoleOptions"
+              :key="role.value"
+              :model-value="desktopSyncSettings.allowedRoles.includes(role.value)"
+              @change="toggleDesktopRole(role.value, Boolean($event))"
+            >
+              {{ role.label }}
+            </ACheckbox>
+          </div>
+        </AFormItem>
+
+        <AFormItem label="单独允许的用户" help="列表只显示用户管理中的真实账号；不选择时仅按角色授权。">
+          <ASelect
+            v-model="desktopSyncSettings.allowedUserIds"
+            mode="multiple"
+            allow-clear
+            :loading="loadingDesktopUsers"
+            :options="desktopUserOptions"
+            placeholder="选择允许同步的用户"
+          />
+          <p v-if="desktopUsersEmptyText" class="desktop-sync-empty">{{ desktopUsersEmptyText }}</p>
+        </AFormItem>
+
+        <AFormItem label="项目选择方式" help="员工自选仅能选择其有权访问的项目；管理员指定则只同步下方指定项目。">
+          <div class="desktop-sync-segmented" role="group" aria-label="项目选择方式">
+            <button
+              v-for="mode in desktopProjectModeOptions"
+              :key="mode.value"
+              type="button"
+              :class="{ active: desktopSyncSettings.projectSelectionMode === mode.value }"
+              @click="desktopSyncSettings.projectSelectionMode = mode.value"
+            >
+              {{ mode.label }}
+            </button>
+          </div>
+        </AFormItem>
+
+        <AFormItem
+          v-if="desktopSyncSettings.projectSelectionMode === 'admin_assigned'"
+          label="管理员指定项目"
+          help="优先读取桌面同步授权项目；策略尚未启用或接口不可用时，回退为当前管理员可见的真实项目。"
+        >
+          <ASelect
+            v-model="desktopSyncSettings.allowedProjectRefs"
+            mode="multiple"
+            allow-clear
+            :loading="loadingDesktopProjects"
+            :options="desktopProjectOptions"
+            placeholder="选择允许同步的项目"
+          />
+          <p v-if="desktopProjectsEmptyText" class="desktop-sync-empty">{{ desktopProjectsEmptyText }}</p>
+        </AFormItem>
+
+        <AFormItem label="允许的资料分类" help="不选择时不额外限制分类；列表来自项目资料分类配置。">
+          <ASelect
+            v-model="desktopSyncSettings.allowedCategoryKeys"
+            mode="multiple"
+            allow-clear
+            :loading="loadingDesktopCategories"
+            :options="desktopCategoryOptions"
+            placeholder="选择允许同步的资料分类"
+          />
+          <p v-if="desktopCategoriesEmptyText" class="desktop-sync-empty">{{ desktopCategoriesEmptyText }}</p>
+        </AFormItem>
+
+        <AFormItem label="允许的文件格式" help="输入扩展名后按回车确认；保存时会自动转为小写并补全英文句点。">
+          <ASelect
+            v-model="desktopSyncSettings.allowedExtensions"
+            mode="multiple"
+            allow-create
+            allow-clear
+            :options="desktopExtensionOptions"
+            placeholder="例如 .pdf、.docx"
+          />
+        </AFormItem>
+
+        <div class="desktop-sync-number-grid">
+          <AFormItem label="单文件上限">
+            <AInputNumber v-model="desktopSyncSettings.maxFileSizeMb" :min="1" :max="500" />
+            <span class="switch-text">MB</span>
+          </AFormItem>
+          <AFormItem label="本地空间上限">
+            <AInputNumber v-model="desktopSyncSettings.maxLocalStorageGb" :min="1" :max="500" />
+            <span class="switch-text">GB</span>
+          </AFormItem>
+          <AFormItem label="自动检查间隔">
+            <AInputNumber v-model="desktopSyncSettings.pollIntervalSeconds" :min="60" :max="3600" />
+            <span class="switch-text">秒</span>
+          </AFormItem>
+        </div>
+
+        <AFormItem label="允许员工选择本地文件夹" help="开启后，客户端可由员工选择只读镜像的保存位置。">
+          <ASwitch v-model="desktopSyncSettings.allowFolderSelection" size="medium" />
+          <span class="switch-text">{{ desktopSyncSettings.allowFolderSelection ? '允许选择' : '使用客户端默认位置' }}</span>
+        </AFormItem>
+
+        <AFormItem label="权限撤销时清理本地文件" help="客户端只会尽力清理受管理的同步副本，无法远程召回员工已经复制到其他位置的文件。">
+          <ASwitch v-model="desktopSyncSettings.removeLocalFilesOnRevocation" size="medium" />
+          <span class="switch-text">{{ desktopSyncSettings.removeLocalFilesOnRevocation ? '尽力清理' : '保留本地副本' }}</span>
+        </AFormItem>
+      </AForm>
+
+      <AAlert v-if="desktopSyncSettings.removeLocalFilesOnRevocation" type="warning" class="desktop-sync-warning">
+        本地清理只能尽力执行，已复制、另存或转发的文件不能被服务器远程召回。
+      </AAlert>
+    </ACard>
   </div>
 </template>
 
@@ -307,12 +436,15 @@ import { useRouter } from 'vue-router'
 import type { ISpec } from '@visactor/vchart/esm/core'
 import {
   getCurrentTheme,
+  getAdminUsers,
+  getAuthToken,
   getSystemSetting,
   getThemeOptions,
   resetCurrentTheme,
   setSystemSetting,
   updateCurrentTheme,
 } from '@/api/system'
+import { fetchProjectMeta, fetchProjectRecords } from '@/api/projects'
 import VChartPanel from '@/components/VChartPanel.vue'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
@@ -322,7 +454,15 @@ import {
   normalizeArcoThemePackage,
   workspaceBackgroundCssValue,
 } from '@/ui/theme'
-import type { RegistrationSetting, LoginRulesSetting, ThemeOption, ThemeSetting, UploadSetting } from '@/types'
+import type {
+  AdminRole,
+  DesktopSyncPolicySetting,
+  LoginRulesSetting,
+  RegistrationSetting,
+  ThemeOption,
+  ThemeSetting,
+  UploadSetting,
+} from '@/types'
 import PageHeader from '@/components/PageHeader.vue'
 
 const authStore = useAuthStore()
@@ -331,6 +471,13 @@ const savingReg = ref(false)
 const savingLogin = ref(false)
 const savingTheme = ref(false)
 const savingUpload = ref(false)
+const savingDesktopSync = ref(false)
+const loadingDesktopUsers = ref(false)
+const loadingDesktopProjects = ref(false)
+const loadingDesktopCategories = ref(false)
+const desktopUsersLoadFailed = ref(false)
+const desktopProjectsLoadFailed = ref(false)
+const desktopCategoriesLoadFailed = ref(false)
 const workspaceBackgroundInput = ref<HTMLInputElement | null>(null)
 const themeOptions = ref<ThemeOption[]>([])
 const themePackageInput = ref('')
@@ -339,11 +486,56 @@ const pendingThemePackage = ref('')
 const pendingThemeBrandColor = ref('#165DFF')
 const brandFollowDecisionHandled = ref(false)
 
+type SelectOption = { label: string; value: string }
+type DesktopSyncProjectRoot = {
+  projectRef: string
+  projectName: string
+  projectCode?: string
+}
+
+const DEFAULT_DESKTOP_EXTENSIONS = [
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.jpg', '.jpeg', '.png', '.webp', '.txt',
+]
+const desktopUserOptions = ref<SelectOption[]>([])
+const desktopProjectOptions = ref<SelectOption[]>([])
+const desktopCategoryOptions = ref<SelectOption[]>([])
+
+const desktopRoleOptions: Array<{ label: string; value: AdminRole }> = [
+  { label: '管理员', value: 'admin' },
+  { label: '编辑者', value: 'editor' },
+  { label: '查看者', value: 'viewer' },
+]
+const desktopProjectModeOptions: Array<{
+  label: string
+  value: DesktopSyncPolicySetting['projectSelectionMode']
+}> = [
+  { label: '员工选择授权项目', value: 'user_select' },
+  { label: '管理员指定项目', value: 'admin_assigned' },
+]
+const desktopExtensionOptions = DEFAULT_DESKTOP_EXTENSIONS.map((value) => ({ label: value, value }))
+
 const regSettings = reactive<RegistrationSetting>({ enabled: false, requireApproval: true })
 const loginRulesSettings = reactive<LoginRulesSetting>({
   minPasswordLength: 1, maxLoginAttempts: 5, sessionTimeoutMinutes: 480, allowConcurrentSessions: true,
 })
 const uploadSettings = reactive<UploadSetting>({ maxFileSizeMb: 100 })
+const desktopSyncSettings = reactive<DesktopSyncPolicySetting>({
+  enabled: false,
+  enabledByDefault: false,
+  allowedRoles: ['admin'],
+  allowedUserIds: [],
+  projectSelectionMode: 'user_select',
+  allowedProjectRefs: [],
+  allowedCategoryKeys: [],
+  allowedExtensions: [...DEFAULT_DESKTOP_EXTENSIONS],
+  maxFileSizeMb: 100,
+  maxLocalStorageGb: 10,
+  pollIntervalSeconds: 300,
+  allowFolderSelection: true,
+  removeLocalFilesOnRevocation: false,
+  policyVersion: 1,
+})
 const themeSettings = reactive<ThemeSetting>({
   themeKey: 'arco-theme-0000',
   darkMode: false,
@@ -359,6 +551,19 @@ const hasCustomWorkspaceBackground = computed(() => Boolean(themeSettings.worksp
 const workspaceBackgroundPreviewStyle = computed(() => ({
   backgroundImage: workspaceBackgroundCssValue(themeSettings.workspaceBackgroundImage),
 }))
+
+const desktopUsersEmptyText = computed(() => {
+  if (loadingDesktopUsers.value || desktopUserOptions.value.length) return ''
+  return desktopUsersLoadFailed.value ? '用户列表暂时无法读取，请稍后重试。' : '用户管理中暂无可用账号。'
+})
+const desktopProjectsEmptyText = computed(() => {
+  if (loadingDesktopProjects.value || desktopProjectOptions.value.length) return ''
+  return desktopProjectsLoadFailed.value ? '项目列表暂时无法读取，请稍后重试。' : '当前没有可授权的真实项目。'
+})
+const desktopCategoriesEmptyText = computed(() => {
+  if (loadingDesktopCategories.value || desktopCategoryOptions.value.length) return ''
+  return desktopCategoriesLoadFailed.value ? '资料分类暂时无法读取，请稍后重试。' : '当前没有已启用的资料分类。'
+})
 
 const applyScopeOptions = [
   { label: '全局', value: 'global' },
@@ -495,18 +700,216 @@ const chartPreviewSpec = computed<ISpec>(() => ({
   ],
 } as ISpec))
 
-onMounted(async () => {
+function uniqueDesktopSyncStrings(value: unknown) {
+  if (!Array.isArray(value)) return []
+  const result: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const normalized = item.trim()
+    if (normalized && !result.includes(normalized)) result.push(normalized)
+  }
+  return result
+}
+
+function trustedDesktopSyncBoolean(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function boundedDesktopSyncInteger(value: unknown, fallback: number, minimum: number, maximum: number) {
+  if (typeof value === 'boolean' || value === null || value === '') return fallback
+  let normalized: number
+  if (typeof value === 'number') {
+    normalized = Math.trunc(value)
+  } else if (typeof value === 'string' && /^[+-]?\d+$/.test(value.trim())) {
+    normalized = Number(value)
+  } else {
+    return fallback
+  }
+  if (!Number.isFinite(normalized)) return fallback
+  return Math.max(minimum, Math.min(maximum, normalized))
+}
+
+function normalizeDesktopSyncExtensions(value: unknown) {
+  const result: string[] = []
+  for (const item of uniqueDesktopSyncStrings(value)) {
+    const suffix = item.toLowerCase().startsWith('.') ? item.toLowerCase() : `.${item.toLowerCase()}`
+    if (/^\.[a-z0-9]+$/.test(suffix) && !result.includes(suffix)) result.push(suffix)
+  }
+  return result.length ? result : [...DEFAULT_DESKTOP_EXTENSIONS]
+}
+
+function desktopDisplayUnit(
+  value: Record<string, unknown>,
+  displayKey: string,
+  byteKey: string,
+  fallback: number,
+  bytesPerUnit: number,
+) {
+  if (displayKey in value) {
+    return boundedDesktopSyncInteger(value[displayKey], fallback, 1, 500)
+  }
+  if (byteKey in value) {
+    const bytes = boundedDesktopSyncInteger(value[byteKey], fallback * bytesPerUnit, bytesPerUnit, 500 * bytesPerUnit)
+    return Math.max(1, Math.min(500, Math.floor(bytes / bytesPerUnit)))
+  }
+  return fallback
+}
+
+function normalizeDesktopSyncPolicy(value: unknown): DesktopSyncPolicySetting {
+  const raw = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  const roles = uniqueDesktopSyncStrings(raw.allowedRoles)
+    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
+  const projectSelectionMode = raw.projectSelectionMode === 'admin_assigned'
+    ? 'admin_assigned'
+    : 'user_select'
+  return {
+    enabled: trustedDesktopSyncBoolean(raw.enabled, false),
+    enabledByDefault: trustedDesktopSyncBoolean(raw.enabledByDefault, false),
+    allowedRoles: roles.length ? roles : ['admin'],
+    allowedUserIds: uniqueDesktopSyncStrings(raw.allowedUserIds),
+    projectSelectionMode,
+    allowedProjectRefs: uniqueDesktopSyncStrings(raw.allowedProjectRefs),
+    allowedCategoryKeys: uniqueDesktopSyncStrings(raw.allowedCategoryKeys),
+    allowedExtensions: normalizeDesktopSyncExtensions(raw.allowedExtensions),
+    maxFileSizeMb: desktopDisplayUnit(raw, 'maxFileSizeMb', 'maxFileSizeBytes', 100, 1024 * 1024),
+    maxLocalStorageGb: desktopDisplayUnit(raw, 'maxLocalStorageGb', 'maxLocalStorageBytes', 10, 1024 * 1024 * 1024),
+    pollIntervalSeconds: boundedDesktopSyncInteger(raw.pollIntervalSeconds, 300, 60, 3600),
+    allowFolderSelection: trustedDesktopSyncBoolean(raw.allowFolderSelection, true),
+    removeLocalFilesOnRevocation: trustedDesktopSyncBoolean(raw.removeLocalFilesOnRevocation, false),
+    policyVersion: boundedDesktopSyncInteger(raw.policyVersion, 1, 1, 2 ** 31 - 1),
+  }
+}
+
+function toggleDesktopRole(role: AdminRole, checked: boolean) {
+  const next = desktopSyncSettings.allowedRoles.filter((item) => item !== role)
+  if (checked) next.push(role)
+  desktopSyncSettings.allowedRoles = next
+}
+
+async function fetchDesktopSyncProjectRoots() {
+  const apiBase = import.meta.env.VITE_AUDIT_API_BASE || '/api'
+  const token = getAuthToken()
+  const response = await fetch(`${apiBase}/desktop/sync/projects`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
+  const payload = await response.json() as {
+    success: boolean
+    data?: DesktopSyncProjectRoot[]
+    error?: string
+  }
+  if (!response.ok || !payload.success || !Array.isArray(payload.data)) {
+    throw new Error(payload.error || `请求失败: ${response.status}`)
+  }
+  return payload.data
+}
+
+async function fetchAllVisibleProjects() {
+  const records: Awaited<ReturnType<typeof fetchProjectRecords>>['data'] = []
+  const pageSize = 200
+  let page = 1
+  let total = 0
+  do {
+    const result = await fetchProjectRecords({ page, pageSize })
+    records.push(...result.data)
+    total = result.total
+    if (!result.data.length) break
+    page += 1
+  } while (records.length < total)
+  return records
+}
+
+async function loadDesktopSyncUsers() {
+  loadingDesktopUsers.value = true
+  desktopUsersLoadFailed.value = false
   try {
-    const [reg, login, upload, themes, currentTheme] = await Promise.all([
+    const users = await getAdminUsers()
+    desktopUserOptions.value = users
+      .filter((user) => user.isActive)
+      .map((user) => ({
+        label: `${user.displayName || user.username}（${user.username}）`,
+        value: user.id,
+      }))
+  } catch {
+    desktopUsersLoadFailed.value = true
+    desktopUserOptions.value = []
+  } finally {
+    loadingDesktopUsers.value = false
+  }
+}
+
+async function loadDesktopSyncProjects() {
+  loadingDesktopProjects.value = true
+  desktopProjectsLoadFailed.value = false
+  try {
+    const roots = await fetchDesktopSyncProjectRoots()
+    desktopProjectOptions.value = roots.map((item) => ({
+      label: item.projectCode
+        ? `${item.projectName}（${item.projectCode}）`
+        : item.projectName,
+      value: item.projectRef,
+    }))
+  } catch {
+    try {
+      const projects = await fetchAllVisibleProjects()
+      desktopProjectOptions.value = projects.map((project) => ({
+        label: project.projectCode
+          ? `${project.projectName}（${project.projectCode}）`
+          : project.projectName,
+        value: `project:${project.id}`,
+      }))
+    } catch {
+      desktopProjectsLoadFailed.value = true
+      desktopProjectOptions.value = []
+    }
+  } finally {
+    loadingDesktopProjects.value = false
+  }
+}
+
+async function loadDesktopSyncCategories() {
+  loadingDesktopCategories.value = true
+  desktopCategoriesLoadFailed.value = false
+  try {
+    const meta = await fetchProjectMeta()
+    desktopCategoryOptions.value = meta.categories
+      .filter((category) => category.enabled)
+      .map((category) => ({ label: category.categoryName, value: category.categoryKey }))
+  } catch {
+    desktopCategoriesLoadFailed.value = true
+    desktopCategoryOptions.value = []
+  } finally {
+    loadingDesktopCategories.value = false
+  }
+}
+
+async function loadDesktopSyncResources() {
+  await Promise.all([
+    loadDesktopSyncUsers(),
+    loadDesktopSyncProjects(),
+    loadDesktopSyncCategories(),
+  ])
+}
+
+onMounted(async () => {
+  void loadDesktopSyncResources()
+  try {
+    const [reg, login, upload, desktopSync, themes, currentTheme] = await Promise.all([
       getSystemSetting('registration_open'),
       getSystemSetting('login_rules'),
       getSystemSetting('upload_settings'),
+      getSystemSetting('desktop_sync_policy'),
       getThemeOptions(),
       getCurrentTheme(),
     ])
     if (reg) Object.assign(regSettings, reg.value as RegistrationSetting)
     if (login) Object.assign(loginRulesSettings, login.value as LoginRulesSetting)
     if (upload) Object.assign(uploadSettings, normalizeUploadSettings(upload.value as UploadSetting))
+    if (desktopSync) Object.assign(desktopSyncSettings, normalizeDesktopSyncPolicy(desktopSync.value))
     themeOptions.value = themes
     Object.assign(themeSettings, {
       themeKey: currentTheme.themeKey,
@@ -803,6 +1206,24 @@ async function saveUploadSettings() {
     savingUpload.value = false
   }
 }
+
+async function saveDesktopSyncSettings() {
+  savingDesktopSync.value = true
+  try {
+    const normalized = normalizeDesktopSyncPolicy(desktopSyncSettings)
+    Object.assign(desktopSyncSettings, normalized)
+    await setSystemSetting(
+      'desktop_sync_policy',
+      { ...normalized },
+      authStore.user?.username || 'admin',
+    )
+    MessagePlugin.success('本地资料同步策略已保存')
+  } catch (err) {
+    MessagePlugin.error(err instanceof Error ? err.message : '同步策略保存失败，请稍后重试。')
+  } finally {
+    savingDesktopSync.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -821,6 +1242,61 @@ async function saveUploadSettings() {
   font-size: var(--text-sm);
 }
 .switch-text { margin-left: var(--space-3); font-size: var(--text-sm); color: var(--text-secondary); }
+.desktop-sync-intro,
+.desktop-sync-warning {
+  margin-bottom: var(--space-4);
+}
+.desktop-sync-form :deep(.arco-form-item-content-flex) {
+  min-width: 0;
+}
+.desktop-sync-form :deep(.arco-select-view) {
+  width: min(100%, 680px);
+}
+.desktop-sync-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.desktop-sync-segmented {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border-2);
+  border-radius: var(--radius-md);
+  background: var(--color-fill-2);
+}
+.desktop-sync-segmented button {
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.desktop-sync-segmented button.active {
+  color: var(--color-brand-600);
+  background: var(--color-bg-2);
+  box-shadow: var(--shadow-sm);
+}
+.desktop-sync-empty {
+  width: 100%;
+  margin: var(--space-2) 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+.desktop-sync-number-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.desktop-sync-number-grid :deep(.arco-form-item) {
+  margin-bottom: var(--space-4);
+}
+.desktop-sync-number-grid :deep(.arco-input-number) {
+  width: 128px;
+}
 .theme-current {
   display: flex;
   align-items: center;
@@ -1277,6 +1753,8 @@ async function saveUploadSettings() {
   .logo-color-switch { grid-template-columns: 1fr; }
   .workspace-background-editor { grid-template-columns: 1fr; }
   .scope-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .desktop-sync-number-grid { grid-template-columns: 1fr; }
+  .desktop-sync-segmented { width: 100%; grid-template-columns: 1fr; }
   .preview-shell { grid-template-columns: 76px minmax(0, 1fr); }
   .theme-preview-card { padding: var(--space-3); }
   .theme-facts { grid-template-columns: 1fr; }
