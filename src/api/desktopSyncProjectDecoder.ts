@@ -44,8 +44,14 @@ function isBoundedNonBlankString(value: unknown, maximumLength: number): value i
   )
 }
 
-function isBoundedString(value: unknown, maximumLength: number): value is string {
-  return typeof value === 'string' && value.length <= maximumLength
+function isCanonicalProjectCode(value: unknown): value is string {
+  return (
+    value === ''
+    || (
+      isBoundedNonBlankString(value, MAX_IDENTIFIER_LENGTH)
+      && value === value.trim()
+    )
+  )
 }
 
 function isNullableIdentifier(value: unknown): value is string | null {
@@ -65,7 +71,7 @@ function decodeProject(value: unknown): DesktopSyncProject {
     || !PROJECT_REF_PATTERN.test(value.projectRef)
     || !isNullableIdentifier(value.canonicalProjectId)
     || !isNullableIdentifier(value.auditProjectId)
-    || !isBoundedString(value.projectCode, MAX_IDENTIFIER_LENGTH)
+    || !isCanonicalProjectCode(value.projectCode)
     || !isBoundedNonBlankString(value.projectName, MAX_PROJECT_NAME_LENGTH)
     || !isSafeNonnegativeInteger(value.fileCount)
     || !isSafeNonnegativeInteger(value.totalFileSizeBytes)
