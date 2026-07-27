@@ -10,6 +10,7 @@
     "test:premium-theme": "node scripts/verify-premium-theme.mjs",
     "test:desktop-settings": "node scripts/verify-desktop-sync-settings.mjs",
     "test:desktop-sync-ui": "node scripts/verify-desktop-sync-ui.mjs",
+    "test:desktop-sync-focused": "node --test test/desktopSync*.test.ts",
     "test:desktop-ipc": "node scripts/verify-desktop-ipc.mjs",
     "desktop:install": "npm --prefix desktop ci",
     "desktop:test": "npm --prefix desktop test",

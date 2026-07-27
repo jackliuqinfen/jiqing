@@ -15,20 +15,16 @@ import type {
   UserProfile,
 } from '@/types'
 import type { ApiResult } from '@/types/audit'
+import {
+  decodeDesktopSyncProjects,
+  type DesktopSyncProject,
+} from './desktopSyncProjectDecoder'
+
+export type { DesktopSyncProject } from './desktopSyncProjectDecoder'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
 const AUTH_TOKEN_KEY = '__jiqing_auth_token__'
 const AUTH_EXPIRES_KEY = '__jiqing_auth_expires__'
-
-export interface DesktopSyncProject {
-  projectRef: string
-  canonicalProjectId: string | null
-  auditProjectId: string | null
-  projectCode: string
-  projectName: string
-  fileCount: number
-  totalFileSizeBytes: number
-}
 
 export function getAuthToken(): string {
   return localStorage.getItem(AUTH_TOKEN_KEY) || ''
@@ -160,7 +156,7 @@ export async function logoutSession(): Promise<void> {
 }
 
 export async function fetchDesktopSyncProjects(): Promise<DesktopSyncProject[]> {
-  return request<DesktopSyncProject[]>('/desktop/sync/projects')
+  return decodeDesktopSyncProjects(await request<unknown>('/desktop/sync/projects'))
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {

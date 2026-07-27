@@ -169,7 +169,7 @@ const {
   isSyncing,
   projectSelectionDisabled,
   canStart,
-  loadForDialog,
+  setDialogOpen,
   refreshPolicy,
   chooseFolder,
   start,
@@ -218,6 +218,7 @@ const progressPercent = computed(() => {
 })
 
 function updateVisible(value: boolean) {
+  if (!value) void setDialogOpen(false)
   emit('update:visible', value)
 }
 
@@ -239,12 +240,12 @@ function formatDateTime(value?: string) {
 watch(
   () => props.visible,
   (visible) => {
-    if (visible) void loadForDialog()
+    void setDialogOpen(visible)
   },
 )
 
 onMounted(() => {
-  if (props.visible) void loadForDialog()
+  void setDialogOpen(props.visible)
 })
 </script>
 

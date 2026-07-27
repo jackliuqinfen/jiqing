@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
   fetchDesktopSyncProjects,
@@ -6,6 +6,11 @@ import {
   type DesktopSyncProject,
 } from '@/api/system'
 import { useAuthStore } from '@/store/auth'
+import {
+  createDesktopSyncProjectLoadCycle,
+  type DesktopSyncProjectLoadInvalidation,
+  type DesktopSyncProjectLoadTicket,
+} from './desktopSyncLoadCycle'
 import type {
   DesktopCapabilities,
   DesktopSyncState,
@@ -30,6 +35,8 @@ export function useDesktopSync() {
   const permissionMessage = ref('')
   const permissionRefreshRequired = ref(false)
   const policyDisabled = ref(false)
+  const dialogOpen = ref(false)
+  const projectLoadCycle = createDesktopSyncProjectLoadCycle()
   let unsubscribe: null | (() => void) = null
   let initialization: Promise<void> | null = null
 
@@ -50,14 +57,41 @@ export function useDesktopSync() {
       && !actionPending.value,
   ))
 
+  function currentAuthUserId(): string | null {
+    if (!authStore.isAuthenticated) return null
+    return authStore.user?.id || null
+  }
+
+  function isCurrentProjectLoad(loadTicket: DesktopSyncProjectLoadTicket): boolean {
+    return (
+      dialogOpen.value
+      && projectLoadCycle.isCurrent(loadTicket, currentAuthUserId())
+    )
+  }
+
+  function invalidateProjectLoads(
+    reason: DesktopSyncProjectLoadInvalidation,
+    { clearPermission = false } = {},
+  ) {
+    projectLoadCycle.invalidate(reason)
+    loadingProjects.value = false
+    projects.value = []
+    selectedProjectRefs.value = []
+    errorMessage.value = ''
+    policyDisabled.value = false
+    if (clearPermission) {
+      permissionMessage.value = ''
+      permissionRefreshRequired.value = false
+    }
+  }
+
   function applyState(nextState: DesktopSyncState) {
     state.value = nextState
     if (nextState.status !== 'permission_changed') return
 
+    invalidateProjectLoads('permission_changed')
     permissionMessage.value = nextState.message || DEFAULT_PERMISSION_MESSAGE
     permissionRefreshRequired.value = true
-    selectedProjectRefs.value = []
-    projects.value = []
   }
 
   async function initialize() {
@@ -87,12 +121,15 @@ export function useDesktopSync() {
   }
 
   async function loadProjects({ afterPermissionChange = false } = {}) {
-    if (!bridge.value || !isAuthenticated.value) return
+    const requestedUserId = currentAuthUserId()
+    if (!bridge.value || !dialogOpen.value || !requestedUserId) return
+    const loadTicket = projectLoadCycle.begin(requestedUserId)
     loadingProjects.value = true
     errorMessage.value = ''
     policyDisabled.value = false
     try {
       const allowedProjects = await fetchDesktopSyncProjects()
+      if (!isCurrentProjectLoad(loadTicket)) return
       projects.value = allowedProjects
       const allowedRefs = new Set(allowedProjects.map((project) => project.projectRef))
       selectedProjectRefs.value = selectedProjectRefs.value.filter((projectRef) => allowedRefs.has(projectRef))
@@ -101,6 +138,7 @@ export function useDesktopSync() {
         permissionMessage.value = '同步权限范围已重新检查，请重新选择需要同步的项目。'
       }
     } catch (error) {
+      if (!isCurrentProjectLoad(loadTicket)) return
       projects.value = []
       selectedProjectRefs.value = []
       const message = error instanceof Error ? error.message : '同步项目加载失败'
@@ -108,13 +146,21 @@ export function useDesktopSync() {
       policyDisabled.value = message.includes('未启用') || message.includes('disabled')
       if (afterPermissionChange) permissionRefreshRequired.value = true
     } finally {
-      loadingProjects.value = false
+      if (isCurrentProjectLoad(loadTicket)) {
+        loadingProjects.value = false
+      }
     }
   }
 
-  async function loadForDialog() {
+  async function setDialogOpen(visible: boolean) {
+    dialogOpen.value = visible
+    if (!visible) {
+      invalidateProjectLoads('dialog_close')
+      return
+    }
+
     await initialize()
-    if (!bridge.value || !isAuthenticated.value) return
+    if (!dialogOpen.value || !bridge.value || !isAuthenticated.value) return
     if (permissionRefreshRequired.value) return
     await loadProjects()
   }
@@ -198,7 +244,21 @@ export function useDesktopSync() {
     void initialize()
   })
 
+  watch(
+    () => [authStore.status, authStore.user?.id || ''] as const,
+    ([nextStatus, nextUserId], [previousStatus, previousUserId]) => {
+      if (nextStatus === previousStatus && nextUserId === previousUserId) return
+      invalidateProjectLoads('auth_change', { clearPermission: true })
+      if (dialogOpen.value && nextStatus === 'authenticated' && nextUserId) {
+        void loadProjects()
+      }
+    },
+    { flush: 'sync' },
+  )
+
   onBeforeUnmount(() => {
+    dialogOpen.value = false
+    invalidateProjectLoads('unmount')
     unsubscribe?.()
     unsubscribe = null
   })
@@ -220,7 +280,7 @@ export function useDesktopSync() {
     isSyncing,
     projectSelectionDisabled,
     canStart,
-    loadForDialog,
+    setDialogOpen,
     refreshPolicy,
     chooseFolder,
     start,

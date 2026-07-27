@@ -42,6 +42,8 @@ if (dialog.includes('rgb(var(--danger-6))')) {
 for (const marker of [
   'fetchDesktopSyncProjects',
   'getAuthToken',
+  'createDesktopSyncProjectLoadCycle',
+  'invalidateProjectLoads',
   'startSync',
   'pauseSync',
   'openSyncFolder',
@@ -49,6 +51,22 @@ for (const marker of [
   'onSyncState',
 ]) {
   if (!composable.includes(marker)) throw new Error(`Missing sync composable marker: ${marker}`)
+}
+
+for (const invalidationReason of [
+  'dialog_close',
+  'auth_change',
+  'permission_changed',
+  'unmount',
+]) {
+  if (!composable.includes(invalidationReason)) {
+    throw new Error(`Missing project-load invalidation: ${invalidationReason}`)
+  }
+}
+
+const currentLoadGuardCount = composable.split('isCurrentProjectLoad(loadTicket)').length - 1
+if (currentLoadGuardCount < 3) {
+  throw new Error('Project load success, failure, and finally paths must all reject stale cycles')
 }
 
 if (composable.includes('applyState(await bridge.value.startSync')) {
@@ -59,8 +77,8 @@ if (dialog.includes(':disabled="!isSyncing || actionPending"')) {
   throw new Error('Pause must remain available while a synchronization run is active')
 }
 
-if (!systemApi.includes("request<DesktopSyncProject[]>('/desktop/sync/projects')")) {
-  throw new Error('Desktop sync projects must use the authenticated real-data endpoint')
+if (!systemApi.includes("decodeDesktopSyncProjects(await request<unknown>('/desktop/sync/projects'))")) {
+  throw new Error('Desktop sync projects must strictly decode the authenticated real-data endpoint')
 }
 
 const pauseIndex = authStore.indexOf('window.jiqingDesktop?.pauseSync()')
