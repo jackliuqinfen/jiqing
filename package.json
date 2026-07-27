@@ -8,7 +8,11 @@
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
     "test:premium-theme": "node scripts/verify-premium-theme.mjs",
-    "test:desktop-settings": "node scripts/verify-desktop-sync-settings.mjs"
+    "test:desktop-settings": "node scripts/verify-desktop-sync-settings.mjs",
+    "desktop:install": "npm --prefix desktop ci",
+    "desktop:test": "npm --prefix desktop test",
+    "desktop:start": "npm --prefix desktop start",
+    "desktop:pack": "npm --prefix desktop run dist:win"
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.58.0",
