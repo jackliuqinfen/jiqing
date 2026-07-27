@@ -64,6 +64,11 @@ function assertDescendant(target, parent, label) {
 assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')
 assertDescendant(distRoot, desktopRoot, 'desktop distribution directory')
 assertDescendant(
+  trustedBuildParent,
+  desktopRoot,
+  'temporary build parent',
+)
+assertDescendant(
   installedElectronDist,
   desktopRoot,
   'installed Electron distribution',

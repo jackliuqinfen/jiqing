@@ -74,6 +74,10 @@ test('Windows build reuses the installed unpacked Electron runtime', () => {
   )
   assert.match(buildScript, /mkdtempSync\(/)
   assert.match(buildScript, /desktopRoot, '\.tmp', 'windows-build'/)
+  assert.match(
+    buildScript,
+    /assertDescendant\([\s\S]*trustedBuildParent[\s\S]*desktopRoot/,
+  )
   assert.doesNotMatch(buildScript, /homedir\(/)
   assert.doesNotMatch(buildScript, /process\.env\.PUBLIC/)
 })

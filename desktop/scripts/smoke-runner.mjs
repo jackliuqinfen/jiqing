@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url'
 
 import electronPath from 'electron'
 
+import { formatSmokeFailure } from './smoke-diagnostics.mjs'
+
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 const smokeAppPath = fileURLToPath(
   new URL('../test/smoke-app.mjs', import.meta.url),
@@ -236,7 +238,12 @@ function launchElectron({
       clearTimeout(timeout)
       void terminateProcessTree(child).finally(() => {
         reject(
-          new Error(`Electron smoke process timed out: ${caseName}`),
+          new Error(formatSmokeFailure({
+            caseName,
+            completed: { stderr, stdout },
+            resultPath,
+            timedOut: true,
+          })),
         )
       })
     }, PROCESS_TIMEOUT_MS)
@@ -255,11 +262,15 @@ function launchElectron({
   }
 }
 
-function assertCleanExit(completed, caseName) {
+function assertCleanExit(completed, caseName, resultPath) {
   assert.equal(
     completed.code,
     0,
-    `${caseName} failed\nstdout:\n${completed.stdout}\nstderr:\n${completed.stderr}`,
+    formatSmokeFailure({
+      caseName,
+      completed,
+      resultPath,
+    }),
   )
   assert.equal(completed.signal, null)
 }
@@ -275,7 +286,7 @@ async function runSuccessfulLoad(tempRoot) {
       userDataPath: join(tempRoot, 'success-user-data'),
     })
     const completed = await processResult.completed
-    assertCleanExit(completed, 'successful-load')
+    assertCleanExit(completed, 'successful-load', resultPath)
     assert.deepEqual(readJson(resultPath), {
       healthReady: true,
       remoteLoaded: true,
@@ -304,7 +315,7 @@ async function runUnavailableServer(tempRoot) {
     userDataPath: join(tempRoot, 'unavailable-user-data'),
   })
   const completed = await processResult.completed
-  assertCleanExit(completed, 'server-unavailable')
+  assertCleanExit(completed, 'server-unavailable', resultPath)
   assert.deepEqual(readJson(resultPath), {
     healthReady: false,
     remoteLoaded: false,
@@ -326,7 +337,7 @@ async function runExternalNavigationDenied(tempRoot) {
       userDataPath: join(tempRoot, 'navigation-user-data'),
     })
     const completed = await processResult.completed
-    assertCleanExit(completed, 'external-navigation')
+    assertCleanExit(completed, 'external-navigation', resultPath)
     assert.deepEqual(readJson(resultPath), {
       externalNavigationDenied: true,
       blockedUrl: 'http://localhost:9/external-navigation',
@@ -378,9 +389,17 @@ async function runSecondInstance(tempRoot) {
       userDataPath,
     })
     const secondaryCompleted = await secondary.completed
-    assertCleanExit(secondaryCompleted, 'second-instance-secondary')
+    assertCleanExit(
+      secondaryCompleted,
+      'second-instance-secondary',
+      secondaryResultPath,
+    )
     const primaryCompleted = await primary.completed
-    assertCleanExit(primaryCompleted, 'second-instance-primary')
+    assertCleanExit(
+      primaryCompleted,
+      'second-instance-primary',
+      primaryResultPath,
+    )
 
     assert.deepEqual(readJson(secondaryResultPath), {
       ownsSingleInstance: false,

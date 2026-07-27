@@ -11,6 +11,9 @@ import {
 
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 const defaultDistRoot = join(desktopRoot, 'dist')
+const signatureScriptPath = fileURLToPath(
+  new URL('./verify-authenticode.ps1', import.meta.url),
+)
 
 export function findWindowsSignatureTargets(distRoot = defaultDistRoot) {
   if (!existsSync(distRoot)) {
@@ -37,18 +40,17 @@ export function verifyWindowsSignatures({
     throw new Error('Windows signature verification requires Windows')
   }
   const targets = findWindowsSignatureTargets(distRoot)
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    'foreach ($target in $args) {',
-    '  $signature = Get-AuthenticodeSignature -LiteralPath $target',
-    "  if ($signature.Status -ne 'Valid') {",
-    '    throw "Invalid Authenticode signature for $target: $($signature.Status)"',
-    '  }',
-    '}',
-  ].join('\n')
   const result = spawnSync(
     powershell,
-    ['-NoProfile', '-NonInteractive', '-Command', script, ...targets],
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      signatureScriptPath,
+      ...targets,
+    ],
     {
       stdio: 'inherit',
       windowsHide: true,

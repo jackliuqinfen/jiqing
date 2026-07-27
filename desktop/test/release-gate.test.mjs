@@ -15,6 +15,7 @@ import {
 } from '../scripts/validate-release-configuration.mjs'
 import {
   findWindowsSignatureTargets,
+  verifyWindowsSignatures,
 } from '../scripts/verify-windows-signatures.mjs'
 
 test('internal-test release accepts an explicit HTTP origin without signing', () => {
@@ -144,3 +145,29 @@ test('production signature gate requires one installer and the packaged app', ()
     rmSync(distRoot, { force: true, recursive: true })
   }
 })
+
+test(
+  'production signature gate executes PowerShell and rejects unsigned targets',
+  { skip: process.platform !== 'win32' },
+  () => {
+    const distRoot = mkdtempSync(join(tmpdir(), 'jiqing-signature-check-'))
+    try {
+      mkdirSync(join(distRoot, 'win-unpacked'))
+      writeFileSync(
+        join(distRoot, 'JiqingERP-1.0.0-x64-Setup.exe'),
+        'unsigned installer',
+      )
+      writeFileSync(
+        join(distRoot, 'win-unpacked', 'JiqingERP.exe'),
+        'unsigned application',
+      )
+
+      assert.throws(
+        () => verifyWindowsSignatures({ distRoot }),
+        /Windows signature verification failed/,
+      )
+    } finally {
+      rmSync(distRoot, { force: true, recursive: true })
+    }
+  },
+)
