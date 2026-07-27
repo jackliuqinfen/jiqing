@@ -1,4 +1,5 @@
 import { extname, isAbsolute, posix, relative, resolve } from 'node:path'
+import { lstat, realpath } from 'node:fs/promises'
 
 const UNSAFE_WINDOWS_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f]/g
 const WINDOWS_RESERVED_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
@@ -92,14 +93,20 @@ export function appendFilenameSuffix(relativePath, suffix) {
   const stem = posix.basename(relativePath, extension)
   const safeSuffix = safeSegment(suffix, { maximumLength: 32 })
   const suffixLength = codePoints(safeSuffix).length
+  const directoryLength = directory === '.' ? 0 : codePoints(directory).length + 1
+  const pathFilenameLimit = MAX_RELATIVE_PATH_CODE_POINTS - directoryLength
+  if (pathFilenameLimit < suffixLength + 1) {
+    throw new Error('conflict path exceeds relative path limit')
+  }
+  const filenameLimit = Math.min(MAX_SEGMENT_CODE_POINTS, pathFilenameLimit)
   const maximumExtensionLength = Math.max(
     0,
-    MAX_SEGMENT_CODE_POINTS - suffixLength - 1,
+    filenameLimit - suffixLength - 1,
   )
   const boundedExtension = truncate(extension, maximumExtensionLength)
   const maximumStemLength = Math.max(
     1,
-    MAX_SEGMENT_CODE_POINTS
+    filenameLimit
       - suffixLength
       - codePoints(boundedExtension).length,
   )
@@ -107,6 +114,19 @@ export function appendFilenameSuffix(relativePath, suffix) {
     `${truncate(stem, maximumStemLength)}${safeSuffix}${boundedExtension}`
   )
   return directory === '.' ? filename : `${directory}/${filename}`
+}
+
+function isInside(root, target) {
+  const fromRoot = relative(root, target)
+  return (
+    fromRoot === ''
+    || (
+      fromRoot !== '..'
+      && !fromRoot.startsWith(`..\\`)
+      && !fromRoot.startsWith('../')
+      && !isAbsolute(fromRoot)
+    )
+  )
 }
 
 export function resolveWithinRoot(root, relativePath) {
@@ -127,6 +147,38 @@ export function resolveWithinRoot(root, relativePath) {
     || isAbsolute(fromRoot)
   ) {
     throw new Error('path is outside sync root')
+  }
+  return destination
+}
+
+export async function resolvePhysicalPath(root, relativePath) {
+  const destination = resolveWithinRoot(root, relativePath)
+  const resolvedRoot = resolve(root)
+  const rootMetadata = await lstat(resolvedRoot)
+  if (rootMetadata.isSymbolicLink()) {
+    throw new Error('sync root cannot be a symbolic link or junction')
+  }
+  const physicalRoot = await realpath(resolvedRoot)
+  const fromRoot = relative(resolvedRoot, destination)
+  const segments = fromRoot ? fromRoot.split(/[\\/]/) : []
+  let current = resolvedRoot
+
+  for (const segment of segments) {
+    current = resolve(current, segment)
+    let metadata
+    try {
+      metadata = await lstat(current)
+    } catch (error) {
+      if (error?.code === 'ENOENT') break
+      throw error
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error('path contains a symbolic link or junction')
+    }
+    const physicalCurrent = await realpath(current)
+    if (!isInside(physicalRoot, physicalCurrent)) {
+      throw new Error('physical path is outside sync root')
+    }
   }
   return destination
 }

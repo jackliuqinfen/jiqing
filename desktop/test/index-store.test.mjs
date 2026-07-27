@@ -45,13 +45,31 @@ test('partitions and atomically persists an index by environment and user', asyn
   assert.deepEqual(await store.load(), index)
   assert.match(
     store.filePath,
-    /sync-index[\\/][a-f0-9]{64}[\\/]user-1\.json$/,
+    /sync-index[\\/][a-f0-9]{64}[\\/]user-[a-f0-9]{64}\.json$/,
   )
   assert.equal(existsSync(`${store.filePath}.tmp`), false)
   assert.deepEqual(
     JSON.parse(readFileSync(store.filePath, 'utf8')),
     index,
   )
+})
+
+test('uses hash-only Windows-safe user partitions without case or reserved-name collisions', () => {
+  const options = {
+    appDataPath: 'C:\\AppData',
+    environmentOrigin: 'https://erp.example.cn',
+  }
+  const upper = new SyncIndexStore({ ...options, userId: 'User' })
+  const lower = new SyncIndexStore({ ...options, userId: 'user' })
+  const reserved = new SyncIndexStore({ ...options, userId: 'CON' })
+
+  assert.notEqual(upper.filePath.toLowerCase(), lower.filePath.toLowerCase())
+  for (const store of [upper, lower, reserved]) {
+    assert.match(
+      store.filePath.split(/[\\/]/).at(-1),
+      /^user-[a-f0-9]{64}\.json$/,
+    )
+  }
 })
 
 test('keeps different environments and users in different index files', () => {
@@ -91,6 +109,50 @@ test('bounds the index filename for a valid long Unicode user id', async (t) => 
   assert.ok(Buffer.byteLength(store.filePath.split(/[\\/]/).at(-1)) <= 200)
 })
 
+test('concurrent saves use independent temporary files', async (t) => {
+  const appDataPath = temporaryDirectory(t)
+  const store = new SyncIndexStore({
+    appDataPath,
+    environmentOrigin: 'https://erp.example.cn',
+    userId: 'user-1',
+  })
+  const first = createEmptyIndex('https://erp.example.cn', 'user-1')
+  first.cursorBySelection.scope = 'first'
+  const second = createEmptyIndex('https://erp.example.cn', 'user-1')
+  second.cursorBySelection.scope = 'second'
+
+  let releaseFirst
+  let firstEntered
+  const firstEnteredPromise = new Promise((resolve) => {
+    firstEntered = resolve
+  })
+  const releaseFirstPromise = new Promise((resolve) => {
+    releaseFirst = resolve
+  })
+  const firstSave = store.save(first, {
+    async beforeCommit() {
+      firstEntered()
+      await releaseFirstPromise
+    },
+  })
+  const boundary = await Promise.race([
+    firstEnteredPromise.then(() => 'before-commit'),
+    firstSave.then(() => 'completed'),
+  ])
+  assert.equal(boundary, 'before-commit')
+  const secondSave = store.save(second)
+  releaseFirst()
+  await Promise.all([firstSave, secondSave])
+
+  assert.ok(['first', 'second'].includes(
+    (await store.load()).cursorBySelection.scope,
+  ))
+  assert.equal(
+    readdirSync(store.directoryPath).some((name) => name.includes('.tmp-')),
+    false,
+  )
+})
+
 test('quarantines invalid JSON and starts empty without touching synchronized files', async (t) => {
   const appDataPath = temporaryDirectory(t)
   const store = new SyncIndexStore({
@@ -112,9 +174,12 @@ test('quarantines invalid JSON and starts empty without touching synchronized fi
   )
   assert.equal(readFileSync(synchronizedFile, 'utf8'), 'keep-me')
   assert.equal(existsSync(store.filePath), false)
-  assert.deepEqual(
-    readdirSync(store.directoryPath).filter((name) => name.includes('.corrupt-')),
-    ['user-1.json.corrupt-2026-07-27T10-05-00-000Z'],
+  const corruptFiles = readdirSync(store.directoryPath)
+    .filter((name) => name.includes('.corrupt-'))
+  assert.equal(corruptFiles.length, 1)
+  assert.match(
+    corruptFiles[0],
+    /^user-[a-f0-9]{64}\.json\.corrupt-2026-07-27T10-05-00-000Z$/,
   )
 })
 

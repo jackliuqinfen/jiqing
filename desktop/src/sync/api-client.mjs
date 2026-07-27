@@ -1,5 +1,8 @@
 import { open, rm } from 'node:fs/promises'
 
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const MAX_REDIRECTS = 3
+
 export class SyncApiError extends Error {
   constructor(message, code, options = {}) {
     super(message, options)
@@ -85,29 +88,53 @@ export class DesktopApiClient {
 
   async withResponse(token, path, consume) {
     validateToken(token)
-    const url = this.resolveUrl(path)
+    let url = this.resolveUrl(path)
     const controller = new AbortController()
     this.activeControllers.add(controller)
-    const timeout = setTimeout(() => {
-      controller.abort(new Error('desktop API request timed out'))
-    }, this.timeoutMs)
+    let timeout
+    const resetIdleTimeout = () => {
+      clearTimeout(timeout)
+      timeout = setTimeout(() => {
+        controller.abort(new Error('desktop API request idle timeout'))
+      }, this.timeoutMs)
+    }
+    resetIdleTimeout()
 
     try {
       let response
-      try {
-        response = await this.fetchImpl(url, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          redirect: 'manual',
-          signal: controller.signal,
-        })
-      } catch (cause) {
-        throw new SyncApiError('desktop API is unavailable', 'offline', {
-          cause,
-        })
+      for (let redirectCount = 0; ; redirectCount += 1) {
+        try {
+          response = await this.fetchImpl(url, {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            redirect: 'manual',
+            signal: controller.signal,
+          })
+        } catch (cause) {
+          throw new SyncApiError('desktop API is unavailable', 'offline', {
+            cause,
+          })
+        }
+        resetIdleTimeout()
+        if (!REDIRECT_STATUSES.has(response.status)) break
+        if (redirectCount >= MAX_REDIRECTS) {
+          throw new SyncApiError('too many redirects', 'request_failed')
+        }
+        const location = response.headers.get('location')
+        if (!location) {
+          throw new SyncApiError('invalid desktop API redirect', 'request_failed')
+        }
+        const redirected = this.resolveUrl(new URL(location, url).href)
+        if (redirected.protocol !== 'https:') {
+          throw new SyncApiError(
+            'desktop API redirect requires HTTPS',
+            'request_failed',
+          )
+        }
+        url = redirected
       }
       if (response.url && new URL(response.url).origin !== this.origin) {
         throw new SyncApiError(
@@ -125,7 +152,7 @@ export class DesktopApiClient {
         throw new SyncApiError('desktop API request failed', 'request_failed')
       }
       try {
-        return await consume(response)
+        return await consume(response, resetIdleTimeout)
       } catch (error) {
         if (error instanceof SyncApiError) throw error
         if (controller.signal.aborted) {
@@ -145,6 +172,10 @@ export class DesktopApiClient {
     return this.request(token, '/api/desktop/policy')
   }
 
+  getCurrentUser(token) {
+    return this.request(token, '/api/auth/me')
+  }
+
   getProjectRoots(token) {
     return this.request(token, '/api/desktop/sync/projects')
   }
@@ -161,16 +192,21 @@ export class DesktopApiClient {
   }
 
   async download(token, downloadPath, destinationPartPath, onProgress) {
-    return this.withResponse(token, downloadPath, async (response) => {
+    return this.withResponse(token, downloadPath, async (
+      response,
+      resetIdleTimeout,
+    ) => {
       const handle = await open(destinationPartPath, 'w', 0o600)
       let received = 0
       try {
         if (response.body) {
           for await (const chunk of response.body) {
+            resetIdleTimeout()
             const bytes = Buffer.from(chunk)
             await handle.write(bytes)
             received += bytes.length
             onProgress(received)
+            resetIdleTimeout()
           }
         } else {
           const bytes = Buffer.from(await response.arrayBuffer())

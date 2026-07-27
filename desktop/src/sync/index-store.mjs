@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdir,
   open,
@@ -15,14 +15,6 @@ function environmentKey(origin) {
 }
 
 function userFilename(userId) {
-  if (
-    /^[A-Za-z0-9._-]+$/.test(userId)
-    && userId !== '.'
-    && userId !== '..'
-    && Buffer.byteLength(userId) <= 128
-  ) {
-    return `${userId}.json`
-  }
   return `user-${createHash('sha256').update(userId, 'utf8').digest('hex')}.json`
 }
 
@@ -112,13 +104,13 @@ export class SyncIndexStore {
     }
   }
 
-  async save(index) {
+  async save(index, { beforeCommit = () => {} } = {}) {
     if (!isValidIndex(index, this.environmentOrigin, this.userId)) {
       throw new Error('invalid sync index')
     }
 
     await mkdir(this.directoryPath, { recursive: true })
-    const temporaryPath = `${this.filePath}.tmp`
+    const temporaryPath = `${this.filePath}.tmp-${randomUUID()}`
     let handle
     try {
       handle = await open(temporaryPath, 'w', 0o600)
@@ -126,6 +118,7 @@ export class SyncIndexStore {
       await handle.sync()
       await handle.close()
       handle = null
+      await beforeCommit()
       await rename(temporaryPath, this.filePath)
     } catch (error) {
       await handle?.close().catch(() => {})

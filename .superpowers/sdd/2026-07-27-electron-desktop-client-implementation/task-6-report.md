@@ -201,3 +201,154 @@ exit 0, no errors
   dialog behavior, NTFS read-only behavior in common Office/PDF applications, or
   renderer-destruction timing.
 - Task 7 still needs to present these emitted states and user-start controls.
+
+---
+
+# Fix Round 1/5
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+All independent review findings were addressed without changing the six-method
+renderer API, `sandbox: true`, `desktop/src/preload.cjs`, or Task 7 UI.
+
+## TDD Evidence
+
+### Red
+
+The first focused regression run covered cancellation/replacement, part/final
+path collisions, trusted-baseline preservation, quota recounting, and read-only
+publication:
+
+```text
+node --test test/sync-engine.test.mjs
+tests 21, pass 14, fail 7
+```
+
+The combined review regression run additionally covered authoritative identity,
+Windows-safe index partitions, junction containment, conflict path bounds,
+progress-aware timeouts, bounded redirects, initial-emission cleanup, and
+manifest pagination validation:
+
+```text
+node --test test/api-client.test.mjs test/index-store.test.mjs test/path-policy.test.mjs test/sync-engine.test.mjs
+tests 45, pass 28, fail 17
+```
+
+An explicit post-index-commit cancellation test was then added and observed
+failing before persisted rollback was implemented:
+
+```text
+node --test --test-name-pattern="pause after an awaited index commit" test/sync-engine.test.mjs
+tests 1, pass 0, fail 1
+actual persisted files contained project_file:doc-1; expected {}
+```
+
+A malformed manifest item with a non-SHA-256 digest was also observed reaching
+the download before item validation was tightened:
+
+```text
+node --test --test-name-pattern="fails closed on malformed manifest page shapes" test/sync-engine.test.mjs
+tests 1, pass 0, fail 1
+downloadCalls was 1; expected 0
+```
+
+### Green
+
+Focused review suite:
+
+```text
+node --test test/api-client.test.mjs test/index-store.test.mjs test/path-policy.test.mjs test/sync-engine.test.mjs
+tests 52, pass 52, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1035.233
+```
+
+Full desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 96, pass 96, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1390.2288
+```
+
+Final static and contract verification:
+
+```text
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+node scripts/verify-desktop-ipc.mjs
+git diff --check
+all exited 0; Desktop IPC contract verified; no diff errors
+```
+
+## Fixes Delivered
+
+- Bound each run to `GET /api/auth/me` and `data.id`; missing, inactive, or
+  renderer-mismatched identities fail closed as `permission_changed`.
+- Partitioned indexes by a full SHA-256 user hash and switched atomic writes to
+  unique temporary files with a cancellation check immediately before commit.
+- Serialized runs and publication/index mutation per authoritative user and
+  physical root. Replaced runs cannot publish or advance cursors after
+  cancellation; persisted state is rolled back if cancellation is observed
+  after an awaited index commit.
+- Added unique UUID part files, serialized final-path allocation, and indexed
+  physical-file history so sanitized IDs, same-name workers, and older server
+  conflicts cannot collide or escape quota accounting.
+- Preserved the last trusted revision/hash/path when a server update fails.
+  Failed update metadata is retained separately for the next explicit retry.
+- Recounted quota from every indexed physical file at serialized publication
+  time and added reservations for concurrent new files. A local change during
+  transfer is reclassified before publication and cannot bypass the limit.
+- Added physical containment checks that reject existing symbolic-link/junction
+  ancestors and revalidate the physical path immediately before publication.
+  Conflict suffixing now enforces the final 220-code-point path budget.
+- Prepared part files as read-only before exposing the final path. Failed
+  preparation leaves no visible file or index entry; replacement publication
+  restores the prior file and persisted index on failure.
+- Replaced the fixed download wall-clock timeout with an idle timeout reset by
+  progress. Redirects are limited to three, require HTTPS, remain exact-origin,
+  and resend authentication only after every hop is revalidated.
+- Moved initial state emission inside token-cleanup control flow.
+- Validated manifest page type, item shape, policy version, cursor presence, and
+  forward progress, with a bounded page count to prevent malformed loops.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/api-client.mjs`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/path-policy.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/api-client.test.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/path-policy.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- Authentication remains memory-only. Tokens are neither persisted nor emitted,
+  and each run owns its token so a replacement cannot accidentally use a newer
+  session token.
+- Every policy, identity, project-root, manifest, redirect, and download request
+  remains authenticated and exact-origin. Production HTTPS rules are unchanged.
+- The server remains authoritative and the implementation has no upload,
+  server-side delete, rename, mutation, watcher, fabricated data, or automatic
+  missing-file repair.
+- Publication checks cancellation at awaited hash, path, quota, index, and
+  cursor boundaries. File/index rollback covers failures before and after an
+  awaited index commit.
+- Quota is derived from actual sizes of all indexed physical files, including
+  prior conflicts, and final paths are allocated under the same mutation lock.
+- The exact six request methods and one state event remain unchanged. Task 7 UI,
+  the sandbox-compatible preload, and renderer code were not modified.
+
+## Concerns
+
+- Tests use temporary NTFS directories and controlled API responses; this round
+  did not perform authenticated end-to-end synchronization against a live
+  central server.
+- A packaged Electron build was not manually exercised for real Office/PDF
+  read-only behavior or adversarial junction replacement timing.

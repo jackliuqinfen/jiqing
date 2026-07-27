@@ -42,6 +42,23 @@ test('authenticated JSON requests remain on the configured origin and unwrap dat
   assert.equal(requests[0].options.redirect, 'manual')
 })
 
+test('loads the authenticated server identity from auth me', async () => {
+  let requestedUrl = ''
+  const client = new DesktopApiClient({
+    origin: ORIGIN,
+    async fetchImpl(url) {
+      requestedUrl = String(url)
+      return jsonResponse({ id: 'server-user-1' })
+    },
+  })
+
+  assert.deepEqual(
+    await client.getCurrentUser('token'),
+    { id: 'server-user-1' },
+  )
+  assert.equal(requestedUrl, `${ORIGIN}/api/auth/me`)
+})
+
 test('manifest query encodes selected refs, cursor, and fixed page limit', async () => {
   let requestedUrl = ''
   const client = new DesktopApiClient({
@@ -220,4 +237,104 @@ test('timeout remains active while a download body is stalled', async (t) => {
     (error) => error instanceof SyncApiError && error.code === 'offline',
   )
   assert.equal(existsSync(destination), false)
+})
+
+test('progress resets the idle timeout for a long download', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'jiqing-api-client-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const destination = join(directory, 'file.part')
+  const client = new DesktopApiClient({
+    origin: ORIGIN,
+    timeoutMs: 15,
+    async fetchImpl() {
+      let timer
+      return new Response(new ReadableStream({
+        start(controller) {
+          let sent = 0
+          const push = () => {
+            controller.enqueue(Buffer.from('x'))
+            sent += 1
+            if (sent === 4) {
+              controller.close()
+              return
+            }
+            timer = setTimeout(push, 8)
+          }
+          push()
+        },
+        cancel() {
+          clearTimeout(timer)
+        },
+      }))
+    },
+  })
+
+  assert.equal(
+    await client.download(
+      'token',
+      '/api/desktop/sync/files/project_file/file-1/download',
+      destination,
+      () => {},
+    ),
+    4,
+  )
+})
+
+test('follows a bounded same-origin HTTPS redirect and reauthenticates each hop', async () => {
+  const requests = []
+  const client = new DesktopApiClient({
+    origin: ORIGIN,
+    async fetchImpl(url, options) {
+      requests.push({ url: String(url), authorization: options.headers.Authorization })
+      if (requests.length === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: '/api/desktop/policy-v2' },
+        })
+      }
+      return jsonResponse({ enabled: true })
+    },
+  })
+
+  assert.deepEqual(await client.getPolicy('token'), { enabled: true })
+  assert.deepEqual(requests, [
+    {
+      url: `${ORIGIN}/api/desktop/policy`,
+      authorization: 'Bearer token',
+    },
+    {
+      url: `${ORIGIN}/api/desktop/policy-v2`,
+      authorization: 'Bearer token',
+    },
+  ])
+})
+
+test('rejects cross-origin and excessive redirect chains', async () => {
+  const crossOrigin = new DesktopApiClient({
+    origin: ORIGIN,
+    async fetchImpl() {
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'https://evil.example/policy' },
+      })
+    },
+  })
+  await assert.rejects(
+    crossOrigin.getPolicy('token'),
+    /outside configured origin/i,
+  )
+
+  let redirects = 0
+  const excessive = new DesktopApiClient({
+    origin: ORIGIN,
+    async fetchImpl() {
+      redirects += 1
+      return new Response(null, {
+        status: 302,
+        headers: { location: `/redirect-${redirects}` },
+      })
+    },
+  })
+  await assert.rejects(excessive.getPolicy('token'), /too many redirects/i)
+  assert.equal(redirects, 4)
 })

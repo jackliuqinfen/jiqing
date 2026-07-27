@@ -1,9 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
 import {
+  appendFilenameSuffix,
   buildRelativePath,
+  resolvePhysicalPath,
   resolveWithinRoot,
   safeSegment,
 } from '../src/sync/path-policy.mjs'
@@ -57,5 +66,38 @@ test('rejects a resolved path outside the selected root', () => {
   assert.throws(
     () => resolveWithinRoot(root, join('C:\\', 'outside.pdf')),
     /outside sync root/i,
+  )
+})
+
+test('keeps suffixed conflict paths within the relative path budget', () => {
+  const relativePath = `${'项'.repeat(80)}/${'类'.repeat(80)}/${'文'.repeat(54)}.pdf`
+  assert.equal([...relativePath].length, 220)
+
+  const suffixed = appendFilenameSuffix(relativePath, '_服务器新版_9999')
+
+  assert.ok([...suffixed].length <= 220)
+  assert.ok(suffixed.endsWith('_服务器新版_9999.pdf'))
+})
+
+test('rejects an existing junction ancestor before publication', async (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'jiqing-path-policy-'))
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+  const root = join(base, 'root')
+  const outside = join(base, 'outside')
+  mkdirSync(root)
+  mkdirSync(outside)
+  try {
+    symlinkSync(outside, join(root, 'linked'), 'junction')
+  } catch (error) {
+    if (error?.code === 'EPERM') {
+      t.skip('junction creation is unavailable on this Windows host')
+      return
+    }
+    throw error
+  }
+
+  await assert.rejects(
+    resolvePhysicalPath(root, `linked${sep}file.pdf`),
+    /reparse|junction|symbolic/i,
   )
 })
