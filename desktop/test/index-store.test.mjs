@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -283,4 +284,49 @@ test('quarantines every malformed recovery ledger shape', async (t) => {
       )
     })
   }
+})
+
+test('accepts only a nondeleting generated visible manual recovery path', async (t) => {
+  const appDataPath = temporaryDirectory(t)
+  const store = new SyncIndexStore({
+    appDataPath,
+    environmentOrigin: 'https://erp.example.cn',
+    userId: 'user-1',
+  })
+  const transactionId = 'a'.repeat(32)
+  const visibleRelativePath = '20260727-JQ-001_Project/Contracts/contract.pdf'
+  const visibleDirectory = join(
+    appDataPath,
+    '20260727-JQ-001_Project',
+    'Contracts',
+  )
+  const visibleFile = join(visibleDirectory, 'contract.pdf')
+  mkdirSync(visibleDirectory, { recursive: true })
+  writeFileSync(visibleFile, 'keep-me', 'utf8')
+
+  const index = createEmptyIndex('https://erp.example.cn', 'user-1')
+  index.recoveryEntries[transactionId] = {
+    id: transactionId,
+    sourceKey: 'project_file:doc-1',
+    previousSourceRevision: '',
+    sourceRevision: 'r-1',
+    type: 'manual_recovery',
+    rootPath: realpathSync(appDataPath),
+    physicalFiles: [visibleRelativePath],
+    cleanupFiles: [],
+    accountedBytes: 7,
+    createdAt: '2026-07-27T10:05:00.000Z',
+  }
+
+  await store.save(index)
+  assert.deepEqual(await store.load(), index)
+
+  index.recoveryEntries[transactionId].cleanupFiles = [visibleRelativePath]
+  writeFileSync(store.filePath, JSON.stringify(index), 'utf8')
+
+  assert.deepEqual(
+    await store.load(),
+    createEmptyIndex('https://erp.example.cn', 'user-1'),
+  )
+  assert.equal(readFileSync(visibleFile, 'utf8'), 'keep-me')
 })

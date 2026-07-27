@@ -960,3 +960,137 @@ Git emitted only existing LF-to-CRLF working-copy notices
 - Tests use temporary NTFS directories and controlled HTTP responses. This
   final round did not run authenticated synchronization against a live central
   server or a packaged Electron client.
+
+---
+
+# Residual P1 Blocker Correction
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+The residual first-publication rollback quota blocker is resolved without
+changing IPC, preload sandboxing, authenticated GET-only synchronization,
+server authority, dependencies, or Task 7 UI.
+
+## TDD Evidence
+
+### Red
+
+The focused regressions injected both required failures: the first publication
+index save failed, then the visible destination to rollback-path rename failed.
+The storage test simultaneously defined the only accepted nonreserved recovery
+shape.
+
+```text
+node --test --test-name-pattern="nondeleting generated visible|rollback rename tracks" desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 2, pass 0, fail 2, cancelled 0, skipped 0, todo 0
+duration_ms 257.1671
+```
+
+Observed failures:
+
+- the index store rejected the intended nondeleting generated visible path;
+- the engine retained the visible file but persisted zero recovery entries.
+
+### Green
+
+Focused residual-blocker tests:
+
+```text
+node --test --test-name-pattern="nondeleting generated visible|rollback rename tracks" desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 2, pass 2, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 292.7237
+```
+
+Final focused index and synchronization suite:
+
+```text
+node --test desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 63, pass 63, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 2416.1333
+```
+
+Final required desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 124, pass 124, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 2754.466
+```
+
+Required contract and static verification:
+
+```text
+node scripts/verify-desktop-ipc.mjs
+Desktop IPC contract verified
+
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+all exited 0
+
+git diff --check
+exit 0, no diff errors
+Git emitted only existing LF-to-CRLF working-copy notices
+```
+
+## Fixes Delivered
+
+- First-publication rollback now carries the generated destination relative path
+  into the recovery transaction.
+- If destination-to-rollback rename fails with no previous record, the engine
+  revalidates physical containment and stats the still-visible file. It records
+  the actual file size when inspection succeeds.
+- If safe inspection is blocked or the filesystem result is indeterminate, the
+  engine still creates a durable nondeleting manual entry using the
+  engine-generated path and verified manifest size. This conservatively
+  reserves quota and preserves the artifact for operational resolution.
+- The visible destination remains at its original path. It is never added to
+  `cleanupFiles`, never automatically removed, and never treated as a trusted
+  synchronized baseline.
+- Subsequent explicit starts count the manual artifact before reservation. The
+  regression proves neither the failed source nor a sibling item downloads at
+  an exact five-byte quota boundary, while the original bytes remain unchanged.
+- Index validation accepts a nonreserved manual path only when it is exactly
+  three normalized POSIX-style segments, fits the existing 220-code-point path
+  and 80-code-point segment bounds, and every segment round-trips through the
+  existing Windows-safe path policy.
+- Cleanup entries remain restricted to one transaction-correlated reserved
+  path. A visible manual path with any cleanup path quarantines the index, and
+  the adversarial test proves the physical file is untouched.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- The new entry is `manual_recovery`, root/source/revision/attempt-bound, and
+  nondeleting. It is processed only by quota accounting, never automatic
+  cleanup.
+- Runtime quota resolution still calls `resolveRecoveryPath`, which verifies the
+  canonical physical root and applies existing reparse/junction containment
+  checks before statting the visible path.
+- An inaccessible or changed path retains `accountedBytes`, so uncertainty
+  overstates quota instead of allowing untracked downloads.
+- The failed record still has no trusted `relativePath`; retries cannot silently
+  overwrite the visible server file.
+- Existing reserved cleanup/manual shapes, rollback transactions, cancellation,
+  root replacement, and multi-root quota tests remain green.
+- IPC/preload/main-process/renderer files and dependency manifests are
+  unchanged. No upload, server delete, server rename, watcher, fabricated data,
+  or fabricated success was added.
+
+## Concerns
+
+- Manual recovery artifacts intentionally require operational resolution and
+  remain quota-accounted until then; Task 6 has no recovery-management UI.
+- Tests use temporary NTFS directories and controlled HTTP responses. This
+  correction did not run authenticated synchronization against a live central
+  server or a packaged Electron client.

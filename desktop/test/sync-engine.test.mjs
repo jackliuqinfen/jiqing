@@ -1632,6 +1632,86 @@ test('failed first publication moves bytes to a tracked recovery path', async (t
   )
 })
 
+test('failed first publication rollback rename tracks the visible destination', async (t) => {
+  let failIndexSave = true
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('12345'))],
+      [entry('r-2', Buffer.from('x'), {
+        sourceId: 'doc-2',
+        originalName: 'extra.txt',
+      })],
+    ],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 5,
+    },
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-1' && failIndexSave) {
+              failIndexSave = false
+              throw new Error('publication index save denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async renameFile(source, destination) {
+        if (destination.includes('.jiqing-rollback-')) {
+          throw new Error('rollback rename denied')
+        }
+        return renameFile(source, destination)
+      },
+    },
+  })
+
+  await harness.engine.start(session())
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  let index = await store.load()
+  const recoveries = Object.values(index.recoveryEntries)
+  assert.equal(recoveries.length, 1)
+  assert.equal(recoveries[0].type, 'manual_recovery')
+  assert.deepEqual(recoveries[0].cleanupFiles, [])
+  assert.equal(recoveries[0].accountedBytes, 5)
+  assert.equal(recoveries[0].rootPath, realpathSync(harness.localRoot))
+  assert.equal(recoveries[0].physicalFiles.length, 1)
+  assert.equal(
+    recoveries[0].physicalFiles[0].startsWith('.jiqing-'),
+    false,
+  )
+  const visiblePath = join(
+    recoveries[0].rootPath,
+    recoveries[0].physicalFiles[0],
+  )
+  assert.equal(readFileSync(visiblePath, 'utf8'), '12345')
+
+  await harness.engine.start(session())
+
+  index = await store.load()
+  assert.equal(harness.api.downloadCalls, 1)
+  assert.equal(readFileSync(visiblePath, 'utf8'), '12345')
+  assert.equal(Object.keys(index.recoveryEntries).length, 1)
+  assert.equal(
+    index.files['project_file:doc-2'].lastErrorCode,
+    'policy_storage_limit',
+  )
+  assert.equal(index.files['project_file:doc-2'].relativePath, null)
+})
+
 test('quota is recalculated when a local file changes during download', async (t) => {
   const releaseDownload = deferred()
   let downloads = 0

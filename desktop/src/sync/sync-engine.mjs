@@ -815,6 +815,7 @@ export class SyncEngine {
         previousRecord,
         transactionId,
         destinationPath,
+        destinationRelativePath: destination.relativePath,
         backupPath,
         backupRelativePath,
         rollbackRelativePath,
@@ -894,6 +895,7 @@ export class SyncEngine {
     previousRecord,
     transactionId,
     destinationPath,
+    destinationRelativePath,
     backupPath,
     backupRelativePath,
     rollbackRelativePath,
@@ -945,6 +947,27 @@ export class SyncEngine {
       accountedBytes += item.fileSize
     } catch (error) {
       errors.push(error)
+      if (previousRecord === undefined) {
+        let visibleSize = item.fileSize
+        try {
+          const visiblePath = await resolvePhysicalPath(
+            run.root,
+            destinationRelativePath,
+          )
+          if (physicalPathKey(visiblePath) !== physicalPathKey(destinationPath)) {
+            throw new Error('visible recovery path changed')
+          }
+          const details = await stat(visiblePath)
+          if (!details.isFile()) {
+            throw new Error('visible recovery path is not a file')
+          }
+          visibleSize = details.size
+        } catch (inspectionError) {
+          errors.push(inspectionError)
+        }
+        physicalFiles.push(destinationRelativePath)
+        accountedBytes += visibleSize
+      }
     }
 
     if (backupCreated) {

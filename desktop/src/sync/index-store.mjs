@@ -11,8 +11,14 @@ import {
   isAbsolute,
   join,
   normalize,
+  posix,
   resolve,
 } from 'node:path'
+
+import {
+  PATH_POLICY_LIMITS,
+  safeSegment,
+} from './path-policy.mjs'
 
 const SCHEMA_VERSION = 1
 const RECOVERY_ENTRY_KEYS = Object.freeze([
@@ -69,6 +75,26 @@ function isRecoveryRelativePath(value, transactionId) {
     || value === `.jiqing-rollback-${transactionId}`
 }
 
+function isGeneratedVisiblePath(value) {
+  if (typeof value !== 'string'
+    || [...value].length > PATH_POLICY_LIMITS.relativePathCodePoints
+    || value.includes('\\')
+    || posix.isAbsolute(value)
+    || posix.normalize(value) !== value) {
+    return false
+  }
+  const segments = value.split('/')
+  return segments.length === 3
+    && segments.every((segment, index) => (
+      segment !== '.'
+      && segment !== '..'
+      && safeSegment(segment, {
+        maximumLength: PATH_POLICY_LIMITS.segmentCodePoints,
+        preserveExtension: index === 2,
+      }) === segment
+    ))
+}
+
 function isIsoTimestamp(value) {
   if (typeof value !== 'string') return false
   const parsed = new Date(value)
@@ -82,6 +108,7 @@ function hasValidRecoveryShape(entry, transactionId) {
     return entry.physicalFiles.length === 1
       && entry.cleanupFiles.length === 1
       && entry.physicalFiles[0] === entry.cleanupFiles[0]
+      && isRecoveryRelativePath(entry.physicalFiles[0], transactionId)
   }
   return entry.type === 'manual_recovery'
     && entry.cleanupFiles.length === 0
@@ -94,6 +121,10 @@ function hasValidRecoveryShape(entry, transactionId) {
         entry.physicalFiles.length === 2
         && entry.physicalFiles[0] === rollbackPath
         && entry.physicalFiles[1] === backupPath
+      )
+      || (
+        entry.physicalFiles.length === 1
+        && isGeneratedVisiblePath(entry.physicalFiles[0])
       )
     )
 }
@@ -119,7 +150,10 @@ function isValidRecoveryEntries(entries) {
       && entry.physicalFiles.length > 0
       && new Set(entry.physicalFiles).size === entry.physicalFiles.length
       && entry.physicalFiles.every(
-        (relativePath) => isRecoveryRelativePath(relativePath, id),
+        (relativePath) => (
+          isRecoveryRelativePath(relativePath, id)
+          || isGeneratedVisiblePath(relativePath)
+        ),
       )
       && isStringArray(entry.cleanupFiles)
       && new Set(entry.cleanupFiles).size === entry.cleanupFiles.length
