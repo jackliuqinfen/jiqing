@@ -21,6 +21,20 @@ test('strictly decodes the exact real project-root payload', () => {
   assert.deepEqual(decode([validProject]), [validProject])
 })
 
+test('accepts an audit-only historical project with the backend canonical empty code', () => {
+  const auditOnlyProject = {
+    projectRef: 'audit:audit-history-1',
+    canonicalProjectId: null,
+    auditProjectId: 'audit-history-1',
+    projectCode: '',
+    projectName: '历史审计项目',
+    fileCount: 1,
+    totalFileSizeBytes: 1_024,
+  }
+
+  assert.deepEqual(decode([auditOnlyProject]), [auditOnlyProject])
+})
+
 test('rejects non-array and oversized top-level payloads', () => {
   assert.throws(() => decode({ items: [validProject] }), /invalid desktop sync projects payload/)
   assert.throws(
@@ -37,7 +51,6 @@ test('rejects extra, missing, empty, malformed, and overlong string fields', () 
     { ...validProject, projectRef: `project:${'a'.repeat(249)}` },
     { ...validProject, projectName: '   ' },
     { ...validProject, projectName: '项'.repeat(513) },
-    { ...validProject, projectCode: '' },
     { ...validProject, projectCode: 'A'.repeat(257) },
     { ...validProject, canonicalProjectId: '' },
     { ...validProject, canonicalProjectId: 'A'.repeat(257) },
