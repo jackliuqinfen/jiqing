@@ -243,6 +243,13 @@ test('quarantines every malformed recovery ledger shape', async (t) => {
       ...entry,
       cleanupFiles: [`.jiqing-rollback-${transactionId}`],
     })],
+    ['cleanup with an extra physical file', (entry) => ({
+      ...entry,
+      physicalFiles: [
+        `.jiqing-backup-${transactionId}`,
+        `.jiqing-rollback-${transactionId}`,
+      ],
+    })],
   ]
 
   for (const [name, mutate] of cases) {
@@ -257,6 +264,8 @@ test('quarantines every malformed recovery ledger shape', async (t) => {
       const entry = {
         id: transactionId,
         sourceKey: 'project_file:doc-1',
+        previousSourceRevision: 'r-1',
+        sourceRevision: 'r-2',
         type: 'cleanup_pending',
         rootPath: realpathSync(appDataPath),
         physicalFiles: [`.jiqing-backup-${transactionId}`],

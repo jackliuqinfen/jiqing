@@ -21,8 +21,10 @@ const RECOVERY_ENTRY_KEYS = Object.freeze([
   'createdAt',
   'id',
   'physicalFiles',
+  'previousSourceRevision',
   'rootPath',
   'sourceKey',
+  'sourceRevision',
   'type',
 ])
 const RECOVERY_TRANSACTION_ID = /^[a-f0-9]{32}$/
@@ -73,6 +75,29 @@ function isIsoTimestamp(value) {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value
 }
 
+function hasValidRecoveryShape(entry, transactionId) {
+  const backupPath = `.jiqing-backup-${transactionId}`
+  const rollbackPath = `.jiqing-rollback-${transactionId}`
+  if (entry.type === 'cleanup_pending') {
+    return entry.physicalFiles.length === 1
+      && entry.cleanupFiles.length === 1
+      && entry.physicalFiles[0] === entry.cleanupFiles[0]
+  }
+  return entry.type === 'manual_recovery'
+    && entry.cleanupFiles.length === 0
+    && (
+      (
+        entry.physicalFiles.length === 1
+        && entry.physicalFiles[0] === backupPath
+      )
+      || (
+        entry.physicalFiles.length === 2
+        && entry.physicalFiles[0] === rollbackPath
+        && entry.physicalFiles[1] === backupPath
+      )
+    )
+}
+
 function isValidRecoveryEntries(entries) {
   return isPlainObject(entries)
     && Object.entries(entries).every(([id, entry]) => (
@@ -83,6 +108,11 @@ function isValidRecoveryEntries(entries) {
       && typeof entry.sourceKey === 'string'
       && entry.sourceKey.length > 0
       && entry.sourceKey.length <= 1024
+      && typeof entry.previousSourceRevision === 'string'
+      && entry.previousSourceRevision.length <= 1024
+      && typeof entry.sourceRevision === 'string'
+      && entry.sourceRevision.length > 0
+      && entry.sourceRevision.length <= 1024
       && ['cleanup_pending', 'manual_recovery'].includes(entry.type)
       && isCanonicalAbsolutePath(entry.rootPath)
       && isStringArray(entry.physicalFiles)
@@ -96,10 +126,7 @@ function isValidRecoveryEntries(entries) {
       && entry.cleanupFiles.every(
         (relativePath) => entry.physicalFiles.includes(relativePath),
       )
-      && (
-        (entry.type === 'cleanup_pending' && entry.cleanupFiles.length === 1)
-        || (entry.type === 'manual_recovery' && entry.cleanupFiles.length === 0)
-      )
+      && hasValidRecoveryShape(entry, id)
       && Number.isSafeInteger(entry.accountedBytes)
       && entry.accountedBytes >= 0
       && isIsoTimestamp(entry.createdAt)

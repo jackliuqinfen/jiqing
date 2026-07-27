@@ -796,3 +796,167 @@ Git emitted only existing LF-to-CRLF working-copy notices
 - Tests use temporary NTFS directories and controlled HTTP responses. This round
   did not run authenticated synchronization against a live central server or a
   packaged Electron client.
+
+---
+
+# Fix Round 5/5
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+The final allotted Task 6 fix round addresses both remaining findings without
+changing the six-method IPC surface, sandboxed preload, authenticated GET-only
+synchronization, server authority, or Task 7 UI.
+
+## TDD Evidence
+
+### Red
+
+The first nested-name filter did not select the parent test and therefore was
+not accepted as red evidence:
+
+```text
+node --test --test-name-pattern="cleanup with an extra physical file" desktop/test/index-store.test.mjs
+tests 1, pass 1, fail 0
+```
+
+Rerunning the full index-store file exercised the new subtest and failed on the
+intended validator defect:
+
+```text
+node --test desktop/test/index-store.test.mjs
+tests 17, pass 15, fail 2, cancelled 0, skipped 0, todo 0
+duration_ms 287.4239
+```
+
+The failing subtest showed that a `cleanup_pending` entry with one cleanup path
+and two physical paths was loaded rather than quarantined. The second reported
+failure is the containing parent test.
+
+After the exact-shape validator was green, the repeated-attempt tests failed
+against the deterministic recovery hash:
+
+```text
+node --test --test-name-pattern="repeated recovery" desktop/test/sync-engine.test.mjs
+tests 2, pass 0, fail 2, cancelled 0, skipped 0, todo 0
+duration_ms 338.0843
+```
+
+Both same-root and root-change cases expected two recovery entries after two
+forced `r-1` to `r-2` rollback attempts but loaded only one.
+
+### Green
+
+Exact-shape validator cycle:
+
+```text
+node --test desktop/test/index-store.test.mjs
+tests 17, pass 17, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 299.7471
+```
+
+Repeated-attempt transaction cycle:
+
+```text
+node --test --test-name-pattern="repeated recovery" desktop/test/sync-engine.test.mjs
+tests 2, pass 2, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 395.1323
+```
+
+Final focused index and synchronization suite:
+
+```text
+node --test desktop/test/index-store.test.mjs desktop/test/sync-engine.test.mjs
+tests 61, pass 61, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 2414.5543
+```
+
+Final required desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 122, pass 122, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 3248.4999
+```
+
+Required contract and static verification:
+
+```text
+node scripts/verify-desktop-ipc.mjs
+Desktop IPC contract verified
+
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+all exited 0
+
+git diff --check
+exit 0, no diff errors
+Git emitted only existing LF-to-CRLF working-copy notices
+```
+
+## Fixes Delivered
+
+- Replaced the deterministic source/revision hash with a cryptographically
+  strong UUID-derived 32-hex transaction ID allocated for every publication
+  attempt.
+- Allocation checks the active authoritative-user index and retries UUID
+  collisions. Durable recovery-only persistence also rejects any differing
+  entry already using the ID, so neither in-memory nor on-disk ledger state can
+  be overwritten on collision.
+- Recovery filenames retain the bounded reserved forms
+  `.jiqing-backup-<transaction>` and `.jiqing-rollback-<transaction>`, now with
+  per-attempt identifiers.
+- Every recovery entry now binds `rootPath`, `sourceKey`,
+  `previousSourceRevision`, and `sourceRevision` to the unique transaction.
+- Added a same-root repeated-failure regression. Two forced rollback attempts
+  retain two IDs, two rollback files containing the server revision, and two
+  ledger entries; their combined bytes block a later one-byte file at the
+  exact quota boundary.
+- Added the equivalent root A to root B regression. Both root-bound entries and
+  artifacts survive, and quota accounting spans the two physical roots.
+- Tightened `cleanup_pending` validation to exactly one `physicalFiles` path
+  and one identical `cleanupFiles` path.
+- Tightened `manual_recovery` validation to the engine's generated nondeleting
+  forms: one backup path, or an ordered rollback-plus-backup pair, with an empty
+  cleanup list.
+- The adversarial multi-physical cleanup entry is quarantined before recovery
+  processing and cannot authorize deletion.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- Unique transaction allocation occurs under the existing authoritative-user
+  partition lock and publication mutex, so simultaneous workers cannot observe
+  or claim the same in-memory ledger key.
+- Recovery-only durable merge remains independent of run cancellation and
+  mutates no cursor, synchronized-file success, renderer state, or token.
+- The UUID remains 32 lowercase hex characters after hyphen removal, preserving
+  the existing Windows-safe reserved filename bounds and validator correlation.
+- Cleanup remains restricted to one strictly validated, root-bound reserved
+  artifact. Manual recovery remains nondeleting and quota-accounted.
+- Repeated-attempt quota tests use real files and explicit forced index-save and
+  cleanup failures; they verify durable entries, physical bytes, root bindings,
+  revision bindings, and a later quota rejection.
+- Adjacent rollback, pause/logout abort, root replacement, cleanup retry,
+  malformed-ledger, and exact-boundary quota tests all pass in the full suite.
+- IPC/preload/main-process/renderer files and dependency manifests are
+  unchanged. No upload, server delete, server rename, watcher, fabricated data,
+  or fabricated success was added.
+
+## Concerns
+
+- `manual_recovery` entries remain intentionally durable and quota-accounted
+  until operational resolution; Task 6 has no recovery-management UI.
+- Tests use temporary NTFS directories and controlled HTTP responses. This
+  final round did not run authenticated synchronization against a live central
+  server or a packaged Electron client.

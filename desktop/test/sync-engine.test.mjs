@@ -1238,6 +1238,179 @@ test('pause after index rollback failure still persists recovery tracking', asyn
   )
 })
 
+test('repeated recovery attempts in one root keep distinct quota-tracked artifacts', async (t) => {
+  let failedPublications = 0
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+      [],
+      [entry('r-3', Buffer.from('x'), {
+        sourceId: 'doc-2',
+        originalName: 'extra.txt',
+      })],
+    ],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 15,
+    },
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-2'
+              && record.status === 'synced'
+              && failedPublications < 2) {
+              failedPublications += 1
+              throw new Error('publication index save denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-rollback-')) {
+          throw new Error('rollback cleanup deferred')
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+  await harness.engine.start(session())
+  await harness.engine.start(session())
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  let index = await store.load()
+  const recoveries = Object.values(index.recoveryEntries)
+  assert.equal(failedPublications, 2)
+  assert.equal(recoveries.length, 2)
+  assert.equal(new Set(recoveries.map(({ id }) => id)).size, 2)
+  for (const recovery of recoveries) {
+    assert.match(recovery.id, /^[a-f0-9]{32}$/)
+    assert.equal(recovery.sourceKey, 'project_file:doc-1')
+    assert.equal(recovery.previousSourceRevision, 'r-1')
+    assert.equal(recovery.sourceRevision, 'r-2')
+    assert.equal(recovery.rootPath, realpathSync(harness.localRoot))
+    assert.deepEqual(
+      recovery.physicalFiles,
+      [`.jiqing-rollback-${recovery.id}`],
+    )
+    assert.equal(
+      readFileSync(join(recovery.rootPath, recovery.physicalFiles[0]), 'utf8'),
+      'new-2',
+    )
+  }
+
+  await harness.engine.start(session())
+
+  index = await store.load()
+  assert.equal(Object.keys(index.recoveryEntries).length, 2)
+  assert.equal(
+    index.files['project_file:doc-2'].lastErrorCode,
+    'policy_storage_limit',
+  )
+  assert.equal(index.files['project_file:doc-2'].relativePath, null)
+})
+
+test('repeated recovery after a root change preserves both roots in quota', async (t) => {
+  let failedPublications = 0
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+      [],
+      [entry('r-3', Buffer.from('x'), {
+        sourceId: 'doc-2',
+        originalName: 'extra.txt',
+      })],
+    ],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 15,
+    },
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-2'
+              && record.status === 'synced'
+              && failedPublications < 2) {
+              failedPublications += 1
+              throw new Error('publication index save denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-rollback-')) {
+          throw new Error('rollback cleanup deferred')
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+  const rootA = realpathSync(harness.localRoot)
+  await harness.engine.start(session())
+
+  const rootB = join(harness.localRoot, '..', 'visible-b')
+  harness.engine.setLocalRoot(rootB)
+  await harness.engine.start(session())
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  let index = await store.load()
+  const recoveries = Object.values(index.recoveryEntries)
+  assert.equal(failedPublications, 2)
+  assert.equal(recoveries.length, 2)
+  assert.deepEqual(
+    new Set(recoveries.map(({ rootPath }) => rootPath)),
+    new Set([rootA, realpathSync(rootB)]),
+  )
+  for (const recovery of recoveries) {
+    assert.equal(recovery.sourceKey, 'project_file:doc-1')
+    assert.equal(recovery.previousSourceRevision, 'r-1')
+    assert.equal(recovery.sourceRevision, 'r-2')
+    assert.equal(
+      readFileSync(join(recovery.rootPath, recovery.physicalFiles[0]), 'utf8'),
+      'new-2',
+    )
+  }
+
+  await harness.engine.start(session())
+
+  index = await store.load()
+  assert.equal(Object.keys(index.recoveryEntries).length, 2)
+  assert.equal(
+    index.files['project_file:doc-2'].lastErrorCode,
+    'policy_storage_limit',
+  )
+  assert.equal(index.files['project_file:doc-2'].relativePath, null)
+})
+
 test('cleanup-pending backups stay quota-accounted until a later explicit cleanup succeeds', async (t) => {
   let cleanupAttempts = 0
   const harness = createTestEngine(t, {
@@ -1386,6 +1559,8 @@ test('malformed recovery ledger never deletes a selected-root file', async (t) =
   index.recoveryEntries[transactionId] = {
     id: transactionId,
     sourceKey: 'project_file:doc-1',
+    previousSourceRevision: 'r-1',
+    sourceRevision: 'r-2',
     type: 'cleanup_pending',
     rootPath: realpathSync(harness.localRoot),
     physicalFiles: ['keep.txt'],

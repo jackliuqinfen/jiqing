@@ -214,20 +214,23 @@ function manifestScopeKey(projectRefs) {
   return [...projectRefs].sort().join(',')
 }
 
-function recoveryTransactionId(item, previousRecord) {
-  return createHash('sha256')
-    .update([
-      sourceKey(item),
-      previousRecord?.sourceRevision ?? '',
-      item.sourceRevision,
-    ].join('\0'))
-    .digest('hex')
-    .slice(0, 32)
+function recoveryTransactionId(index) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const transactionId = randomUUID().replaceAll('-', '')
+    if (!Object.hasOwn(index.recoveryEntries, transactionId)) {
+      return transactionId
+    }
+  }
+  throw new FileSyncError(
+    'recovery_id_collision',
+    'Could not allocate a unique recovery transaction',
+  )
 }
 
 function createRecoveryEntry({
   id,
-  source,
+  item,
+  previousRecord,
   type,
   rootPath,
   physicalFiles,
@@ -237,7 +240,9 @@ function createRecoveryEntry({
 }) {
   return {
     id,
-    sourceKey: source,
+    sourceKey: sourceKey(item),
+    previousSourceRevision: previousRecord?.sourceRevision ?? '',
+    sourceRevision: item.sourceRevision,
     type,
     rootPath,
     physicalFiles: [...new Set(physicalFiles)],
@@ -768,7 +773,7 @@ export class SyncEngine {
     await resolvePhysicalPath(run.root, destination.relativePath)
     this.assertActive(run)
 
-    const transactionId = recoveryTransactionId(item, previousRecord)
+    const transactionId = recoveryTransactionId(index)
     const backupRelativePath = `.jiqing-backup-${transactionId}`
     const rollbackRelativePath = `.jiqing-rollback-${transactionId}`
     const backupPath = destination.ownedExisting
@@ -849,7 +854,8 @@ export class SyncEngine {
       } catch (cause) {
         index.recoveryEntries[transactionId] = createRecoveryEntry({
           id: transactionId,
-          source: key,
+          item,
+          previousRecord,
           type: 'cleanup_pending',
           rootPath: run.physicalRoot,
           physicalFiles: [backupRelativePath],
@@ -912,7 +918,8 @@ export class SyncEngine {
         entry: physicalFiles.length > 0
           ? createRecoveryEntry({
               id: transactionId,
-              source: sourceKey(item),
+              item,
+              previousRecord,
               type: 'manual_recovery',
               rootPath: run.physicalRoot,
               physicalFiles,
@@ -959,7 +966,8 @@ export class SyncEngine {
       entry: physicalFiles.length > 0
         ? createRecoveryEntry({
             id: transactionId,
-            source: sourceKey(item),
+            item,
+            previousRecord,
             type: errors.length > 0 ? 'manual_recovery' : 'cleanup_pending',
             rootPath: run.physicalRoot,
             physicalFiles,
@@ -1129,8 +1137,20 @@ export class SyncEngine {
       // recovery ledger, never run state or cursors, crosses cancellation.
       const durableIndex = await store.load()
       durableIndex.recoveryEntries ??= {}
-      durableIndex.recoveryEntries[entry.id] = structuredClone(entry)
-      await store.save(durableIndex)
+      const durableEntry = durableIndex.recoveryEntries[entry.id]
+      if (durableEntry
+        && JSON.stringify(durableEntry) !== JSON.stringify(entry)) {
+        throw new Error('recovery transaction id collision')
+      }
+      if (!durableEntry) {
+        durableIndex.recoveryEntries[entry.id] = structuredClone(entry)
+        await store.save(durableIndex)
+      }
+      const inMemoryEntry = index.recoveryEntries[entry.id]
+      if (inMemoryEntry
+        && JSON.stringify(inMemoryEntry) !== JSON.stringify(entry)) {
+        throw new Error('in-memory recovery transaction id collision')
+      }
       index.recoveryEntries[entry.id] = structuredClone(entry)
     } catch (cause) {
       throw new FileSyncError(
