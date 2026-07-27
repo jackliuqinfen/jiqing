@@ -19,6 +19,10 @@ import { fileURLToPath } from 'node:url'
 import { registerAppProtocol } from './app-protocol.mjs'
 import { loadDesktopConfig } from './config.mjs'
 import {
+  checkRemoteHealth,
+  loadRemoteWithFallback,
+} from './remote-load.mjs'
+import {
   createSecureWebPreferences,
   isAllowedNavigation,
   isReviewedExternalUrl,
@@ -86,26 +90,6 @@ function saveWindowBounds(window) {
   }
 }
 
-async function checkServerHealth() {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), config.healthTimeoutMs)
-  try {
-    const response = await net.fetch(config.healthUrl, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-    if (!response.ok) return false
-
-    const payload = await response.json()
-    return payload?.success === true && payload?.data?.status === 'ok'
-  } catch {
-    return false
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
 function openReviewedExternalUrl(target) {
   if (!isReviewedExternalUrl(target, config.origin)) return
   void shell.openExternal(target, { activate: true }).catch(() => {})
@@ -114,6 +98,7 @@ function openReviewedExternalUrl(target) {
 function protectWebContents(window) {
   const { webContents } = window
   const currentSession = webContents.session
+  const navigationBlockedListeners = new Set()
 
   currentSession.setPermissionRequestHandler(
     (_webContents, _permission, callback) => callback(false),
@@ -123,6 +108,7 @@ function protectWebContents(window) {
   const guardNavigation = (event, target) => {
     if (isAllowedNavigation(target, config.origin)) return
     event.preventDefault()
+    for (const listener of navigationBlockedListeners) listener(target)
     openReviewedExternalUrl(target)
   }
   webContents.on('will-navigate', guardNavigation)
@@ -131,16 +117,32 @@ function protectWebContents(window) {
     openReviewedExternalUrl(url)
     return { action: 'deny' }
   })
+
+  return {
+    subscribeNavigationBlocked(listener) {
+      navigationBlockedListeners.add(listener)
+      return () => navigationBlockedListeners.delete(listener)
+    },
+  }
 }
 
-async function loadApplication(window) {
+async function loadApplication(window, navigationGuard) {
   await window.loadURL('app://connecting')
-  const healthy = await checkServerHealth()
+  const healthy = await checkRemoteHealth({
+    fetchImpl: net.fetch,
+    healthUrl: config.healthUrl,
+    allowedOrigin: config.origin,
+    timeoutMs: config.healthTimeoutMs,
+  })
   if (!healthy) {
-    await window.loadURL('app://unavailable')
+    await window.loadURL('app://unavailable').catch(() => {})
     return
   }
-  await window.loadURL(config.origin)
+  await loadRemoteWithFallback({
+    window,
+    remoteUrl: config.origin,
+    subscribeNavigationBlocked: navigationGuard.subscribeNavigationBlocked,
+  })
 }
 
 async function createMainWindow() {
@@ -165,14 +167,14 @@ async function createMainWindow() {
     }),
   })
 
-  protectWebContents(window)
+  const navigationGuard = protectWebContents(window)
   window.once('ready-to-show', () => window.show())
   window.on('close', () => saveWindowBounds(window))
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = null
   })
 
-  await loadApplication(window)
+  await loadApplication(window, navigationGuard)
   return window
 }
 
