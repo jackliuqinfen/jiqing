@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS audit_project_attachments (
   is_deleted BOOLEAN DEFAULT FALSE
 );
 
+CREATE TABLE IF NOT EXISTS desktop_sync_hash_cache (
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  revision_key TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_size BIGINT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source_type, source_id, revision_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_desktop_sync_hash_updated
+  ON desktop_sync_hash_cache(updated_at);
+
 CREATE TABLE IF NOT EXISTS audit_field_configs (
   id TEXT PRIMARY KEY,
   entity_type TEXT NOT NULL DEFAULT 'project',

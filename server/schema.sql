@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS project_files (
   FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS desktop_sync_hash_cache (
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  revision_key TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_size INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source_type, source_id, revision_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_desktop_sync_hash_updated
+  ON desktop_sync_hash_cache(updated_at);
+
 CREATE TABLE IF NOT EXISTS project_settlements (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,

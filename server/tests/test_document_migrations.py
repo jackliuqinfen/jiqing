@@ -9,6 +9,7 @@ from server import audit_api
 from server.migrations import (
     CONTRACT_FALLBACK_MIGRATION,
     CONTRACT_FALLBACK_PROVENANCE_MIGRATION,
+    DESKTOP_SYNC_HASH_CACHE_MIGRATION,
     DOCUMENT_CONFIRMATION_GUARDS_MIGRATION,
     DOCUMENT_EVIDENCE_CHECKSUM,
     DOCUMENT_EVIDENCE_MIGRATION,
@@ -128,8 +129,38 @@ class DocumentMigrationTests(unittest.TestCase):
                 (DOCUMENT_CONFIRMATION_GUARDS_MIGRATION, 1),
                 (CONTRACT_FALLBACK_MIGRATION, 1),
                 (CONTRACT_FALLBACK_PROVENANCE_MIGRATION, 1),
+                (DESKTOP_SYNC_HASH_CACHE_MIGRATION, 1),
             ],
         )
+
+    def test_desktop_sync_hash_cache_migration_is_additive(self):
+        apply_pending_migrations(self.conn)
+
+        columns = {
+            row["name"]
+            for row in self.conn.execute(
+                "PRAGMA table_info(desktop_sync_hash_cache)"
+            )
+        }
+        indexes = {
+            row["name"]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+
+        self.assertEqual(
+            columns,
+            {
+                "source_type",
+                "source_id",
+                "revision_key",
+                "sha256",
+                "file_size",
+                "updated_at",
+            },
+        )
+        self.assertIn("idx_desktop_sync_hash_updated", indexes)
 
     def test_contract_fallback_migration_adds_drafts_and_job_provenance(self):
         apply_pending_migrations(self.conn)

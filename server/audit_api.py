@@ -43,6 +43,11 @@ from server.desktop_sync_policy import (
     effective_desktop_sync_policy,
     normalize_desktop_sync_policy,
 )
+from server.desktop_sync_repository import (
+    InvalidSyncCursor,
+    list_sync_manifest,
+    list_sync_project_roots,
+)
 from server.migrations import apply_pending_migrations
 from server.recognition.registry import (
     build_recognition_adapter,
@@ -2363,11 +2368,25 @@ class Handler(BaseHTTPRequestHandler):
         self.respond_file(path, mime_type, original_name, inline=True)
 
     def download_attachment(self, conn, attachment_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.attachment_row(conn, attachment_id)
         if not row:
             self.not_found()
+            return
+        audit_project = conn.execute(
+            "SELECT project_id FROM audit_projects WHERE id = ?",
+            (row["project_id"],),
+        ).fetchone()
+        canonical_project_id = (
+            audit_project["project_id"] if audit_project else ""
+        )
+        if not self.source_project_allowed(conn, user, canonical_project_id):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限下载该项目资料",
+            })
             return
         original_name = row_get(row, "original_name") or row_get(row, "file_name")
         path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
@@ -3214,11 +3233,18 @@ class Handler(BaseHTTPRequestHandler):
         self.respond_file(path, mime_type, original_name, inline=True)
 
     def download_project_file(self, conn, file_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.project_file_row(conn, file_id)
         if not row:
             self.not_found()
+            return
+        if not self.source_project_allowed(conn, user, row["project_id"]):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限下载该项目资料",
+            })
             return
         path = safe_attachment_path(row["relative_path"])
         if not path.exists():
@@ -4056,6 +4082,106 @@ class Handler(BaseHTTPRequestHandler):
             "data": effective_desktop_sync_policy(value, row_dict(user)),
         })
 
+    def desktop_sync_policy_for_user(self, conn, user):
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        return effective_desktop_sync_policy(value, row_dict(user))
+
+    def desktop_sync_accessible_refs(self, conn, user, roots):
+        actor = {
+            "id": user["id"],
+            "name": user["display_name"] or user["username"],
+            "role": user["role"],
+        }
+        allowed_project_ids = self.document_project_scope_provider(conn, actor)
+        if allowed_project_ids is None:
+            return {item["projectRef"] for item in roots}
+        allowed_project_ids = {str(item) for item in allowed_project_ids if item}
+        return {
+            item["projectRef"]
+            for item in roots
+            if item["canonicalProjectId"] in allowed_project_ids
+        }
+
+    def desktop_sync_projects(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        roots = list_sync_project_roots(conn, policy)
+        accessible_refs = self.desktop_sync_accessible_refs(conn, user, roots)
+        self.respond(200, {
+            "success": True,
+            "data": [
+                item
+                for item in roots
+                if item["projectRef"] in accessible_refs
+            ],
+        })
+
+    def desktop_sync_manifest(self, conn, params):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        roots = list_sync_project_roots(conn, policy)
+        accessible_refs = self.desktop_sync_accessible_refs(conn, user, roots)
+        requested_refs = {
+            item.strip()
+            for value in params.get("projectRefs", [])
+            for item in value.split(",")
+            if item.strip()
+        }
+        project_refs = sorted(requested_refs & accessible_refs)
+        try:
+            result = list_sync_manifest(
+                conn,
+                policy,
+                project_refs,
+                cursor=(params.get("cursor", [""])[0] or ""),
+                limit=(params.get("limit", [200])[0] or 200),
+                path_resolver=safe_attachment_path,
+            )
+        except InvalidSyncCursor:
+            self.respond(400, {
+                "success": False,
+                "code": "invalid_sync_cursor",
+                "error": "同步游标无效，请重新获取清单",
+            })
+            return
+        self.respond(200, {"success": True, "data": result})
+
+    def source_project_allowed(self, conn, user, canonical_project_id):
+        actor = {
+            "id": user["id"],
+            "name": user["display_name"] or user["username"],
+            "role": user["role"],
+        }
+        allowed_project_ids = self.document_project_scope_provider(conn, actor)
+        if allowed_project_ids is None:
+            return True
+        return bool(
+            canonical_project_id
+            and str(canonical_project_id)
+            in {str(item) for item in allowed_project_ids if item}
+        )
+
     def set_system_setting(self, conn, key, data):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -4267,6 +4393,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.desktop_bootstrap(conn)
                 elif path == "/api/desktop/policy":
                     self.desktop_policy(conn)
+                elif path == "/api/desktop/sync/projects":
+                    self.desktop_sync_projects(conn)
+                elif path == "/api/desktop/sync/manifest":
+                    self.desktop_sync_manifest(conn, params)
                 elif path.startswith("/api/audit/") and not self.require_user(conn):
                     return
                 elif path == "/api/auth/me":

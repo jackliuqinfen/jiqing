@@ -11,6 +11,7 @@ DOCUMENT_EVIDENCE_MIGRATION = "2026071301_document_evidence_phase1"
 DOCUMENT_CONFIRMATION_GUARDS_MIGRATION = "2026071401_document_confirmation_guards"
 CONTRACT_FALLBACK_MIGRATION = "2026071501_contract_fallback"
 CONTRACT_FALLBACK_PROVENANCE_MIGRATION = "2026071502_contract_fallback_provenance"
+DESKTOP_SYNC_HASH_CACHE_MIGRATION = "2026072701_desktop_sync_hash_cache"
 
 
 class MigrationChecksumMismatchError(RuntimeError):
@@ -528,6 +529,30 @@ CONTRACT_FALLBACK_PROVENANCE_CHECKSUM = hashlib.sha256(
     ).encode("utf-8")
 ).hexdigest()
 
+_DESKTOP_SYNC_HASH_CACHE_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS desktop_sync_hash_cache (
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      revision_key TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      file_size INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (source_type, source_id, revision_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_desktop_sync_hash_updated
+    ON desktop_sync_hash_cache(updated_at)
+    """,
+)
+
+DESKTOP_SYNC_HASH_CACHE_CHECKSUM = hashlib.sha256(
+    "\n".join(
+        statement.strip() for statement in _DESKTOP_SYNC_HASH_CACHE_STATEMENTS
+    ).encode("utf-8")
+).hexdigest()
+
 
 def apply_pending_migrations(conn):
     """Apply ordered SQLite migrations once and verify applied definitions."""
@@ -566,6 +591,12 @@ def apply_pending_migrations(conn):
         checksum=CONTRACT_FALLBACK_PROVENANCE_CHECKSUM,
         statements=(),
         prepare=_prepare_contract_fallback_provenance,
+    )
+    _apply_migration(
+        conn,
+        version=DESKTOP_SYNC_HASH_CACHE_MIGRATION,
+        checksum=DESKTOP_SYNC_HASH_CACHE_CHECKSUM,
+        statements=_DESKTOP_SYNC_HASH_CACHE_STATEMENTS,
     )
 
 
