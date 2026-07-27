@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   mkdirSync,
   readFileSync,
@@ -66,9 +67,20 @@ export async function buildIcons() {
     await squareLogo(trimmedLogo, 512),
   )
   writeFileSync(join(assetsPath, 'icon.ico'), await pngToIco(pngPaths))
+  const manifestPath = join(assetsPath, 'icon-manifest.json')
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      source: 'public/aoqiang-construction-logo.svg',
+      sourceSha256: createHash('sha256').update(sourceSvg).digest('hex'),
+    }, null, 2)}\n`,
+    'utf8',
+  )
 
   return Object.freeze({
     iconPath: join(assetsPath, 'icon.ico'),
+    manifestPath,
     pngPaths: Object.freeze(pngPaths),
     splashPath: join(assetsPath, 'splash-logo.png'),
   })

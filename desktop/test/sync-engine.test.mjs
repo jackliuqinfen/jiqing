@@ -10,6 +10,7 @@ import {
   realpathSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -20,7 +21,11 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import {
+  dirname,
+  join,
+  sep,
+} from 'node:path'
 
 import {
   DesktopApiClient,
@@ -230,6 +235,64 @@ function session() {
     projectRefs: [PROJECT_REF],
   }
 }
+
+test('local sync root rejects the desktop installation directory boundary', (t) => {
+  const base = mkdtempSync(join(tmpdir(), 'jiqing-sync-install-boundary-'))
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+  const installationDirectory = join(base, 'Program Files', 'JiqingERP')
+  const installationChild = join(installationDirectory, 'user-files')
+  const adjacentDirectory = join(base, 'Program Files', 'JiqingERP Files')
+  mkdirSync(installationChild, { recursive: true })
+  mkdirSync(adjacentDirectory, { recursive: true })
+
+  const engine = new SyncEngine({
+    apiClient: new FakeApiClient({ manifests: [[]] }),
+    appDataPath: join(base, 'app-data'),
+    environmentOrigin: ORIGIN,
+    installationDirectory,
+  })
+
+  for (const unsafeRoot of [
+    installationDirectory,
+    dirname(installationDirectory),
+    installationChild,
+    `${installationDirectory.toUpperCase()}${sep}`,
+  ]) {
+    assert.throws(
+      () => engine.setLocalRoot(unsafeRoot),
+      /installation directory/i,
+      unsafeRoot,
+    )
+  }
+  assert.doesNotThrow(() => engine.setLocalRoot(adjacentDirectory))
+  assert.equal(engine.getState().localRoot, adjacentDirectory)
+})
+
+test('local sync root resolves junctions before checking the installation boundary', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('Windows junction semantics are required')
+    return
+  }
+
+  const base = mkdtempSync(join(tmpdir(), 'jiqing-sync-install-junction-'))
+  t.after(() => rmSync(base, { recursive: true, force: true }))
+  const installationDirectory = join(base, 'installed', 'JiqingERP')
+  const junctionPath = join(base, 'visible-alias')
+  mkdirSync(installationDirectory, { recursive: true })
+  symlinkSync(installationDirectory, junctionPath, 'junction')
+
+  const engine = new SyncEngine({
+    apiClient: new FakeApiClient({ manifests: [[]] }),
+    appDataPath: join(base, 'app-data'),
+    environmentOrigin: ORIGIN,
+    installationDirectory,
+  })
+
+  assert.throws(
+    () => engine.setLocalRoot(join(junctionPath, 'future-folder')),
+    /installation directory|symbolic link|junction/i,
+  )
+})
 
 test('downloads a verified file atomically and skips it on rerun', async (t) => {
   const content = Buffer.from('contract')

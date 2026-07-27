@@ -7,15 +7,36 @@ import {
   symlinkSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 import {
   appendFilenameSuffix,
   buildRelativePath,
+  pathsOverlap,
   resolvePhysicalPath,
   resolveWithinRoot,
   safeSegment,
 } from '../src/sync/path-policy.mjs'
+
+test('detects equal, parent, and child path overlap without matching siblings', () => {
+  const installationDirectory = join('C:\\', 'Program Files', 'JiqingERP')
+  assert.equal(pathsOverlap(
+    installationDirectory,
+    installationDirectory.toUpperCase(),
+  ), true)
+  assert.equal(pathsOverlap(
+    dirname(installationDirectory),
+    installationDirectory,
+  ), true)
+  assert.equal(pathsOverlap(
+    join(installationDirectory, 'sync'),
+    installationDirectory,
+  ), true)
+  assert.equal(pathsOverlap(
+    join('C:\\', 'Program Files', 'JiqingERP Files'),
+    installationDirectory,
+  ), false)
+})
 
 test('normalizes unsafe Windows names deterministically', () => {
   assert.equal(safeSegment('合同:最终版?.pdf'), '合同_最终版_.pdf')

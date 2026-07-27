@@ -21,6 +21,15 @@ test('main process registers the bounded desktop IPC controller', () => {
 test('folder actions are wired through Electron dialog and shell without renderer paths', () => {
   assert.match(main, /dialog\.showOpenDialog/)
   assert.match(main, /shell\.openPath/)
+  assert.match(main, /assertSafeSyncRoot/)
+  assert.match(main, /dirname\(process\.execPath\)/)
+})
+
+test('internal-test window title survives remote page title updates', () => {
+  assert.match(main, /page-title-updated/)
+  assert.match(main, /event\.preventDefault\(\)/)
+  assert.match(main, /window\.setTitle/)
+  assert.match(main, /config\.environmentLabel/)
 })
 
 test('desktop memory session is cleared when the application exits', () => {

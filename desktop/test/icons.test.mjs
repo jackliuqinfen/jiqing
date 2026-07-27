@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
@@ -34,4 +35,33 @@ test('icon build emits the required square PNG sizes and splash artwork', async 
   const splash = await sharp(fileURLToPath(splashUrl)).metadata()
   assert.equal(splash.width, 512)
   assert.equal(splash.height, 512)
+})
+
+test('icon output is non-empty and records the exact enterprise SVG source', async () => {
+  const sourceUrl = new URL(
+    '../../public/aoqiang-construction-logo.svg',
+    import.meta.url,
+  )
+  const manifestUrl = new URL('../assets/icon-manifest.json', import.meta.url)
+  assert.equal(existsSync(manifestUrl), true)
+
+  const sourceSha256 = createHash('sha256')
+    .update(readFileSync(sourceUrl))
+    .digest('hex')
+  const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'))
+  assert.equal(manifest.schemaVersion, 1)
+  assert.equal(manifest.source, 'public/aoqiang-construction-logo.svg')
+  assert.equal(manifest.sourceSha256, sourceSha256)
+
+  const { data, info } = await sharp(
+    fileURLToPath(new URL('../assets/generated/icon-256.png', import.meta.url)),
+  )
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  let visiblePixels = 0
+  for (let offset = 3; offset < data.length; offset += info.channels) {
+    if (data[offset] > 0) visiblePixels += 1
+  }
+  assert.ok(visiblePixels > 1000, 'generated icon must contain visible artwork')
 })

@@ -1,5 +1,14 @@
-import { extname, isAbsolute, posix, relative, resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
 import { lstat, realpath } from 'node:fs/promises'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  posix,
+  relative,
+  resolve,
+} from 'node:path'
 
 const UNSAFE_WINDOWS_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f]/g
 const WINDOWS_RESERVED_NAME = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
@@ -127,6 +136,42 @@ function isInside(root, target) {
       && !isAbsolute(fromRoot)
     )
   )
+}
+
+export function canonicalizePath(value) {
+  let current = resolve(value)
+  const missingSegments = []
+  while (true) {
+    try {
+      return resolve(
+        realpathSync.native(current),
+        ...missingSegments,
+      )
+    } catch {
+      const parent = dirname(current)
+      if (parent === current) return resolve(value)
+      missingSegments.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+function comparablePath(value) {
+  const normalized = canonicalizePath(value)
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+export function pathsOverlap(left, right) {
+  if (typeof left !== 'string'
+    || left.trim().length === 0
+    || typeof right !== 'string'
+    || right.trim().length === 0) {
+    throw new Error('invalid path boundary')
+  }
+  const comparableLeft = comparablePath(left)
+  const comparableRight = comparablePath(right)
+  return isInside(comparableLeft, comparableRight)
+    || isInside(comparableRight, comparableLeft)
 }
 
 export function resolveWithinRoot(root, relativePath) {

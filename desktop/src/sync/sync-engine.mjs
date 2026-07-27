@@ -16,6 +16,8 @@ import { SyncIndexStore } from './index-store.mjs'
 import {
   appendFilenameSuffix,
   buildRelativePath,
+  canonicalizePath,
+  pathsOverlap,
   resolvePhysicalPath,
   safeSegment,
 } from './path-policy.mjs'
@@ -278,6 +280,7 @@ export class SyncEngine {
     prepareReadOnly = (filePath) => chmod(filePath, 0o444),
     removeFile = rm,
     renameFile = rename,
+    installationDirectory = '',
   }) {
     if (!apiClient
       || !isNonEmptyString(appDataPath, 4096)
@@ -300,6 +303,9 @@ export class SyncEngine {
     this.prepareReadOnly = prepareReadOnly
     this.removeFile = removeFile
     this.renameFile = renameFile
+    this.installationDirectory = isNonEmptyString(installationDirectory, 4096)
+      ? canonicalizePath(installationDirectory)
+      : ''
     this.state = createInitialState()
     this.activeRun = null
     this.nextRunId = 1
@@ -314,6 +320,7 @@ export class SyncEngine {
     if (!isNonEmptyString(localRoot, 4096)) {
       throw new Error('invalid local sync root')
     }
+    this.assertRootAllowed(canonicalizePath(localRoot))
     this.cancelActiveRun()
     this.state = createInitialState(localRoot)
     this.state.message = '已选择本地资料文件夹，尚未开始下载'
@@ -384,6 +391,7 @@ export class SyncEngine {
       this.assertActive(run)
       run.physicalRoot = await realpath(run.root)
       this.assertActive(run)
+      this.assertRootAllowed(run.physicalRoot)
 
       const lockKey = `${this.environmentOrigin}\n${run.authoritativeUserId}`
       const lock = this.getLock(lockKey)
@@ -403,6 +411,13 @@ export class SyncEngine {
     }
 
     return this.getState()
+  }
+
+  assertRootAllowed(localRoot) {
+    if (this.installationDirectory
+      && pathsOverlap(localRoot, this.installationDirectory)) {
+      throw new Error('sync root overlaps the application installation directory')
+    }
   }
 
   async runLocked(run, projectRefs) {
