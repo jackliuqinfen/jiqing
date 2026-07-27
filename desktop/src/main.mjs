@@ -1,6 +1,8 @@
 import {
   app,
   BrowserWindow,
+  dialog,
+  ipcMain,
   Menu,
   net,
   protocol,
@@ -19,6 +21,11 @@ import { fileURLToPath } from 'node:url'
 import { registerAppProtocol } from './app-protocol.mjs'
 import { loadDesktopConfig } from './config.mjs'
 import {
+  createDesktopIpcController,
+  DESKTOP_IPC_CHANNELS,
+  registerDesktopIpcHandlers,
+} from './ipc-contract.mjs'
+import {
   checkRemoteHealth,
   loadRemoteWithFallback,
 } from './remote-load.mjs'
@@ -33,7 +40,9 @@ const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
 const config = loadDesktopConfig(process.env)
 const sessionPartition = 'desktop-erp-memory'
+const desktopIpcController = createDesktopIpcController()
 let mainWindow = null
+let desktopIpcRegistered = false
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -95,6 +104,48 @@ function openReviewedExternalUrl(target) {
   void shell.openExternal(target, { activate: true }).catch(() => {})
 }
 
+async function selectDesktopSyncFolder() {
+  const options = {
+    title: '选择本地资料同步文件夹',
+    buttonLabel: '选择此文件夹',
+    properties: ['openDirectory', 'createDirectory'],
+  }
+  const parent = mainWindow && !mainWindow.isDestroyed()
+    ? mainWindow
+    : null
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options)
+  if (result.canceled || result.filePaths.length !== 1) return ''
+  return result.filePaths[0]
+}
+
+async function openDesktopSyncFolder(localRoot) {
+  const errorMessage = await shell.openPath(localRoot)
+  if (errorMessage) throw new Error('unable to open sync folder')
+}
+
+function emitDesktopSyncState(state) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (!isAllowedNavigation(mainWindow.webContents.getURL(), config.origin)) return
+  mainWindow.webContents.send(DESKTOP_IPC_CHANNELS.syncState, state)
+}
+
+function registerDesktopBridge() {
+  if (desktopIpcRegistered) return
+  registerDesktopIpcHandlers({
+    ipcMain,
+    allowedOrigin: config.origin,
+    appVersion: app.getVersion(),
+    releaseChannel: config.releaseChannel,
+    controller: desktopIpcController,
+    selectFolder: selectDesktopSyncFolder,
+    openFolder: openDesktopSyncFolder,
+    emitState: emitDesktopSyncState,
+  })
+  desktopIpcRegistered = true
+}
+
 function protectWebContents(window) {
   const { webContents } = window
   const currentSession = webContents.session
@@ -104,6 +155,13 @@ function protectWebContents(window) {
     (_webContents, _permission, callback) => callback(false),
   )
   currentSession.setPermissionCheckHandler(() => false)
+  currentSession.webRequest.onBeforeRequest(
+    { urls: [`${config.origin}/api/auth/logout`] },
+    (details, callback) => {
+      if (details.method === 'POST') desktopIpcController.clearSession()
+      callback({})
+    },
+  )
 
   const guardNavigation = (event, target) => {
     if (isAllowedNavigation(target, config.origin)) return
@@ -171,6 +229,7 @@ async function createMainWindow() {
   window.once('ready-to-show', () => window.show())
   window.on('close', () => saveWindowBounds(window))
   window.on('closed', () => {
+    desktopIpcController.clearSession()
     if (mainWindow === window) mainWindow = null
   })
 
@@ -192,6 +251,7 @@ if (!ownsSingleInstance) {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
     registerAppProtocol(protocol, net, uiRoot)
+    registerDesktopBridge()
     mainWindow = await createMainWindow()
 
     app.on('activate', async () => {
@@ -203,5 +263,9 @@ if (!ownsSingleInstance) {
 
   app.on('window-all-closed', () => {
     app.quit()
+  })
+
+  app.on('before-quit', () => {
+    desktopIpcController.clearSession()
   })
 }
