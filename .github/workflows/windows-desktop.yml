@@ -114,12 +114,7 @@ jobs:
           npm --prefix desktop run dist:production
           npm --prefix desktop run verify:package
       - name: Verify production signature
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem -LiteralPath 'desktop\dist' -Filter 'JiqingERP-*-Setup.exe' | Select-Object -First 1
-          if (-not $installer) { throw 'Production installer is missing' }
-          $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
-          if ($signature.Status -ne 'Valid') { throw "Production installer signature is $($signature.Status)" }
+        run: node desktop/scripts/verify-windows-signatures.mjs
       - name: Upload signed production installer
         uses: actions/upload-artifact@v4
         with:

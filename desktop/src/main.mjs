@@ -113,10 +113,7 @@ function completeSmoke(result, exitCode = 0) {
   if (!unpackagedSmoke || smokeCompleted) return
   smokeCompleted = true
   writeSmokeFile(smokeResultPath, result)
-  setImmediate(() => {
-    if (exitCode === 0) app.quit()
-    else app.exit(exitCode)
-  })
+  setImmediate(() => app.exit(exitCode))
 }
 
 function markSmokeReady() {
@@ -133,11 +130,20 @@ function currentLoadedOrigin(window) {
 }
 
 async function waitForTechnicalSmokePage(window) {
-  const ready = await window.webContents.executeJavaScript(
-    'Promise.resolve(window.__desktopSmokeReady).then(Boolean)',
+  const diagnostic = await window.webContents.executeJavaScript(
+    `Promise.resolve(window.__desktopSmokeReady).then((ready) => ({
+      ready: Boolean(ready),
+      url: window.location.href,
+      title: document.title,
+      smokeReadyType: typeof window.__desktopSmokeReady,
+    }))`,
     true,
   )
-  if (ready !== true) throw new Error('technical smoke page did not initialize')
+  if (diagnostic.ready !== true) {
+    throw new Error(
+      `technical smoke page did not initialize: ${JSON.stringify(diagnostic)}`,
+    )
+  }
 }
 
 function windowStatePath() {
@@ -294,12 +300,18 @@ function protectWebContents(window) {
   }
 }
 
-async function loadApplication(window, navigationGuard) {
+async function loadApplication(
+  window,
+  navigationGuard,
+  onHealthDiagnostic,
+  onRemoteLoadError,
+) {
   await window.loadURL('app://connecting/')
   const healthy = await checkRemoteHealth({
     fetchImpl: net.fetch,
     healthUrl: config.healthUrl,
     allowedOrigin: config.origin,
+    onDiagnostic: onHealthDiagnostic,
     timeoutMs: config.healthTimeoutMs,
   })
   if (!healthy) {
@@ -312,6 +324,7 @@ async function loadApplication(window, navigationGuard) {
   const remoteLoaded = await loadRemoteWithFallback({
     window,
     remoteUrl: config.origin,
+    onLoadError: onRemoteLoadError,
     subscribeNavigationBlocked: navigationGuard.subscribeNavigationBlocked,
   })
   return Object.freeze({
@@ -343,6 +356,30 @@ async function createMainWindow() {
   })
 
   const navigationGuard = protectWebContents(window)
+  let smokeHealthDiagnostic = null
+  let smokeRemoteLoadError = null
+  const smokeBlockedNavigations = []
+  const unsubscribeSmokeBlockedDiagnostics = unpackagedSmoke
+    ? navigationGuard.subscribeNavigationBlocked(
+        (target) => smokeBlockedNavigations.push(target),
+      )
+    : () => {}
+  let smokeLoadFailure = null
+  const captureSmokeLoadFailure = (
+    _event,
+    errorCode,
+    errorDescription,
+    validatedUrl,
+    isMainFrame,
+  ) => {
+    if (!unpackagedSmoke || isMainFrame !== true) return
+    smokeLoadFailure = {
+      errorCode,
+      errorDescription,
+      validatedUrl,
+    }
+  }
+  window.webContents.on('did-fail-load', captureSmokeLoadFailure)
   let smokeNavigationBlocked = null
   let resolveSmokeNavigationBlocked = null
   let unsubscribeSmokeNavigation = () => {}
@@ -369,8 +406,35 @@ async function createMainWindow() {
     if (mainWindow === window) mainWindow = null
   })
 
-  const loadResult = await loadApplication(window, navigationGuard)
+  const loadResult = await loadApplication(
+    window,
+    navigationGuard,
+    (diagnostic) => {
+      if (unpackagedSmoke) smokeHealthDiagnostic = diagnostic
+    },
+    (error) => {
+      if (!unpackagedSmoke) return
+      smokeRemoteLoadError = error instanceof Error
+        ? { message: error.message, name: error.name }
+        : { message: String(error), name: 'UnknownError' }
+    },
+  )
+  window.webContents.removeListener(
+    'did-fail-load',
+    captureSmokeLoadFailure,
+  )
+  unsubscribeSmokeBlockedDiagnostics()
   if (unpackagedSmoke && smokeCase === 'successful-load') {
+    if (!loadResult.remoteLoaded) {
+      throw new Error(
+        `technical remote load failed: ${JSON.stringify({
+          blockedNavigations: smokeBlockedNavigations,
+          healthDiagnostic: smokeHealthDiagnostic,
+          loadFailure: smokeLoadFailure,
+          remoteLoadError: smokeRemoteLoadError,
+        })}`,
+      )
+    }
     await waitForTechnicalSmokePage(window)
     completeSmoke({
       healthReady: loadResult.healthReady,

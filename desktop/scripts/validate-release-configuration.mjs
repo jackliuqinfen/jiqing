@@ -57,6 +57,46 @@ export function validateReleaseConfiguration({
   })
 }
 
+export function validateWindowsBuildConfiguration({
+  certificateBase64 = '',
+  certificatePassword = '',
+  channel,
+  mode,
+  origin,
+}) {
+  if (!['dir', 'nsis', 'production'].includes(mode)) {
+    throw new Error('build mode must be dir, nsis, or production')
+  }
+  if (mode === 'production') {
+    if (channel !== 'production') {
+      throw new Error('production build mode requires production release')
+    }
+    return validateReleaseConfiguration({
+      certificateBase64,
+      certificatePassword,
+      channel,
+      origin,
+    })
+  }
+  if (channel === 'production') {
+    throw new Error('production release must use the production build mode')
+  }
+  if (channel === 'internal-test') {
+    return validateReleaseConfiguration({
+      channel,
+      origin,
+    })
+  }
+  if (channel !== 'development') {
+    throw new Error('desktop build channel is invalid')
+  }
+  return Object.freeze({
+    channel,
+    origin: parseOrigin(origin).origin,
+    requiresSigning: false,
+  })
+}
+
 if (
   process.argv[1]
   && import.meta.url === pathToFileURL(process.argv[1]).href

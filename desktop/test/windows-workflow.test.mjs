@@ -79,7 +79,6 @@ test('production artifact uploads only after a valid Windows signature', () => {
   assert.doesNotMatch(productionSteps[buildIndex].run, /dist:win/)
   assert.match(
     productionSteps[signatureIndex].run,
-    /Get-AuthenticodeSignature/,
+    /verify-windows-signatures\.mjs/,
   )
-  assert.match(productionSteps[signatureIndex].run, /Status -ne 'Valid'/)
 })

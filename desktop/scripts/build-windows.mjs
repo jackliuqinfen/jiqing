@@ -1,40 +1,84 @@
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import {
   cpSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
+  realpathSync,
   rmSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import {
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const mode = process.argv[2]
-if (!['dir', 'nsis', 'production'].includes(mode)) {
-  throw new Error('build mode must be dir, nsis, or production')
-}
+import {
+  validateWindowsBuildConfiguration,
+} from './validate-release-configuration.mjs'
+import { verifyWindowsSignatures } from './verify-windows-signatures.mjs'
 
+const mode = process.argv[2]
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 const builderCli = fileURLToPath(
   new URL('../node_modules/electron-builder/out/cli/cli.js', import.meta.url),
 )
 const distRoot = join(desktopRoot, 'dist')
-const buildId = createHash('sha256')
-  .update(desktopRoot)
-  .digest('hex')
-  .slice(0, 8)
-const shortBuildBase = process.env.PUBLIC || 'C:\\Users\\Public'
-const shortBuildRoot = join(shortBuildBase, 'JiqingDesktopBuild', buildId)
+const trustedBuildParentPath = join(desktopRoot, '.tmp', 'windows-build')
+mkdirSync(trustedBuildParentPath, { recursive: true })
+const trustedBuildParent = realpathSync(trustedBuildParentPath)
+const installedElectronDist = realpathSync(
+  join(desktopRoot, 'node_modules', 'electron', 'dist'),
+)
+
+validateWindowsBuildConfiguration({
+  certificateBase64: process.env.CSC_LINK,
+  certificatePassword: process.env.CSC_KEY_PASSWORD,
+  channel: process.env.DESKTOP_RELEASE_CHANNEL,
+  mode,
+  origin: process.env.DESKTOP_SERVER_URL,
+})
+
+const shortBuildRoot = mkdtempSync(
+  join(trustedBuildParent, 'run-'),
+)
 const shortOutput = join(shortBuildRoot, 'out')
 
+function assertDescendant(target, parent, label) {
+  const resolvedParent = realpathSync(parent)
+  const resolvedTarget = existsSync(target)
+    ? realpathSync(target)
+    : resolve(target)
+  const pathFromParent = relative(resolvedParent, resolvedTarget)
+  if (
+    pathFromParent.length === 0
+    || pathFromParent.startsWith('..')
+    || isAbsolute(pathFromParent)
+  ) {
+    throw new Error(`${label} escapes its trusted parent directory`)
+  }
+}
+
+assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')
+assertDescendant(distRoot, desktopRoot, 'desktop distribution directory')
+assertDescendant(
+  installedElectronDist,
+  desktopRoot,
+  'installed Electron distribution',
+)
+
 function builderArguments() {
-  const common = [
-    '--win',
+  const commonConfiguration = [
     '--config',
     'electron-builder.yml',
+    `--config.electronDist=${installedElectronDist}`,
     `--config.directories.output=${shortOutput}`,
   ]
-  if (mode === 'dir') return ['--dir', ...common]
+  if (mode === 'dir') {
+    return ['--dir', '--win', ...commonConfiguration]
+  }
   if (mode === 'nsis') {
     const unpackedPath = join(distRoot, 'win-unpacked')
     if (!existsSync(unpackedPath)) {
@@ -53,14 +97,14 @@ function builderArguments() {
   return [
     '--win',
     'nsis',
-    '--config',
-    'electron-builder.yml',
+    ...commonConfiguration,
     '--config.forceCodeSigning=true',
-    `--config.directories.output=${shortOutput}`,
   ]
 }
 
 function copyBuildOutput() {
+  assertDescendant(shortOutput, shortBuildRoot, 'temporary build output')
+  assertDescendant(distRoot, desktopRoot, 'desktop distribution directory')
   if (!existsSync(shortOutput)) {
     throw new Error('electron-builder produced no output')
   }
@@ -91,6 +135,10 @@ try {
     throw new Error(`electron-builder failed with exit code ${result.status}`)
   }
   copyBuildOutput()
+  if (mode === 'production') {
+    verifyWindowsSignatures({ distRoot })
+  }
 } finally {
+  assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')
   rmSync(shortBuildRoot, { force: true, recursive: true })
 }

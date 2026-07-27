@@ -74,6 +74,29 @@ test('health validation requires the ERP health payload', async () => {
   )
 })
 
+test('health validation accepts Electron net.fetch responses with an empty URL', async () => {
+  const response = {
+    ok: true,
+    status: 200,
+    url: '',
+    async json() {
+      return {
+        success: true,
+        data: { status: 'ok' },
+      }
+    },
+  }
+
+  assert.equal(
+    await validateHealthResponse(
+      response,
+      ORIGIN,
+      `${ORIGIN}/api/health`,
+    ),
+    true,
+  )
+})
+
 function createFakeWindow(remoteLoad) {
   const webContents = new EventEmitter()
   const calls = []

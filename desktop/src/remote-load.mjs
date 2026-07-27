@@ -2,17 +2,26 @@ import { isAllowedNavigation } from './security.mjs'
 
 const DEFAULT_UNAVAILABLE_URL = 'app://unavailable/'
 
-export async function validateHealthResponse(response, allowedOrigin) {
+export async function validateHealthResponse(
+  response,
+  allowedOrigin,
+  requestedUrl = '',
+) {
+  const responseUrl = (
+    typeof response?.url === 'string' && response.url.length > 0
+  )
+    ? response.url
+    : requestedUrl
   if (
     !response
     || response.ok !== true
-    || !isAllowedNavigation(response.url, allowedOrigin)
+    || !isAllowedNavigation(responseUrl, allowedOrigin)
   ) {
     return false
   }
 
   try {
-    const finalUrl = new URL(response.url)
+    const finalUrl = new URL(responseUrl)
     const trustedOrigin = new URL(allowedOrigin)
     if (
       finalUrl.origin !== trustedOrigin.origin
@@ -32,6 +41,7 @@ export async function checkRemoteHealth({
   fetchImpl,
   healthUrl,
   allowedOrigin,
+  onDiagnostic,
   timeoutMs,
 }) {
   if (
@@ -52,8 +62,26 @@ export async function checkRemoteHealth({
       redirect: 'error',
       signal: controller.signal,
     })
-    return await validateHealthResponse(response, allowedOrigin)
-  } catch {
+    const valid = await validateHealthResponse(
+      response,
+      allowedOrigin,
+      healthUrl,
+    )
+    if (typeof onDiagnostic === 'function') {
+      onDiagnostic({
+        ok: response.ok,
+        status: response.status,
+        url: response.url,
+        valid,
+      })
+    }
+    return valid
+  } catch (error) {
+    if (typeof onDiagnostic === 'function') {
+      onDiagnostic({
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
     return false
   } finally {
     clearTimeout(timeout)
@@ -64,6 +92,7 @@ export async function loadRemoteWithFallback({
   window,
   remoteUrl,
   unavailableUrl = DEFAULT_UNAVAILABLE_URL,
+  onLoadError,
   subscribeNavigationBlocked,
 }) {
   if (
@@ -121,7 +150,8 @@ export async function loadRemoteWithFallback({
     await window.loadURL(remoteUrl)
     if (remoteFailed) await fallbackPromise
     return !remoteFailed
-  } catch {
+  } catch (error) {
+    if (typeof onLoadError === 'function') onLoadError(error)
     await showUnavailable()
     return false
   } finally {

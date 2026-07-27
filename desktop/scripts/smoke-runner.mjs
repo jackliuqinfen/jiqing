@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import {
+  spawn,
+  spawnSync,
+} from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -24,6 +27,42 @@ const RESULT_TIMEOUT_MS = 20000
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function childHasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+function waitForChildExit(child, timeoutMs = 5000) {
+  if (childHasExited(child)) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timeout = setTimeout(done, timeoutMs)
+    child.once('exit', done)
+
+    function done() {
+      clearTimeout(timeout)
+      child.removeListener('exit', done)
+      resolve()
+    }
+  })
+}
+
+async function terminateProcessTree(child) {
+  if (!child || childHasExited(child)) return
+  if (process.platform === 'win32') {
+    spawnSync(
+      'taskkill.exe',
+      ['/PID', String(child.pid), '/T', '/F'],
+      {
+        stdio: 'ignore',
+        windowsHide: true,
+      },
+    )
+  } else {
+    child.kill('SIGKILL')
+  }
+  await waitForChildExit(child)
+  if (!childHasExited(child)) child.kill('SIGKILL')
 }
 
 async function waitForFile(path, timeoutMs = RESULT_TIMEOUT_MS) {
@@ -157,17 +196,17 @@ function launchElectron({
     electronPath,
     ['--disable-gpu', smokeAppPath],
     {
-    cwd: desktopRoot,
-    env: {
-      ...process.env,
-      DESKTOP_RELEASE_CHANNEL: releaseChannel,
-      DESKTOP_SERVER_URL: origin,
-      DESKTOP_SMOKE_CASE: caseName,
-      DESKTOP_SMOKE_READY: readyPath || '',
-      DESKTOP_SMOKE_RESULT: resultPath,
-      DESKTOP_SMOKE_USER_DATA: userDataPath,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: desktopRoot,
+      env: {
+        ...process.env,
+        DESKTOP_RELEASE_CHANNEL: releaseChannel,
+        DESKTOP_SERVER_URL: origin,
+        DESKTOP_SMOKE_CASE: caseName,
+        DESKTOP_SMOKE_READY: readyPath || '',
+        DESKTOP_SMOKE_RESULT: resultPath,
+        DESKTOP_SMOKE_USER_DATA: userDataPath,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     },
   )
@@ -183,21 +222,37 @@ function launchElectron({
   })
 
   const completed = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill()
-      reject(new Error(`Electron smoke process timed out: ${caseName}`))
+    let settled = false
+    let timeout
+    const settle = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback(value)
+    }
+    timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      void terminateProcessTree(child).finally(() => {
+        reject(
+          new Error(`Electron smoke process timed out: ${caseName}`),
+        )
+      })
     }, PROCESS_TIMEOUT_MS)
     child.once('error', (error) => {
-      clearTimeout(timeout)
-      reject(error)
+      settle(reject, error)
     })
     child.once('exit', (code, signal) => {
-      clearTimeout(timeout)
-      resolve({ code, signal, stderr, stdout })
+      settle(resolve, { code, signal, stderr, stdout })
     })
   })
 
-  return { child, completed }
+  return {
+    child,
+    completed,
+    terminate: () => terminateProcessTree(child),
+  }
 }
 
 function assertCleanExit(completed, caseName) {
@@ -300,11 +355,13 @@ async function runProductionHttpRejected(tempRoot) {
 
 async function runSecondInstance(tempRoot) {
   const server = await startTechnicalServer()
+  let primary = null
+  let secondary = null
   try {
     const primaryResultPath = join(tempRoot, 'primary.json')
     const primaryReadyPath = join(tempRoot, 'primary.ready')
     const userDataPath = join(tempRoot, 'single-instance-user-data')
-    const primary = launchElectron({
+    primary = launchElectron({
       caseName: 'second-instance-primary',
       origin: server.origin,
       readyPath: primaryReadyPath,
@@ -314,7 +371,7 @@ async function runSecondInstance(tempRoot) {
     await waitForFile(primaryReadyPath)
 
     const secondaryResultPath = join(tempRoot, 'secondary.json')
-    const secondary = launchElectron({
+    secondary = launchElectron({
       caseName: 'second-instance-secondary',
       origin: server.origin,
       resultPath: secondaryResultPath,
@@ -332,6 +389,10 @@ async function runSecondInstance(tempRoot) {
       secondInstanceFocused: true,
     })
   } finally {
+    await Promise.all([
+      primary?.terminate(),
+      secondary?.terminate(),
+    ])
     await server.close()
   }
 }

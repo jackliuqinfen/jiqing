@@ -1,9 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   validateReleaseConfiguration,
+  validateWindowsBuildConfiguration,
 } from '../scripts/validate-release-configuration.mjs'
+import {
+  findWindowsSignatureTargets,
+} from '../scripts/verify-windows-signatures.mjs'
 
 test('internal-test release accepts an explicit HTTP origin without signing', () => {
   assert.deepEqual(
@@ -66,4 +78,69 @@ test('production release accepts HTTPS only when both signing secrets exist', ()
       requiresSigning: true,
     },
   )
+})
+
+test('ordinary Windows build modes reject a production release profile', () => {
+  for (const mode of ['dir', 'nsis']) {
+    assert.throws(
+      () => validateWindowsBuildConfiguration({
+        channel: 'production',
+        mode,
+        origin: 'https://erp.example.cn',
+      }),
+      /production release must use the production build mode/,
+    )
+  }
+})
+
+test('production Windows build mode requires production HTTPS and signing', () => {
+  assert.throws(
+    () => validateWindowsBuildConfiguration({
+      channel: 'internal-test',
+      mode: 'production',
+      origin: 'http://erp.example.cn',
+    }),
+    /requires production release/,
+  )
+  assert.deepEqual(
+    validateWindowsBuildConfiguration({
+      certificateBase64: 'certificate',
+      certificatePassword: 'password',
+      channel: 'production',
+      mode: 'production',
+      origin: 'https://erp.example.cn',
+    }),
+    {
+      channel: 'production',
+      origin: 'https://erp.example.cn',
+      requiresSigning: true,
+    },
+  )
+})
+
+test('production signature gate requires one installer and the packaged app', () => {
+  const distRoot = mkdtempSync(join(tmpdir(), 'jiqing-signature-targets-'))
+  try {
+    mkdirSync(join(distRoot, 'win-unpacked'))
+    const installer = join(distRoot, 'JiqingERP-1.0.0-x64-Setup.exe')
+    const application = join(distRoot, 'win-unpacked', 'JiqingERP.exe')
+    writeFileSync(installer, 'installer')
+    writeFileSync(application, 'application')
+
+    assert.deepEqual(
+      findWindowsSignatureTargets(distRoot),
+      [installer, application],
+    )
+
+    writeFileSync(
+      join(distRoot, 'JiqingERP-1.0.1-x64-Setup.exe'),
+      'unexpected installer',
+    )
+    assert.throws(
+      () => findWindowsSignatureTargets(distRoot),
+      /exactly one production installer/,
+    )
+  } finally {
+    rmSync(distRoot, { force: true, recursive: true })
+  }
 })

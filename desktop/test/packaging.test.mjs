@@ -54,6 +54,30 @@ test('NSIS packaging reuses the verified unpacked application', () => {
   )
 })
 
+test('Windows build reuses the installed unpacked Electron runtime', () => {
+  const buildScript = readFileSync(
+    new URL('../scripts/build-windows.mjs', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    buildScript,
+    /node_modules', 'electron', 'dist'/,
+  )
+  assert.match(
+    buildScript,
+    /--config\.electronDist=\$\{installedElectronDist\}/,
+  )
+  assert.match(
+    buildScript,
+    /assertDescendant\([\s\S]*installedElectronDist[\s\S]*desktopRoot/,
+  )
+  assert.match(buildScript, /mkdtempSync\(/)
+  assert.match(buildScript, /desktopRoot, '\.tmp', 'windows-build'/)
+  assert.doesNotMatch(buildScript, /homedir\(/)
+  assert.doesNotMatch(buildScript, /process\.env\.PUBLIC/)
+})
+
 test('desktop package exposes reproducible smoke and verification commands', () => {
   const packageJson = JSON.parse(
     readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
