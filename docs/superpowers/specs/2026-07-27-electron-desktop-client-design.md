@@ -182,7 +182,7 @@ An administrator can configure:
 - Whether desktop synchronization is available.
 - Whether it is enabled by default.
 - Allowed roles and individual users.
-- Allowed projects or project data scopes.
+- Allowed synchronization project references or project data scopes.
 - Allowed document categories.
 - Allowed file types.
 - Maximum synchronized file size.
@@ -264,18 +264,34 @@ Returns the effective policy for the current user, including:
 - `removeLocalFilesOnRevocation`
 - `policyVersion`
 
+#### `GET /api/desktop/sync/projects`
+
+Returns the synchronization roots visible to the current user:
+
+- `projectRef`
+- canonical project-record ID when available
+- audit-project ID when the record has not yet been linked
+- project code and name
+- available file count
+- available byte count
+
+`projectRef` is an opaque stable value. When an audit project is linked to a
+project record, its audit attachments and project files use the same project
+root. An unlinked historical audit project remains a separate synchronization
+root and must not be silently attached to a similarly named project.
+
 #### `GET /api/desktop/sync/manifest`
 
 Query parameters:
 
 - `cursor`
-- `projectIds`
+- `projectRefs`
 - `limit`
 
 Returns only files the current user can read:
 
-- stable document ID
-- stable version ID
+- stable source type and source ID
+- stable source revision
 - project ID, code, and name
 - category ID and name
 - original filename
@@ -287,6 +303,18 @@ Returns only files the current user can read:
 - download URL or download resource ID
 - next cursor
 - current policy version
+
+The first-release manifest adapts the same file sources used by Material Center:
+
+- `project_files`
+- `audit_project_attachments`
+
+New document-repository sources can be added to the adapter when they are
+visible in Material Center. The desktop client must not invent a third,
+independent definition of which files belong to Material Center.
+
+Legacy source rows without a stored content hash are hashed through a server-side
+cache keyed by source type, source ID, and immutable revision fingerprint.
 
 The cursor is opaque. Ordering must be stable. Pagination must not skip items
 when files are added during a synchronization run.
@@ -306,9 +334,10 @@ The local index is operational metadata, not business data. It records:
 
 - user ID
 - server environment ID
-- project ID
-- document ID
-- version ID
+- project reference
+- source type
+- source ID
+- source revision
 - content hash
 - local relative path
 - byte size
@@ -567,4 +596,3 @@ Two-way synchronization is a separate future project. It requires:
 
 It must not be enabled by changing a feature flag on the first-release
 read-only implementation. It requires a separate design and acceptance gate.
-
