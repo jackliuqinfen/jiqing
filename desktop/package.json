@@ -5,14 +5,18 @@
   "type": "module",
   "main": "src/main.mjs",
   "scripts": {
+    "postinstall": "install-electron",
     "start": "electron .",
     "test": "node --test test/*.test.mjs",
     "icons": "node scripts/build-icons.mjs",
     "release-profile": "node scripts/build-release-profile.mjs",
     "prepare:build": "npm run icons && npm run release-profile",
-    "pack:dir": "npm run prepare:build && electron-builder --dir --win --config electron-builder.yml",
-    "dist:win": "npm run pack:dir && electron-builder --win nsis --prepackaged dist/win-unpacked --config electron-builder.yml",
-    "verify:package": "node scripts/verify-packaged-app.mjs"
+    "pack:dir": "npm run prepare:build && node scripts/build-windows.mjs dir",
+    "dist:win": "npm run pack:dir && node scripts/build-windows.mjs nsis",
+    "dist:production": "npm run prepare:build && node scripts/build-windows.mjs production",
+    "verify:package": "node scripts/verify-packaged-app.mjs",
+    "smoke": "node scripts/smoke-runner.mjs",
+    "verify": "node scripts/verify-runner.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",

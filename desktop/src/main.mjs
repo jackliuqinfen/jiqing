@@ -7,10 +7,12 @@ import {
   net,
   protocol,
   screen,
+  session,
   shell,
 } from 'electron'
 import {
   existsSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -48,6 +50,19 @@ import {
 
 const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
+const unpackagedSmoke = (
+  !app.isPackaged
+  && process.env.DESKTOP_UNPACKAGED_SMOKE === '1'
+)
+const smokeCase = unpackagedSmoke
+  ? String(process.env.DESKTOP_SMOKE_CASE || '')
+  : ''
+const smokeResultPath = unpackagedSmoke
+  ? String(process.env.DESKTOP_SMOKE_RESULT || '')
+  : ''
+const smokeReadyPath = unpackagedSmoke
+  ? String(process.env.DESKTOP_SMOKE_READY || '')
+  : ''
 const embeddedProfile = app.isPackaged
   ? readEmbeddedReleaseProfile(
       new URL('./release-profile.generated.json', import.meta.url),
@@ -63,6 +78,7 @@ const applicationDirectory = dirname(process.execPath)
 let desktopIpcController = null
 let mainWindow = null
 let desktopIpcRegistered = false
+let smokeCompleted = false
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -71,6 +87,7 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
+      stream: true,
       corsEnabled: false,
     },
   },
@@ -80,6 +97,48 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
   event.preventDefault()
   callback(false)
 })
+
+function writeSmokeFile(path, value) {
+  if (!unpackagedSmoke || !path) return
+  mkdirSync(dirname(path), { recursive: true })
+  const temporaryPath = `${path}.${process.pid}.tmp`
+  writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+  renameSync(temporaryPath, path)
+}
+
+function completeSmoke(result, exitCode = 0) {
+  if (!unpackagedSmoke || smokeCompleted) return
+  smokeCompleted = true
+  writeSmokeFile(smokeResultPath, result)
+  setImmediate(() => {
+    if (exitCode === 0) app.quit()
+    else app.exit(exitCode)
+  })
+}
+
+function markSmokeReady() {
+  if (!unpackagedSmoke || !smokeReadyPath) return
+  writeSmokeFile(smokeReadyPath, { ready: true })
+}
+
+function currentLoadedOrigin(window) {
+  try {
+    return new URL(window.webContents.getURL()).origin
+  } catch {
+    return ''
+  }
+}
+
+async function waitForTechnicalSmokePage(window) {
+  const ready = await window.webContents.executeJavaScript(
+    'Promise.resolve(window.__desktopSmokeReady).then(Boolean)',
+    true,
+  )
+  if (ready !== true) throw new Error('technical smoke page did not initialize')
+}
 
 function windowStatePath() {
   return join(app.getPath('userData'), 'window-state.json')
@@ -236,7 +295,7 @@ function protectWebContents(window) {
 }
 
 async function loadApplication(window, navigationGuard) {
-  await window.loadURL('app://connecting')
+  await window.loadURL('app://connecting/')
   const healthy = await checkRemoteHealth({
     fetchImpl: net.fetch,
     healthUrl: config.healthUrl,
@@ -244,19 +303,30 @@ async function loadApplication(window, navigationGuard) {
     timeoutMs: config.healthTimeoutMs,
   })
   if (!healthy) {
-    await window.loadURL('app://unavailable').catch(() => {})
-    return
+    await window.loadURL('app://unavailable/').catch(() => {})
+    return Object.freeze({
+      healthReady: false,
+      remoteLoaded: false,
+    })
   }
-  await loadRemoteWithFallback({
+  const remoteLoaded = await loadRemoteWithFallback({
     window,
     remoteUrl: config.origin,
     subscribeNavigationBlocked: navigationGuard.subscribeNavigationBlocked,
+  })
+  return Object.freeze({
+    healthReady: true,
+    remoteLoaded,
   })
 }
 
 async function createMainWindow() {
   const restoredBounds = readWindowBounds()
   const windowTitle = desktopWindowTitle(config.environmentLabel)
+  const webPreferences = createSecureWebPreferences({
+    preload: join(moduleRoot, 'preload.cjs'),
+    partition: sessionPartition,
+  })
   const window = new BrowserWindow({
     width: restoredBounds?.width ?? 1440,
     height: restoredBounds?.height ?? 900,
@@ -269,13 +339,21 @@ async function createMainWindow() {
     show: false,
     title: windowTitle,
     icon: join(app.getAppPath(), 'assets', 'icon.ico'),
-    webPreferences: createSecureWebPreferences({
-      preload: join(moduleRoot, 'preload.cjs'),
-      partition: sessionPartition,
-    }),
+    webPreferences,
   })
 
   const navigationGuard = protectWebContents(window)
+  let smokeNavigationBlocked = null
+  let resolveSmokeNavigationBlocked = null
+  let unsubscribeSmokeNavigation = () => {}
+  if (unpackagedSmoke && smokeCase === 'external-navigation') {
+    smokeNavigationBlocked = new Promise((resolve) => {
+      resolveSmokeNavigationBlocked = resolve
+    })
+    unsubscribeSmokeNavigation = navigationGuard.subscribeNavigationBlocked(
+      (target) => resolveSmokeNavigationBlocked?.(target),
+    )
+  }
   installEnvironmentTitleGuard({
     webContents: window.webContents,
     window,
@@ -291,12 +369,45 @@ async function createMainWindow() {
     if (mainWindow === window) mainWindow = null
   })
 
-  await loadApplication(window, navigationGuard)
+  const loadResult = await loadApplication(window, navigationGuard)
+  if (unpackagedSmoke && smokeCase === 'successful-load') {
+    await waitForTechnicalSmokePage(window)
+    completeSmoke({
+      healthReady: loadResult.healthReady,
+      remoteLoaded: loadResult.remoteLoaded,
+      nodeIntegration: webPreferences.nodeIntegration,
+      contextIsolation: webPreferences.contextIsolation,
+      sandbox: webPreferences.sandbox,
+      loadedOrigin: currentLoadedOrigin(window),
+    })
+  } else if (unpackagedSmoke && smokeCase === 'server-unavailable') {
+    completeSmoke({
+      healthReady: loadResult.healthReady,
+      remoteLoaded: loadResult.remoteLoaded,
+      loadedUrl: window.webContents.getURL(),
+    })
+  } else if (
+    unpackagedSmoke
+    && smokeCase === 'external-navigation'
+    && smokeNavigationBlocked
+  ) {
+    await waitForTechnicalSmokePage(window)
+    const blockedUrl = await smokeNavigationBlocked
+    unsubscribeSmokeNavigation()
+    completeSmoke({
+      externalNavigationDenied: true,
+      blockedUrl,
+      loadedOrigin: currentLoadedOrigin(window),
+    })
+  }
   return window
 }
 
 const ownsSingleInstance = app.requestSingleInstanceLock()
 if (!ownsSingleInstance) {
+  if (unpackagedSmoke && smokeCase === 'second-instance-secondary') {
+    completeSmoke({ ownsSingleInstance: false })
+  }
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -304,11 +415,19 @@ if (!ownsSingleInstance) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
     mainWindow.focus()
+    if (unpackagedSmoke && smokeCase === 'second-instance-primary') {
+      completeSmoke({ secondInstanceFocused: true })
+    }
   })
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
-    registerAppProtocol(protocol, net, uiRoot)
+    const desktopSession = session.fromPartition(sessionPartition)
+    registerAppProtocol(
+      desktopSession.protocol,
+      net,
+      uiRoot,
+    )
     const apiClient = new DesktopApiClient({
       origin: config.origin,
       fetchImpl: net.fetch,
@@ -323,12 +442,21 @@ if (!ownsSingleInstance) {
     desktopIpcController = createDesktopIpcController({ syncEngine })
     registerDesktopBridge()
     mainWindow = await createMainWindow()
+    if (unpackagedSmoke && smokeCase === 'second-instance-primary') {
+      markSmokeReady()
+    }
 
     app.on('activate', async () => {
       if (!mainWindow) mainWindow = await createMainWindow()
     })
-  }).catch(() => {
-    app.quit()
+  }).catch((error) => {
+    if (unpackagedSmoke) {
+      completeSmoke({
+        runtimeError: error instanceof Error ? error.message : 'unknown error',
+      }, 1)
+    } else {
+      app.quit()
+    }
   })
 
   app.on('window-all-closed', () => {

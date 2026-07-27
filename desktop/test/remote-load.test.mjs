@@ -99,7 +99,7 @@ test('remote load rejection shows the local unavailable page without bubbling', 
   })
 
   assert.equal(loaded, false)
-  assert.deepEqual(calls, [ORIGIN, 'app://unavailable'])
+  assert.deepEqual(calls, [ORIGIN, 'app://unavailable/'])
 })
 
 test('terminal main-frame failure falls back even if loadURL resolves', async () => {
@@ -120,7 +120,7 @@ test('terminal main-frame failure falls back even if loadURL resolves', async ()
   })
 
   assert.equal(loaded, false)
-  assert.deepEqual(calls, [ORIGIN, 'app://unavailable'])
+  assert.deepEqual(calls, [ORIGIN, 'app://unavailable/'])
 })
 
 test('subframe load failure does not replace a successful remote main frame', async () => {
@@ -163,7 +163,7 @@ test('an explicit initial navigation block is not treated as remote success', as
   })
 
   assert.equal(loaded, false)
-  assert.deepEqual(calls, [ORIGIN, 'app://unavailable'])
+  assert.deepEqual(calls, [ORIGIN, 'app://unavailable/'])
   assert.equal(blockedListener, undefined)
 })
 
@@ -185,5 +185,5 @@ test('a failing fallback page does not recurse or reject the caller', async () =
   })
 
   assert.equal(loaded, false)
-  assert.deepEqual(calls, [ORIGIN, 'app://unavailable'])
+  assert.deepEqual(calls, [ORIGIN, 'app://unavailable/'])
 })

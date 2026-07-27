@@ -1,6 +1,6 @@
 import { isAllowedNavigation } from './security.mjs'
 
-const DEFAULT_UNAVAILABLE_URL = 'app://unavailable'
+const DEFAULT_UNAVAILABLE_URL = 'app://unavailable/'
 
 export async function validateHealthResponse(response, allowedOrigin) {
   if (

@@ -1,10 +1,20 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { basename } from 'node:path'
+import {
+  basename,
+  dirname,
+} from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import { resolveAppPage } from '../src/app-protocol.mjs'
+import {
+  registerAppProtocol,
+  resolveAppPage,
+} from '../src/app-protocol.mjs'
 
 const UI_ROOT = 'C:\\Program Files\\JiqingERP\\resources\\ui'
+const REAL_UI_ROOT = dirname(
+  fileURLToPath(new URL('../ui/connecting.html', import.meta.url)),
+)
 
 test('local protocol resolves only the three fixed fallback pages', () => {
   assert.equal(
@@ -34,4 +44,23 @@ test('local protocol rejects unknown pages and traversal forms', () => {
   ]) {
     assert.equal(resolveAppPage(url, UI_ROOT), null)
   }
+})
+
+test('local protocol returns fixed HTML without forwarding through file URLs', async () => {
+  let handler
+  const protocol = {
+    handle(scheme, value) {
+      assert.equal(scheme, 'app')
+      handler = value
+    },
+  }
+  registerAppProtocol(protocol, null, REAL_UI_ROOT)
+
+  const response = await handler({ url: 'app://connecting/' })
+  assert.equal(response.status, 200)
+  assert.equal(
+    response.headers.get('Content-Type'),
+    'text/html; charset=utf-8',
+  )
+  assert.match(await response.text(), /正在连接工程管理系统/)
 })

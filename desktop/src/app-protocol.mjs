@@ -1,5 +1,5 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 const PAGE_FILES = Object.freeze({
   connecting: 'connecting.html',
@@ -33,7 +33,7 @@ export function resolveAppPage(target, uiRoot) {
   return filename ? join(uiRoot, filename) : null
 }
 
-export function registerAppProtocol(protocol, net, uiRoot) {
+export function registerAppProtocol(protocol, _net, uiRoot) {
   protocol.handle('app', (request) => {
     const pagePath = resolveAppPage(request.url, uiRoot)
     if (!pagePath) {
@@ -45,6 +45,23 @@ export function registerAppProtocol(protocol, net, uiRoot) {
         },
       })
     }
-    return net.fetch(pathToFileURL(pagePath).toString())
+    try {
+      return new Response(readFileSync(pagePath), {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    } catch {
+      return new Response('Unavailable', {
+        status: 500,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
   })
 }

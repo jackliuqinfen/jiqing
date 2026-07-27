@@ -44,7 +44,28 @@ test('NSIS packaging reuses the verified unpacked application', () => {
   )
 
   assert.match(packageJson.scripts['dist:win'], /npm run pack:dir/)
-  assert.match(packageJson.scripts['dist:win'], /--prepackaged dist\/win-unpacked/)
+  assert.match(
+    packageJson.scripts['dist:win'],
+    /build-windows\.mjs nsis/,
+  )
+  assert.match(
+    packageJson.scripts['pack:dir'],
+    /build-windows\.mjs dir/,
+  )
+})
+
+test('desktop package exposes reproducible smoke and verification commands', () => {
+  const packageJson = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  )
+
+  assert.equal(packageJson.scripts.smoke, 'node scripts/smoke-runner.mjs')
+  assert.equal(packageJson.scripts.verify, 'node scripts/verify-runner.mjs')
+  assert.equal(packageJson.scripts.postinstall, 'install-electron')
+  assert.match(
+    packageJson.scripts['dist:production'],
+    /build-windows\.mjs production/,
+  )
 })
 
 test('packaging hardens every Electron V1 fuse', () => {
