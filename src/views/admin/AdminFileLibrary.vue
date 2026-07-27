@@ -7,6 +7,10 @@
         <ATag v-if="keyword || fileType || selectedProject || selectedStage || uploader" variant="light">已应用筛选</ATag>
       </template>
       <template #actions>
+        <AButton v-if="isDesktop" variant="outline" @click="syncDialogVisible = true">
+          <template #icon><AIcon name="folder" /></template>
+          本地同步
+        </AButton>
         <AButton theme="primary" @click="openUploadDialog">
           <template #icon><AIcon name="upload" /></template>
           上传资料
@@ -242,6 +246,11 @@
         <p class="dialog-hint">同一项目、同一资料类型、同一资料名称重复上传时，系统会按新版本处理。</p>
       </AForm>
     </AModal>
+
+    <DesktopSyncDialog
+      v-if="isDesktop"
+      v-model:visible="syncDialogVisible"
+    />
   </div>
 </template>
 
@@ -263,10 +272,13 @@ import {
 import { MessagePlugin } from '@/ui/message'
 import type { ProjectEvidenceFile, ProjectMeta, ProjectRecord } from '@/types'
 import { auditStageOptions } from '@/utils/businessDictionaries'
+import DesktopSyncDialog from '@/components/desktop/DesktopSyncDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import { useDesktopClient } from '@/composables/useDesktopClient'
 
 const route = useRoute()
+const { isDesktop } = useDesktopClient()
 const tableColumns = [
   { colKey: 'file', title: '文件', width: 320 },
   { colKey: 'project', title: '项目名称' },
@@ -303,6 +315,7 @@ const selectedProject = ref('')
 const selectedStage = ref('')
 const uploader = ref('')
 const uploadInputRef = ref<HTMLInputElement | null>(null)
+const syncDialogVisible = ref(false)
 
 const uploadDialog = reactive({
   visible: false,
@@ -876,4 +889,3 @@ onBeforeUnmount(() => {
   .summary-grid { grid-template-columns: 1fr; }
 }
 </style>
-

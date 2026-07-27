@@ -71,6 +71,11 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function logout(): Promise<void> {
     try {
+      await window.jiqingDesktop?.pauseSync()
+    } catch {
+      // 桌面同步暂停失败不能阻止本地登录状态清理。
+    }
+    try {
       await logoutSession()
     } catch {
       // 即使服务端登出失败也清空本地状态
