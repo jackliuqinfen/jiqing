@@ -516,3 +516,143 @@ exit 0, no diff errors
   server.
 - A packaged Electron build was not manually exercised for Office/PDF read-only
   behavior or adversarial process-level filesystem interference.
+
+---
+
+# Fix Round 3/5
+
+## Status
+
+`DONE_WITH_CONCERNS`
+
+All round 3 findings were addressed without changing the six-method IPC
+surface, preload sandbox, GET-only synchronization, server authority, or Task 7
+UI.
+
+## TDD Evidence
+
+### Red
+
+The recovery regressions injected an index rollback save failure after
+filesystem restoration and a committed-backup cleanup failure:
+
+```text
+node --test --test-name-pattern="index rollback failure preserves|cleanup-pending backups|concurrent new files exactly" test/sync-engine.test.mjs
+tests 3, pass 1, fail 2
+```
+
+The failures showed that:
+
+- the displaced replacement had already been deleted when index rollback failed;
+- no durable recovery entry existed for the retained backup after cleanup
+  failure.
+
+The exact-boundary quota test passed because round 2’s behavior was already
+correct, but the test was strengthened to wait on an explicit two-download
+barrier. Reaching that barrier proves both workers completed reservation before
+either publication was released.
+
+The new recovery ledger trust-boundary test failed before structural validation
+was added:
+
+```text
+node --test --test-name-pattern="malformed recovery ledger" test/index-store.test.mjs
+tests 1, pass 0, fail 1
+malformed physicalFiles string was accepted instead of quarantined
+```
+
+### Green
+
+Focused synchronization and storage suite:
+
+```text
+node --test test/api-client.test.mjs test/index-store.test.mjs test/path-policy.test.mjs test/sync-engine.test.mjs
+tests 64, pass 64, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1714.0634
+```
+
+Final required desktop suite:
+
+```text
+npm.cmd --prefix desktop test
+tests 107, pass 107, fail 0, cancelled 0, skipped 0, todo 0
+duration_ms 1978.5474
+```
+
+Required static and contract verification:
+
+```text
+node scripts/verify-desktop-ipc.mjs
+Desktop IPC contract verified
+
+node --check desktop/src/sync/api-client.mjs
+node --check desktop/src/sync/index-store.mjs
+node --check desktop/src/sync/path-policy.mjs
+node --check desktop/src/sync/sync-engine.mjs
+all exited 0
+
+git diff --check
+exit 0, no diff errors
+```
+
+## Fixes Delivered
+
+- Added a validated `recoveryEntries` ledger to the per-user index. Existing
+  indexes without the optional ledger remain readable; new/rewritten indexes
+  persist it. Malformed recovery entries quarantine the index rather than
+  contributing unsafe quota paths.
+- Replacement rollback now moves the verified replacement to a deterministic
+  `.jiqing-rollback-<transaction>` path and restores the prior trusted file
+  without deleting either copy. The restored index and recovery metadata are
+  persisted together.
+- If index rollback fails after filesystem restoration, the in-memory recovery
+  entry survives into the subsequent failure-record save. Both old and new
+  bytes remain recoverable, and the ledger accounts the hidden replacement.
+- Filesystem rollback failures produce `manual_recovery` entries that never
+  auto-delete either copy. Successful rollback produces `cleanup_pending`
+  entries for later explicit-start cleanup.
+- Post-commit backup cleanup failure persists a `cleanup_pending` entry before
+  returning `backup_cleanup_failed`. The backup remains quota-accounted.
+- Every explicit start retries cleanup-pending deletions before failed-file
+  retries or manifest pagination. Failed cleanup retains the ledger and counts
+  as a partial failure; successful cleanup removes the ledger atomically.
+- Quota de-duplicates and stats both synchronized record paths and recovery
+  ledger paths. A retained five-byte backup plus a five-byte current file blocks
+  an additional five-byte file under a ten-byte policy until cleanup succeeds.
+- The exact-boundary concurrent quota test now uses latches: both fake downloads
+  must be active after reservation, then one release allows both publications.
+  No scheduler timing or fixed sleep is used.
+
+## Changed Files
+
+- `.superpowers/sdd/2026-07-27-electron-desktop-client-implementation/task-6-report.md`
+- `desktop/src/sync/index-store.mjs`
+- `desktop/src/sync/sync-engine.mjs`
+- `desktop/test/index-store.test.mjs`
+- `desktop/test/sync-engine.test.mjs`
+
+## Self-Review
+
+- Recovery never deletes the displaced replacement during rollback. Automatic
+  deletion occurs only on a later explicit start after the restored index and
+  cleanup ledger have committed.
+- Recovery paths use a stable transaction hash derived from source identity and
+  old/new revisions. Existing recovery-path collisions fail closed.
+- `manual_recovery` entries preserve every known copy and remain quota-accounted;
+  only `cleanup_pending` entries are eligible for automatic deletion.
+- Normal indexed paths and recovery paths share one de-duplicated actual-size
+  quota scan under the publication lock.
+- Cleanup failure cannot advance recovery metadata removal. If physical cleanup
+  succeeds but ledger removal fails, the retained ledger safely overstates
+  storage until the next explicit start.
+- IPC/preload/renderer files are unchanged. Network operations remain
+  authenticated GET requests with no upload, DELETE, rename-on-server, watcher,
+  fabricated project, or fabricated success.
+
+## Concerns
+
+- `manual_recovery` entries intentionally require later operational/manual
+  resolution; Task 6 has no renderer recovery-management UI.
+- Tests use temporary NTFS directories and controlled HTTP responses. This round
+  did not run authenticated synchronization against a live central server or a
+  packaged Electron client.

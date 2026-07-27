@@ -206,3 +206,34 @@ test('rejects an index belonging to another environment or user', async (t) => {
     createEmptyIndex('https://erp.example.cn', 'user-1'),
   )
 })
+
+test('quarantines malformed recovery ledger entries', async (t) => {
+  const appDataPath = temporaryDirectory(t)
+  const store = new SyncIndexStore({
+    appDataPath,
+    environmentOrigin: 'https://erp.example.cn',
+    userId: 'user-1',
+  })
+  const index = createEmptyIndex('https://erp.example.cn', 'user-1')
+  index.recoveryEntries.invalid = {
+    id: 'invalid',
+    type: 'cleanup_pending',
+    physicalFiles: '.jiqing-backup-invalid',
+    cleanupFiles: [],
+    accountedBytes: 5,
+    createdAt: '2026-07-27T10:05:00.000Z',
+  }
+  await store.save(createEmptyIndex('https://erp.example.cn', 'user-1'))
+  writeFileSync(
+    store.filePath,
+    JSON.stringify(index),
+    'utf8',
+  )
+
+  const recovered = await store.load()
+
+  assert.deepEqual(
+    recovered,
+    createEmptyIndex('https://erp.example.cn', 'user-1'),
+  )
+})

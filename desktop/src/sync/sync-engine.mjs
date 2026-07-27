@@ -8,7 +8,7 @@ import {
   rm,
   stat,
 } from 'node:fs/promises'
-import { join, posix } from 'node:path'
+import { posix } from 'node:path'
 
 import { SyncApiError } from './api-client.mjs'
 import { SyncIndexStore } from './index-store.mjs'
@@ -213,6 +213,37 @@ function manifestScopeKey(projectRefs) {
   return [...projectRefs].sort().join(',')
 }
 
+function recoveryTransactionId(item, previousRecord) {
+  return createHash('sha256')
+    .update([
+      sourceKey(item),
+      previousRecord?.sourceRevision ?? '',
+      item.sourceRevision,
+    ].join('\0'))
+    .digest('hex')
+    .slice(0, 32)
+}
+
+function createRecoveryEntry({
+  id,
+  source,
+  type,
+  physicalFiles,
+  cleanupFiles,
+  accountedBytes,
+  now,
+}) {
+  return {
+    id,
+    sourceKey: source,
+    type,
+    physicalFiles: [...new Set(physicalFiles)],
+    cleanupFiles: [...new Set(cleanupFiles)],
+    accountedBytes,
+    createdAt: now.toISOString(),
+  }
+}
+
 function errorCode(error) {
   return typeof error?.code === 'string' ? error.code : 'download_failed'
 }
@@ -384,10 +415,13 @@ export class SyncEngine {
     index.userId = run.authoritativeUserId
     index.files ??= {}
     index.cursorBySelection ??= {}
+    index.recoveryEntries ??= {}
 
     this.state.status = 'syncing'
     this.state.message = '正在同步服务器资料到本地'
     this.emitIfActive(run)
+
+    await this.recoverPendingFiles(run, store, index)
 
     const processed = new Set()
     await this.retryFailures(run, store, index, policy, processed, projectRefs)
@@ -723,9 +757,16 @@ export class SyncEngine {
     await resolvePhysicalPath(run.root, destination.relativePath)
     this.assertActive(run)
 
+    const transactionId = recoveryTransactionId(item, previousRecord)
+    const backupRelativePath = `.jiqing-backup-${transactionId}`
+    const rollbackRelativePath = `.jiqing-rollback-${transactionId}`
     const backupPath = destination.ownedExisting
-      ? join(run.root, `.jiqing-backup-${randomUUID()}`)
+      ? await resolvePhysicalPath(run.root, backupRelativePath)
       : null
+    if (backupPath && await pathExists(backupPath)) {
+      throw new FileSyncError('recovery_path_occupied')
+    }
+    this.assertActive(run)
     let backupCreated = false
     let destinationPublished = false
 
@@ -752,18 +793,24 @@ export class SyncEngine {
     } catch (error) {
       if (previousRecord === undefined) delete index.files[key]
       else index.files[key] = previousRecord
-      const rollbackErrors = []
-      try {
-        await this.rollbackPublication({
-          run,
-          destinationPath,
-          backupPath,
-          backupCreated,
-          destinationPublished,
-        })
-      } catch (rollbackError) {
-        rollbackErrors.push(rollbackError)
+      const rollback = await this.rollbackPublication({
+        run,
+        item,
+        previousRecord,
+        transactionId,
+        destinationPath,
+        destinationRelativePath: destination.relativePath,
+        backupPath,
+        backupRelativePath,
+        rollbackRelativePath,
+        backupCreated,
+        destinationPublished,
+      })
+      if (rollback.entry) {
+        index.recoveryEntries[transactionId] = rollback.entry
       }
+      const rollbackErrors = []
+      rollbackErrors.push(...rollback.errors)
       try {
         await this.persistRollback(store, index, error)
       } catch (rollbackError) {
@@ -783,6 +830,24 @@ export class SyncEngine {
       try {
         await this.removeFile(backupPath, { force: true })
       } catch (cause) {
+        index.recoveryEntries[transactionId] = createRecoveryEntry({
+          id: transactionId,
+          source: key,
+          type: 'cleanup_pending',
+          physicalFiles: [backupRelativePath],
+          cleanupFiles: [backupRelativePath],
+          accountedBytes: replacedSize,
+          now: this.now(),
+        })
+        try {
+          await this.saveIndex(run, store, index)
+        } catch (trackingError) {
+          throw new FileSyncError(
+            'recovery_tracking_failed',
+            'Committed backup cleanup could not be tracked durably',
+            { cause: new AggregateError([cause, trackingError]) },
+          )
+        }
         throw new FileSyncError(
           'backup_cleanup_failed',
           'Committed replacement backup could not be removed',
@@ -797,33 +862,91 @@ export class SyncEngine {
 
   async rollbackPublication({
     run,
+    item,
+    previousRecord,
+    transactionId,
     destinationPath,
+    destinationRelativePath,
     backupPath,
+    backupRelativePath,
+    rollbackRelativePath,
     backupCreated,
     destinationPublished,
   }) {
+    const errors = []
+    const physicalFiles = []
+    let accountedBytes = 0
+
     if (!destinationPublished) {
       if (backupCreated) {
-        await this.renameFile(backupPath, destinationPath)
+        try {
+          await this.renameFile(backupPath, destinationPath)
+        } catch (error) {
+          errors.push(error)
+          physicalFiles.push(backupRelativePath)
+          accountedBytes += previousRecord?.fileSize ?? 0
+        }
       }
-      return
+      return {
+        entry: physicalFiles.length > 0
+          ? createRecoveryEntry({
+              id: transactionId,
+              source: sourceKey(item),
+              type: 'manual_recovery',
+              physicalFiles,
+              cleanupFiles: [],
+              accountedBytes,
+              now: this.now(),
+            })
+          : null,
+        errors,
+      }
     }
 
-    if (!backupCreated) {
-      const displacedPath = join(run.root, `.jiqing-rollback-${randomUUID()}`)
-      await this.renameFile(destinationPath, displacedPath)
-      await this.removeFile(displacedPath, { force: true })
-      return
-    }
-
-    const displacedPath = join(run.root, `.jiqing-rollback-${randomUUID()}`)
-    await this.renameFile(destinationPath, displacedPath)
+    let replacementDisplaced = false
+    let rollbackPath
     try {
-      await this.renameFile(backupPath, destinationPath)
+      rollbackPath = await resolvePhysicalPath(run.root, rollbackRelativePath)
+      if (await pathExists(rollbackPath)) {
+        throw new FileSyncError('recovery_path_occupied')
+      }
+      await this.renameFile(destinationPath, rollbackPath)
+      replacementDisplaced = true
+      physicalFiles.push(rollbackRelativePath)
+      accountedBytes += item.fileSize
     } catch (error) {
-      throw error
+      errors.push(error)
+      physicalFiles.push(destinationRelativePath)
+      accountedBytes += item.fileSize
     }
-    await this.removeFile(displacedPath, { force: true })
+
+    if (backupCreated) {
+      if (replacementDisplaced) {
+        try {
+          await this.renameFile(backupPath, destinationPath)
+        } catch (error) {
+          errors.push(error)
+          physicalFiles.push(backupRelativePath)
+          accountedBytes += previousRecord?.fileSize ?? 0
+        }
+      } else {
+        physicalFiles.push(backupRelativePath)
+        accountedBytes += previousRecord?.fileSize ?? 0
+      }
+    }
+
+    return {
+      entry: createRecoveryEntry({
+        id: transactionId,
+        source: sourceKey(item),
+        type: errors.length > 0 ? 'manual_recovery' : 'cleanup_pending',
+        physicalFiles,
+        cleanupFiles: errors.length > 0 ? [] : [rollbackRelativePath],
+        accountedBytes,
+        now: this.now(),
+      }),
+      errors,
+    }
   }
 
   async chooseDestination(run, index, key, desiredRelativePath, previousRecord) {
@@ -887,6 +1010,13 @@ export class SyncEngine {
         relativePaths.add(relativePath)
       }
     }
+    for (const entry of Object.values(index.recoveryEntries ?? {})) {
+      for (const relativePath of entry?.physicalFiles ?? []) {
+        if (isNonEmptyString(relativePath, 220)) {
+          relativePaths.add(relativePath)
+        }
+      }
+    }
 
     let total = 0
     for (const relativePath of relativePaths) {
@@ -897,6 +1027,45 @@ export class SyncEngine {
       if (details?.isFile()) total += details.size
     }
     return total
+  }
+
+  async recoverPendingFiles(run, store, index) {
+    for (const [id, entry] of Object.entries(index.recoveryEntries)) {
+      this.assertActive(run)
+      if (entry?.type !== 'cleanup_pending'
+        || !Array.isArray(entry.cleanupFiles)) {
+        continue
+      }
+
+      let cleanupFailed = false
+      for (const relativePath of entry.cleanupFiles) {
+        try {
+          const filePath = await resolvePhysicalPath(run.root, relativePath)
+          this.assertActive(run)
+          await this.removeFile(filePath, { force: true })
+          this.assertActive(run)
+        } catch (error) {
+          if (error instanceof RunPausedError) throw error
+          cleanupFailed = true
+          break
+        }
+      }
+      if (cleanupFailed) {
+        this.state.failedFiles += 1
+        this.emitIfActive(run)
+        continue
+      }
+
+      const previous = structuredClone(entry)
+      delete index.recoveryEntries[id]
+      try {
+        await this.saveIndex(run, store, index)
+      } catch (error) {
+        index.recoveryEntries[id] = previous
+        await this.persistRollback(store, index, error)
+        throw error
+      }
+    }
   }
 
   async recordFailure(run, store, index, item, error) {

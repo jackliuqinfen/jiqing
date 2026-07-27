@@ -25,6 +25,26 @@ function isPlainObject(value) {
   return prototype === Object.prototype || prototype === null
 }
 
+function isStringArray(value) {
+  return Array.isArray(value)
+    && value.every((item) => typeof item === 'string' && item.length > 0)
+}
+
+function isValidRecoveryEntries(entries) {
+  return isPlainObject(entries)
+    && Object.entries(entries).every(([id, entry]) => (
+      isPlainObject(entry)
+      && entry.id === id
+      && typeof entry.sourceKey === 'string'
+      && ['cleanup_pending', 'manual_recovery'].includes(entry.type)
+      && isStringArray(entry.physicalFiles)
+      && isStringArray(entry.cleanupFiles)
+      && Number.isSafeInteger(entry.accountedBytes)
+      && entry.accountedBytes >= 0
+      && typeof entry.createdAt === 'string'
+    ))
+}
+
 function isValidIndex(index, environmentOrigin, userId) {
   return (
     isPlainObject(index)
@@ -33,6 +53,10 @@ function isValidIndex(index, environmentOrigin, userId) {
     && index.userId === userId
     && isPlainObject(index.cursorBySelection)
     && isPlainObject(index.files)
+    && (
+      index.recoveryEntries === undefined
+      || isValidRecoveryEntries(index.recoveryEntries)
+    )
   )
 }
 
@@ -47,6 +71,7 @@ export function createEmptyIndex(environmentOrigin, userId) {
     userId,
     cursorBySelection: {},
     files: {},
+    recoveryEntries: {},
   }
 }
 

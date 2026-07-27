@@ -1016,7 +1016,159 @@ test('failed replacement rollback preserves both copies and records an explicit 
   )
 })
 
-test('failed first publication never leaves an unindexed final path', async (t) => {
+test('index rollback failure preserves both revisions in quota-accounted recovery paths', async (t) => {
+  let publicationSaveFailed = false
+  let rollbackSaveFailed = false
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+      [entry('r-3', Buffer.from('extra'), {
+        sourceId: 'doc-2',
+        originalName: '追加资料.pdf',
+      })],
+    ],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 10,
+    },
+    engineOptions: {
+      indexStoreFactory(userId) {
+        const store = new SyncIndexStore({
+          appDataPath: harness.appDataPath,
+          environmentOrigin: ORIGIN,
+          userId,
+        })
+        return {
+          load: () => store.load(),
+          save(index, options) {
+            const record = index.files['project_file:doc-1']
+            if (record?.sourceRevision === 'r-2' && !publicationSaveFailed) {
+              publicationSaveFailed = true
+              throw new Error('publication index save denied')
+            }
+            if (record?.sourceRevision === 'r-1'
+              && Object.keys(index.recoveryEntries ?? {}).length > 0
+              && !rollbackSaveFailed) {
+              rollbackSaveFailed = true
+              throw new Error('rollback index save denied')
+            }
+            return store.save(index, options)
+          },
+        }
+      },
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-rollback-')) {
+          throw new Error('defer recovery cleanup')
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+
+  await harness.engine.start(session())
+
+  assert.equal(readFileSync(harness.output('施工合同.pdf'), 'utf8'), 'old-1')
+  const recoveryFiles = readdirSync(harness.localRoot, { recursive: true })
+    .map(String)
+    .filter((name) => name.includes('.jiqing-rollback-'))
+  assert.equal(recoveryFiles.length, 1)
+  assert.equal(
+    readFileSync(join(harness.localRoot, recoveryFiles[0]), 'utf8'),
+    'new-2',
+  )
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  const recoveredIndex = await store.load()
+  const recoveryEntries = Object.values(recoveredIndex.recoveryEntries ?? {})
+  assert.equal(recoveryEntries.length, 1)
+  assert.equal(recoveryEntries[0].physicalFiles[0], recoveryFiles[0])
+  assert.equal(recoveryEntries[0].accountedBytes, 5)
+
+  recoveredIndex.files['project_file:doc-1'] = {
+    ...recoveredIndex.files['project_file:doc-1'],
+    status: 'synced',
+    lastErrorCode: null,
+    pendingItem: null,
+  }
+  await store.save(recoveredIndex)
+  await harness.engine.start(session())
+
+  assert.equal(existsSync(harness.output('追加资料.pdf')), false)
+  assert.equal(harness.engine.getState().status, 'partial_failure')
+})
+
+test('cleanup-pending backups stay quota-accounted until a later explicit cleanup succeeds', async (t) => {
+  let cleanupAttempts = 0
+  const harness = createTestEngine(t, {
+    manifests: [
+      [entry('r-1', Buffer.from('old-1'))],
+      [entry('r-2', Buffer.from('new-2'))],
+      [entry('r-3', Buffer.from('extra'), {
+        sourceId: 'doc-2',
+        originalName: '追加资料.pdf',
+      })],
+      [],
+    ],
+    policy: {
+      maxFileSizeBytes: 5,
+      maxLocalStorageBytes: 10,
+    },
+    engineOptions: {
+      async removeFile(path, options) {
+        if (path.includes('.jiqing-backup-')) {
+          cleanupAttempts += 1
+          if (cleanupAttempts <= 2) {
+            throw new Error('backup cleanup denied')
+          }
+        }
+        return removeFile(path, options)
+      },
+    },
+  })
+  await harness.engine.start(session())
+  await harness.engine.start(session())
+
+  const store = new SyncIndexStore({
+    appDataPath: harness.appDataPath,
+    environmentOrigin: ORIGIN,
+    userId: 'user-1',
+  })
+  let index = await store.load()
+  assert.equal(Object.keys(index.recoveryEntries ?? {}).length, 1)
+  assert.equal(
+    readdirSync(harness.localRoot, { recursive: true })
+      .map(String)
+      .some((name) => name.includes('.jiqing-backup-')),
+    true,
+  )
+
+  await harness.engine.start(session())
+
+  assert.equal(cleanupAttempts, 2)
+  assert.equal(existsSync(harness.output('追加资料.pdf')), false)
+  index = await store.load()
+  assert.equal(Object.keys(index.recoveryEntries ?? {}).length, 1)
+
+  await harness.engine.start(session())
+
+  assert.equal(cleanupAttempts, 3)
+  assert.equal(readFileSync(harness.output('追加资料.pdf'), 'utf8'), 'extra')
+  index = await store.load()
+  assert.deepEqual(index.recoveryEntries, {})
+  assert.equal(
+    readdirSync(harness.localRoot, { recursive: true })
+      .map(String)
+      .some((name) => name.includes('.jiqing-backup-')),
+    false,
+  )
+})
+
+test('failed first publication moves bytes to a tracked recovery path', async (t) => {
   let failIndexSave = true
   const harness = createTestEngine(t, {
     manifests: [[entry('r-1', Buffer.from('server-v1'))]],
@@ -1059,7 +1211,11 @@ test('failed first publication never leaves an unindexed final path', async (t) 
   })
   assert.equal(
     (await store.load()).files['project_file:doc-1'].lastErrorCode,
-    'publication_rollback_failed',
+    'download_failed',
+  )
+  assert.equal(
+    Object.keys((await store.load()).recoveryEntries).length,
+    1,
   )
 })
 
@@ -1121,6 +1277,9 @@ test('quota includes older indexed conflict files', async (t) => {
 })
 
 test('concurrent new files exactly filling quota both publish', async (t) => {
+  const bothDownloadsEntered = deferred()
+  const releaseDownloads = deferred()
+  let downloadsEntered = 0
   const harness = createTestEngine(t, {
     manifests: [[
       entry('r-1', Buffer.from('12345'), {
@@ -1136,10 +1295,22 @@ test('concurrent new files exactly filling quota both publish', async (t) => {
       maxFileSizeBytes: 5,
       maxLocalStorageBytes: 10,
     },
-    downloadGate: () => new Promise((resolve) => setTimeout(resolve, 5)),
+    downloadGate: async () => {
+      downloadsEntered += 1
+      if (downloadsEntered === 2) bothDownloadsEntered.resolve()
+      await releaseDownloads.promise
+    },
   })
 
-  await harness.engine.start(session())
+  const running = harness.engine.start(session())
+  const boundary = await Promise.race([
+    bothDownloadsEntered.promise.then(() => 'both-downloads'),
+    running.then(() => 'completed'),
+  ])
+  assert.equal(boundary, 'both-downloads')
+  assert.equal(harness.api.activeDownloads, 2)
+  releaseDownloads.resolve()
+  await running
 
   assert.equal(harness.engine.getState().completedFiles, 2)
   assert.equal(harness.engine.getState().failedFiles, 0)
