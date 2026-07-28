@@ -32,9 +32,22 @@ function requireSecret(value, name) {
   }
 }
 
+function normalizeSignerSha256(value) {
+  if (
+    typeof value !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(value.trim())
+  ) {
+    throw new Error(
+      'WINDOWS_EXPECTED_SIGNER_SHA256 must be a 64-character hex fingerprint',
+    )
+  }
+  return value.trim().toUpperCase()
+}
+
 export function validateReleaseConfiguration({
   certificateBase64 = '',
   certificatePassword = '',
+  expectedSignerSha256 = '',
   channel,
   origin,
 }) {
@@ -48,18 +61,26 @@ export function validateReleaseConfiguration({
     }
     requireSecret(certificateBase64, 'WINDOWS_CERTIFICATE_BASE64')
     requireSecret(certificatePassword, 'WINDOWS_CERTIFICATE_PASSWORD')
+    const normalizedSigner = normalizeSignerSha256(expectedSignerSha256)
+    return Object.freeze({
+      channel,
+      expectedSignerSha256: normalizedSigner,
+      origin: parsedOrigin.origin,
+      requiresSigning: true,
+    })
   }
 
   return Object.freeze({
     channel,
     origin: parsedOrigin.origin,
-    requiresSigning: channel === 'production',
+    requiresSigning: false,
   })
 }
 
 export function validateWindowsBuildConfiguration({
   certificateBase64 = '',
   certificatePassword = '',
+  expectedSignerSha256 = '',
   channel,
   mode,
   origin,
@@ -74,6 +95,7 @@ export function validateWindowsBuildConfiguration({
     return validateReleaseConfiguration({
       certificateBase64,
       certificatePassword,
+      expectedSignerSha256,
       channel,
       origin,
     })
@@ -104,6 +126,7 @@ if (
   const result = validateReleaseConfiguration({
     certificateBase64: process.env.WINDOWS_CERTIFICATE_BASE64,
     certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD,
+    expectedSignerSha256: process.env.WINDOWS_EXPECTED_SIGNER_SHA256,
     channel: process.env.DESKTOP_RELEASE_CHANNEL,
     origin: process.env.DESKTOP_SERVER_URL,
   })

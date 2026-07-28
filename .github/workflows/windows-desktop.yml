@@ -14,9 +14,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -24,7 +24,7 @@ jobs:
             package-lock.json
             desktop/package-lock.json
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
       - name: Install root dependencies
@@ -49,9 +49,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
@@ -67,7 +67,7 @@ jobs:
           npm --prefix desktop run dist:win
           npm --prefix desktop run verify:package
       - name: Upload internal-test installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: JiqingERP-internal-test-${{ github.run_number }}
           path: desktop/dist/JiqingERP-*-Setup.exe
@@ -76,54 +76,59 @@ jobs:
   production:
     if: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
     needs: verify
+    environment:
+      name: production
     runs-on: windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - name: Install desktop dependencies
         run: npm --prefix desktop ci
-      - name: Validate production release gate
+      - name: Validate production tag
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^desktop-v\d+\.\d+\.\d+$') {
+            throw 'Production tag must match desktop-v<major>.<minor>.<patch>'
+          }
+      - name: Build and verify signed production installer
         env:
           DESKTOP_RELEASE_CHANNEL: production
           DESKTOP_SERVER_URL: ${{ vars.DESKTOP_PRODUCTION_URL }}
           WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: node desktop/scripts/validate-release-configuration.mjs
-      - name: Prepare signing certificate
-        env:
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_EXPECTED_SIGNER_SHA256: ${{ vars.WINDOWS_EXPECTED_SIGNER_SHA256 }}
         shell: pwsh
         run: |
           $certificatePath = Join-Path $env:RUNNER_TEMP 'jiqing-desktop-signing.pfx'
-          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
-          [System.IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-          "CSC_LINK=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Build production installer
-        env:
-          DESKTOP_RELEASE_CHANNEL: production
-          DESKTOP_SERVER_URL: ${{ vars.DESKTOP_PRODUCTION_URL }}
-        run: |
-          npm --prefix desktop run dist:production
-          npm --prefix desktop run verify:package
-      - name: Verify production signature
-        run: node desktop/scripts/verify-windows-signatures.mjs
+          try {
+            node desktop/scripts/validate-release-configuration.mjs
+            $certificateBytes = [Convert]::FromBase64String(
+              $env:WINDOWS_CERTIFICATE_BASE64
+            )
+            [System.IO.File]::WriteAllBytes(
+              $certificatePath,
+              $certificateBytes
+            )
+            $env:CSC_LINK = $certificatePath
+            $env:CSC_KEY_PASSWORD = $env:WINDOWS_CERTIFICATE_PASSWORD
+            npm --prefix desktop run dist:production
+            npm --prefix desktop run verify:package
+            node desktop/scripts/verify-windows-signatures.mjs
+          } finally {
+            $env:CSC_LINK = $null
+            $env:CSC_KEY_PASSWORD = $null
+            Remove-Item -LiteralPath $certificatePath `
+              -Force -ErrorAction SilentlyContinue
+          }
       - name: Upload signed production installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: JiqingERP-production-${{ github.ref_name }}
           path: desktop/dist/JiqingERP-*-Setup.exe
           if-no-files-found: error
-      - name: Delete signing certificate
-        if: ${{ always() }}
-        shell: pwsh
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'jiqing-desktop-signing.pfx'
-          Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue

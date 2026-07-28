@@ -34,10 +34,19 @@ export function findWindowsSignatureTargets(distRoot = defaultDistRoot) {
 
 export function verifyWindowsSignatures({
   distRoot = defaultDistRoot,
+  expectedSignerSha256 = process.env.WINDOWS_EXPECTED_SIGNER_SHA256,
   powershell = 'powershell.exe',
 } = {}) {
   if (process.platform !== 'win32') {
     throw new Error('Windows signature verification requires Windows')
+  }
+  if (
+    typeof expectedSignerSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/i.test(expectedSignerSha256.trim())
+  ) {
+    throw new Error(
+      'WINDOWS_EXPECTED_SIGNER_SHA256 must be a 64-character hex fingerprint',
+    )
   }
   const targets = findWindowsSignatureTargets(distRoot)
   const result = spawnSync(
@@ -49,6 +58,8 @@ export function verifyWindowsSignatures({
       'Bypass',
       '-File',
       signatureScriptPath,
+      '-ExpectedSignerSha256',
+      expectedSignerSha256.trim().toUpperCase(),
       ...targets,
     ],
     {

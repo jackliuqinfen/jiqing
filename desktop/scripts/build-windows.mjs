@@ -66,6 +66,7 @@ assertDescendant(distRoot, desktopRoot, 'desktop distribution directory')
 validateWindowsBuildConfiguration({
   certificateBase64: process.env.CSC_LINK,
   certificatePassword: process.env.CSC_KEY_PASSWORD,
+  expectedSignerSha256: process.env.WINDOWS_EXPECTED_SIGNER_SHA256,
   channel: process.env.DESKTOP_RELEASE_CHANNEL,
   mode,
   origin: process.env.DESKTOP_SERVER_URL,
@@ -145,7 +146,10 @@ try {
   }
   copyBuildOutput()
   if (mode === 'production') {
-    verifyWindowsSignatures({ distRoot })
+    verifyWindowsSignatures({
+      distRoot,
+      expectedSignerSha256: process.env.WINDOWS_EXPECTED_SIGNER_SHA256,
+    })
   }
 } finally {
   assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')

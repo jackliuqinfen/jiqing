@@ -70,29 +70,48 @@ npm --prefix desktop run verify:package
 
 ## 5. GitHub 变量与 secrets
 
-在仓库 `Settings > Secrets and variables > Actions` 配置：
+在仓库 `Settings > Environments` 预先创建受保护的 `production`
+Environment，并配置：
 
 - Variables: `DESKTOP_TEST_URL`
 - Variables: `DESKTOP_PRODUCTION_URL`
+- Variables: `WINDOWS_EXPECTED_SIGNER_SHA256`
 - Secrets: `WINDOWS_CERTIFICATE_BASE64`
 - Secrets: `WINDOWS_CERTIFICATE_PASSWORD`
 
-不要在 issue、日志、文档、脚本或提交中记录实际值。手工触发
-`Windows Desktop` workflow 生成 internal-test；只有 `desktop-v*` tag
-触发 production job。
+`WINDOWS_EXPECTED_SIGNER_SHA256` 是预期代码签名证书的 64 位 SHA-256
+指纹，不是从本次上传的 PFX 动态计算。证书与密码只放在
+`production` Environment Secrets，不保留同名 repository 或 organization
+Secrets。`DESKTOP_TEST_URL` 可继续作为仓库级变量。
 
-production job 会先验证 HTTPS 和两个 secrets，再把证书解码到
-`$env:RUNNER_TEMP\jiqing-desktop-signing.pfx`，构建后检查
-`Get-AuthenticodeSignature` 为 `Valid`，最后在 `always()` 步骤删除证书。
+不要在 issue、日志、文档、脚本或提交中记录实际 secret 值。手工触发
+`Windows Desktop` workflow 生成 internal-test；只有符合
+`desktop-v<major>.<minor>.<patch>` 的 tag 才能通过 production 门禁。
+
+production job 会先等待 `production` Environment 审批，再在同一个
+PowerShell 步骤中验证 HTTPS、secrets 和预期指纹，解码 PFX、构建并检查
+安装包与 `JiqingERP.exe`。两个文件必须为 `Valid`、使用相同的预期
+SHA-256 签名者指纹并包含时间戳。该步骤使用 `try/finally` 在上传
+artifact 之前清除 `CSC_*` 环境变量并删除临时 PFX；签名凭据不写入
+`GITHUB_ENV`。
 
 ## 6. Production 前置条件
 
 1. `DESKTOP_PRODUCTION_URL` 是有效的 `https://` origin。
 2. `/api/health` 在该 origin 返回 ERP 健康响应，且无跨 origin 重定向。
 3. TLS 证书链、主机名和有效期均正常，不允许绕过证书错误。
-4. Windows 签名证书及密码 secrets 已配置且未过期。
-5. `desktop-v*` tag 指向已完成自动化和人工验收的提交。
-6. 安装包和内含 `JiqingERP.exe` 的签名均需在验收机复核。
+4. `production` Environment 已启用 Required reviewers、Prevent
+   self-review，并禁止管理员绕过；部署分支或 tag 策略只允许
+   `desktop-v*`。
+5. 仓库 ruleset 限制 `desktop-v*` tag 的创建、更新和删除。
+6. Windows 签名证书、密码和固定 SHA-256 指纹已配置且未过期。
+7. `desktop-v<major>.<minor>.<patch>` tag 指向已完成自动化和人工验收的提交。
+8. 安装包和内含 `JiqingERP.exe` 的签名均需在验收机复核。
+
+GitHub Environment 的审批人、自审限制、管理员绕过、tag 部署策略和
+Secrets 归属不能由仓库 YAML 自动配置，发布负责人必须在 GitHub
+Settings 中逐项验收。私有仓库还需确认当前 GitHub 套餐支持所需的
+Environment 保护规则。
 
 ## 7. 为一个验收用户启用同步
 

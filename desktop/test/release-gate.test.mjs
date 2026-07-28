@@ -37,6 +37,7 @@ test('production release rejects HTTP before packaging starts', () => {
     () => validateReleaseConfiguration({
       certificateBase64: 'certificate',
       certificatePassword: 'password',
+      expectedSignerSha256: 'A'.repeat(64),
       channel: 'production',
       origin: 'http://121.4.36.112:8088',
     }),
@@ -49,6 +50,7 @@ test('production release requires both certificate secrets', () => {
     () => validateReleaseConfiguration({
       certificateBase64: '',
       certificatePassword: 'password',
+      expectedSignerSha256: 'A'.repeat(64),
       channel: 'production',
       origin: 'https://erp.example.cn',
     }),
@@ -58,6 +60,7 @@ test('production release requires both certificate secrets', () => {
     () => validateReleaseConfiguration({
       certificateBase64: 'certificate',
       certificatePassword: '',
+      expectedSignerSha256: 'A'.repeat(64),
       channel: 'production',
       origin: 'https://erp.example.cn',
     }),
@@ -65,17 +68,34 @@ test('production release requires both certificate secrets', () => {
   )
 })
 
-test('production release accepts HTTPS only when both signing secrets exist', () => {
+test('production release requires a fixed SHA-256 signer fingerprint', () => {
+  for (const expectedSignerSha256 of ['', 'A'.repeat(40), 'G'.repeat(64)]) {
+    assert.throws(
+      () => validateReleaseConfiguration({
+        certificateBase64: 'certificate',
+        certificatePassword: 'password',
+        expectedSignerSha256,
+        channel: 'production',
+        origin: 'https://erp.example.cn',
+      }),
+      /WINDOWS_EXPECTED_SIGNER_SHA256/,
+    )
+  }
+})
+
+test('production release accepts HTTPS only with signing secrets and expected signer', () => {
   assert.deepEqual(
     validateReleaseConfiguration({
       certificateBase64: 'certificate',
       certificatePassword: 'password',
+      expectedSignerSha256: 'ab'.repeat(32),
       channel: 'production',
       origin: 'https://erp.example.cn/app',
     }),
     {
       channel: 'production',
       origin: 'https://erp.example.cn',
+      expectedSignerSha256: 'AB'.repeat(32),
       requiresSigning: true,
     },
   )
@@ -107,6 +127,7 @@ test('production Windows build mode requires production HTTPS and signing', () =
     validateWindowsBuildConfiguration({
       certificateBase64: 'certificate',
       certificatePassword: 'password',
+      expectedSignerSha256: 'ab'.repeat(32),
       channel: 'production',
       mode: 'production',
       origin: 'https://erp.example.cn',
@@ -114,6 +135,7 @@ test('production Windows build mode requires production HTTPS and signing', () =
     {
       channel: 'production',
       origin: 'https://erp.example.cn',
+      expectedSignerSha256: 'AB'.repeat(32),
       requiresSigning: true,
     },
   )
@@ -163,7 +185,10 @@ test(
       )
 
       assert.throws(
-        () => verifyWindowsSignatures({ distRoot }),
+        () => verifyWindowsSignatures({
+          distRoot,
+          expectedSignerSha256: 'A'.repeat(64),
+        }),
         /Windows signature verification failed/,
       )
     } finally {
