@@ -73,10 +73,24 @@ test('Windows build reuses the installed unpacked Electron runtime', () => {
     /assertDescendant\([\s\S]*installedElectronDist[\s\S]*desktopRoot/,
   )
   assert.match(buildScript, /mkdtempSync\(/)
-  assert.match(buildScript, /desktopRoot, '\.tmp', 'windows-build'/)
+  assert.match(buildScript, /temporaryRootPath = join\(desktopRoot, '\.tmp'\)/)
+  assert.match(
+    buildScript,
+    /trustedBuildParentPath = join\(temporaryRoot, 'windows-build'\)/,
+  )
   assert.match(
     buildScript,
     /assertDescendant\([\s\S]*trustedBuildParent[\s\S]*desktopRoot/,
+  )
+  assert.ok(
+    buildScript.indexOf("'temporary build parent'")
+      < buildScript.indexOf('mkdtempSync('),
+    'the physical build-parent guard must run before creating a run directory',
+  )
+  assert.ok(
+    buildScript.indexOf("'temporary directory'")
+      < buildScript.indexOf('mkdirSync(trustedBuildParentPath'),
+    'the physical temporary-root guard must run before creating the build parent',
   )
   assert.doesNotMatch(buildScript, /homedir\(/)
   assert.doesNotMatch(buildScript, /process\.env\.PUBLIC/)

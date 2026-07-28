@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 
 import electronPath from 'electron'
 
-import { formatSmokeFailure } from './smoke-diagnostics.mjs'
+import { createSmokeFailure } from './smoke-diagnostics.mjs'
 
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 const smokeAppPath = fileURLToPath(
@@ -225,6 +225,8 @@ function launchElectron({
 
   const completed = new Promise((resolve, reject) => {
     let settled = false
+    let spawnError = null
+    let timedOut = false
     let timeout
     const settle = (callback, value) => {
       if (settled) return
@@ -234,44 +236,69 @@ function launchElectron({
     }
     timeout = setTimeout(() => {
       if (settled) return
-      settled = true
-      clearTimeout(timeout)
+      timedOut = true
       void terminateProcessTree(child).finally(() => {
-        reject(
-          new Error(formatSmokeFailure({
+        settle(
+          reject,
+          createSmokeFailure({
             caseName,
             completed: { stderr, stdout },
             resultPath,
             timedOut: true,
-          })),
+          }),
         )
       })
     }, PROCESS_TIMEOUT_MS)
     child.once('error', (error) => {
-      settle(reject, error)
+      spawnError = error
     })
-    child.once('exit', (code, signal) => {
-      settle(resolve, { code, signal, stderr, stdout })
+    child.once('close', (code, signal) => {
+      const result = { code, signal, stderr, stdout }
+      if (spawnError || timedOut) {
+        settle(
+          reject,
+          createSmokeFailure({
+            caseName,
+            cause: spawnError,
+            completed: result,
+            resultPath,
+            timedOut,
+          }),
+        )
+        return
+      }
+      settle(resolve, result)
     })
   })
 
   return {
     child,
     completed,
+    snapshot: () => ({ stderr, stdout }),
     terminate: () => terminateProcessTree(child),
   }
 }
 
-function assertCleanExit(completed, caseName, resultPath) {
-  assert.equal(
-    completed.code,
-    0,
-    formatSmokeFailure({
+async function withProcessDiagnostics({
+  caseName,
+  processResult,
+  resultPath,
+}, action) {
+  try {
+    return await action()
+  } catch (error) {
+    if (error?.smokeDiagnostic === true) throw error
+    throw createSmokeFailure({
       caseName,
-      completed,
+      cause: error,
+      completed: processResult.snapshot(),
       resultPath,
-    }),
-  )
+    })
+  }
+}
+
+function assertCleanExit(completed) {
+  assert.equal(completed.code, 0)
   assert.equal(completed.signal, null)
 }
 
@@ -285,21 +312,27 @@ async function runSuccessfulLoad(tempRoot) {
       resultPath,
       userDataPath: join(tempRoot, 'success-user-data'),
     })
-    const completed = await processResult.completed
-    assertCleanExit(completed, 'successful-load', resultPath)
-    assert.deepEqual(readJson(resultPath), {
-      healthReady: true,
-      remoteLoaded: true,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      loadedOrigin: server.origin,
+    await withProcessDiagnostics({
+      caseName: 'successful-load',
+      processResult,
+      resultPath,
+    }, async () => {
+      const completed = await processResult.completed
+      assertCleanExit(completed)
+      assert.deepEqual(readJson(resultPath), {
+        healthReady: true,
+        remoteLoaded: true,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        loadedOrigin: server.origin,
+      })
+      assert.ok(server.requests.some(({ url }) => url === '/api/health'))
+      assert.ok(server.requests.some(({ url }) => url === '/'))
+      assert.ok(
+        server.requests.some(({ url }) => url === '/api/desktop/bootstrap'),
+      )
     })
-    assert.ok(server.requests.some(({ url }) => url === '/api/health'))
-    assert.ok(server.requests.some(({ url }) => url === '/'))
-    assert.ok(
-      server.requests.some(({ url }) => url === '/api/desktop/bootstrap'),
-    )
   } finally {
     await server.close()
   }
@@ -314,12 +347,18 @@ async function runUnavailableServer(tempRoot) {
     resultPath,
     userDataPath: join(tempRoot, 'unavailable-user-data'),
   })
-  const completed = await processResult.completed
-  assertCleanExit(completed, 'server-unavailable', resultPath)
-  assert.deepEqual(readJson(resultPath), {
-    healthReady: false,
-    remoteLoaded: false,
-    loadedUrl: 'app://unavailable/',
+  await withProcessDiagnostics({
+    caseName: 'server-unavailable',
+    processResult,
+    resultPath,
+  }, async () => {
+    const completed = await processResult.completed
+    assertCleanExit(completed)
+    assert.deepEqual(readJson(resultPath), {
+      healthReady: false,
+      remoteLoaded: false,
+      loadedUrl: 'app://unavailable/',
+    })
   })
 }
 
@@ -336,12 +375,18 @@ async function runExternalNavigationDenied(tempRoot) {
       resultPath,
       userDataPath: join(tempRoot, 'navigation-user-data'),
     })
-    const completed = await processResult.completed
-    assertCleanExit(completed, 'external-navigation', resultPath)
-    assert.deepEqual(readJson(resultPath), {
-      externalNavigationDenied: true,
-      blockedUrl: 'http://localhost:9/external-navigation',
-      loadedOrigin: server.origin,
+    await withProcessDiagnostics({
+      caseName: 'external-navigation',
+      processResult,
+      resultPath,
+    }, async () => {
+      const completed = await processResult.completed
+      assertCleanExit(completed)
+      assert.deepEqual(readJson(resultPath), {
+        externalNavigationDenied: true,
+        blockedUrl: 'http://localhost:9/external-navigation',
+        loadedOrigin: server.origin,
+      })
     })
   } finally {
     await server.close()
@@ -357,10 +402,16 @@ async function runProductionHttpRejected(tempRoot) {
     resultPath,
     userDataPath: join(tempRoot, 'production-http-user-data'),
   })
-  const completed = await processResult.completed
-  assert.notEqual(completed.code, 0)
-  assert.deepEqual(readJson(resultPath), {
-    configurationError: 'production desktop server URL requires HTTPS',
+  await withProcessDiagnostics({
+    caseName: 'production-http',
+    processResult,
+    resultPath,
+  }, async () => {
+    const completed = await processResult.completed
+    assert.notEqual(completed.code, 0)
+    assert.deepEqual(readJson(resultPath), {
+      configurationError: 'production desktop server URL requires HTTPS',
+    })
   })
 }
 
@@ -379,7 +430,11 @@ async function runSecondInstance(tempRoot) {
       resultPath: primaryResultPath,
       userDataPath,
     })
-    await waitForFile(primaryReadyPath)
+    await withProcessDiagnostics({
+      caseName: 'second-instance-primary-ready',
+      processResult: primary,
+      resultPath: primaryResultPath,
+    }, () => waitForFile(primaryReadyPath))
 
     const secondaryResultPath = join(tempRoot, 'secondary.json')
     secondary = launchElectron({
@@ -388,24 +443,27 @@ async function runSecondInstance(tempRoot) {
       resultPath: secondaryResultPath,
       userDataPath,
     })
-    const secondaryCompleted = await secondary.completed
-    assertCleanExit(
-      secondaryCompleted,
-      'second-instance-secondary',
-      secondaryResultPath,
-    )
-    const primaryCompleted = await primary.completed
-    assertCleanExit(
-      primaryCompleted,
-      'second-instance-primary',
-      primaryResultPath,
-    )
-
-    assert.deepEqual(readJson(secondaryResultPath), {
-      ownsSingleInstance: false,
+    await withProcessDiagnostics({
+      caseName: 'second-instance-secondary',
+      processResult: secondary,
+      resultPath: secondaryResultPath,
+    }, async () => {
+      const secondaryCompleted = await secondary.completed
+      assertCleanExit(secondaryCompleted)
+      assert.deepEqual(readJson(secondaryResultPath), {
+        ownsSingleInstance: false,
+      })
     })
-    assert.deepEqual(readJson(primaryResultPath), {
-      secondInstanceFocused: true,
+    await withProcessDiagnostics({
+      caseName: 'second-instance-primary',
+      processResult: primary,
+      resultPath: primaryResultPath,
+    }, async () => {
+      const primaryCompleted = await primary.completed
+      assertCleanExit(primaryCompleted)
+      assert.deepEqual(readJson(primaryResultPath), {
+        secondInstanceFocused: true,
+      })
     })
   } finally {
     await Promise.all([
