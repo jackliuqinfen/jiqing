@@ -70,7 +70,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: JiqingERP-internal-test-${{ github.run_number }}
-          path: desktop/dist/JiqingERP-*-Setup.exe
+          path: |
+            desktop/dist/JiqingERP-*-Setup.exe
+            desktop/dist/JiqingERP-*-Setup.exe.blockmap
+            desktop/dist/latest.yml
           if-no-files-found: error
 
   production:
@@ -130,5 +133,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: JiqingERP-production-${{ github.ref_name }}
-          path: desktop/dist/JiqingERP-*-Setup.exe
+          path: |
+            desktop/dist/JiqingERP-*-Setup.exe
+            desktop/dist/JiqingERP-*-Setup.exe.blockmap
+            desktop/dist/latest.yml
           if-no-files-found: error

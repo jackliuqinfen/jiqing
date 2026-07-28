@@ -238,8 +238,30 @@ export interface UserProfile {
   email: string
   displayName: string
   username: string
+  avatarUrl?: string
+  phone?: string
+  department?: string
+  jobTitle?: string
+  bio?: string
   role: AdminRole
   createdAt: string
+  updatedAt?: string
+}
+
+export interface UpdateCurrentUserProfileDto {
+  username: string
+  displayName: string
+  email: string
+  avatarUrl: string
+  phone: string
+  department: string
+  jobTitle: string
+  bio: string
+}
+
+export interface ChangeCurrentUserPasswordDto {
+  currentPassword: string
+  newPassword: string
 }
 
 /** 认证会话 */

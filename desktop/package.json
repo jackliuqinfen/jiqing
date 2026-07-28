@@ -1,6 +1,8 @@
 {
   "name": "jiqing-erp-desktop",
-  "version": "1.0.0",
+  "version": "1.0.3",
+  "description": "江苏集庆建设工程管理桌面工作台",
+  "author": "江苏集庆建设",
   "private": true,
   "type": "module",
   "main": "src/main.mjs",
@@ -14,6 +16,7 @@
     "pack:dir": "npm run prepare:build && node scripts/build-windows.mjs dir",
     "dist:win": "npm run pack:dir && node scripts/build-windows.mjs nsis",
     "dist:production": "npm run prepare:build && node scripts/build-windows.mjs production",
+    "stage:update": "node scripts/stage-update-feed.mjs",
     "verify:package": "node scripts/verify-packaged-app.mjs",
     "smoke": "node scripts/smoke-runner.mjs",
     "verify": "node scripts/verify-runner.mjs"
@@ -26,5 +29,8 @@
     "js-yaml": "4.3.0",
     "png-to-ico": "3.0.1",
     "sharp": "0.34.5"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   }
 }

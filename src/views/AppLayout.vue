@@ -33,19 +33,32 @@
         </router-link>
       </nav>
       <div class="topbar-actions">
+        <button type="button" class="topbar-command-trigger" title="全局搜索与命令 (Ctrl+K)" @click="commandCenterVisible = true">
+          <AIcon name="search" />
+          <span>搜索</span>
+          <kbd>Ctrl K</kbd>
+        </button>
         <button v-if="sidebarMode === 'hidden'" type="button" class="topbar-icon-button" title="展开左侧导航" @click="setSidebarMode('full')">
           <AIcon name="list" />
         </button>
-        <div v-if="authStore.isAuthenticated" class="topbar-user" :title="`当前登录用户：${userDisplayName}`">
-          <span class="topbar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
+        <router-link
+          v-if="authStore.isAuthenticated"
+          to="/settings"
+          class="topbar-user"
+          :title="`个人设置 · 当前登录用户：${userDisplayName}`"
+        >
+          <span class="topbar-user__avatar" aria-hidden="true">
+            <img v-if="userAvatarUrl" :src="userAvatarUrl" alt="" />
+            <span v-else>{{ userInitial }}</span>
+          </span>
           <span class="topbar-user__copy">
             <small>欢迎回来</small>
             <strong>{{ userDisplayName }}</strong>
           </span>
-        </div>
+        </router-link>
         <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="topbar-action-link">
           <AIcon name="setting" />
-          <span>设置</span>
+          <span>后台管理</span>
         </router-link>
         <button v-if="authStore.isAuthenticated" type="button" class="topbar-action-link" @click="logout">
           <AIcon name="rollback" />
@@ -103,6 +116,20 @@
       />
     </aside>
 
+    <WorkspaceTabBar
+      :tabs="workspaceState.tabs"
+      :active-tab-id="workspaceState.activeTabId"
+      :can-restore="workspaceState.recentlyClosed.length > 0"
+      @activate="activateTab"
+      @close="closeTab"
+      @close-others="closeOtherTabs"
+      @toggle-pin="toggleTabPin"
+      @restore="restoreClosedTab"
+      @reorder="reorderTab"
+      @back="navigateTabHistory(-1)"
+      @forward="navigateTabHistory(1)"
+    />
+
     <section class="system-main">
       <main class="system-content">
         <router-view />
@@ -116,20 +143,41 @@
       @pointermove="handleSidebarResize"
       @pointerup="stopSidebarResize"
     />
+
+    <GlobalCommandCenter
+      v-model:visible="commandCenterVisible"
+      @navigate="navigateFromCommandCenter"
+      @action="executeWorkspaceAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
 import { getSidebarNavOrder, setSystemSetting } from '@/api/system'
+import WorkspaceTabBar from '@/components/workspace/WorkspaceTabBar.vue'
+import GlobalCommandCenter from '@/components/workspace/GlobalCommandCenter.vue'
+import {
+  activateWorkspaceTab,
+  closeOtherWorkspaceTabs,
+  closeWorkspaceTab,
+  navigateWorkspaceHistory,
+  recordWorkspaceRoute,
+  reorderWorkspaceTab,
+  restoreLastClosedWorkspaceTab,
+  restoreWorkspaceState,
+  setWorkspaceTabPinned,
+  type WorkspaceRouteInput,
+} from '@/workspace/workspaceTabs'
 import brandLogo from '@/assets/jiqing-wordmark.svg'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+let unsubscribeDesktopWorkspaceCommand: (() => void) | null = null
 type SidebarMode = 'full' | 'icon' | 'hidden'
 type NavItem = {
   key: string
@@ -146,13 +194,19 @@ type NavItem = {
 const SIDEBAR_MODE_KEY = 'jiqing-sidebar-mode'
 const SIDEBAR_WIDTH_KEY = 'jiqing-sidebar-width'
 const SIDEBAR_ORDER_KEY = 'jiqing-sidebar-nav-order'
+const WORKSPACE_STORAGE_KEY = 'jiqing-desktop-workspace-v1'
 const sidebarMode = ref<SidebarMode>('full')
 const sidebarWidth = ref(240)
 const resizing = ref(false)
 const navOrder = ref<string[]>([])
 const draggedModulePath = ref('')
+const commandCenterVisible = ref(false)
+const workspaceState = ref(restoreWorkspaceState(
+  typeof window === 'undefined' ? null : window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY),
+))
 const userDisplayName = computed(() => authStore.displayName || authStore.username || '用户')
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || '用')
+const userAvatarUrl = computed(() => authStore.user?.avatarUrl || '')
 
 const shellStyle = computed(() => (
   sidebarMode.value === 'full'
@@ -177,6 +231,7 @@ const orderedMainNav = computed(() => {
 })
 const activeModule = computed(() => {
   if (route.path.startsWith('/admin')) return adminModule
+  if (route.path.startsWith('/settings')) return personalModule
   return orderedMainNav.value.find((item) => isTopNavActive(item.path)) || orderedMainNav.value[0]
 })
 const currentSideNav = computed(() => {
@@ -195,7 +250,8 @@ const activeSideNavKey = computed(() => {
   return currentSideNav.value.find((item) => !item.disabled)?.key || currentSideNav.value[0]?.key || ''
 })
 
-const adminModule: NavItem = { key: 'admin', path: '/admin/field-configs', label: '后台设置', icon: 'setting', badge: '管理', status: 'enabled' }
+const adminModule: NavItem = { key: 'admin', path: '/admin/field-configs', label: '后台管理', icon: 'setting', badge: '管理', status: 'enabled' }
+const personalModule: NavItem = { key: 'personal-settings', path: '/settings', label: '个人设置', icon: 'user', status: 'enabled' }
 const sideNavMap: Record<string, NavItem[]> = {
   '/': [
     { key: 'home-overview', path: '/', label: '数据总览', icon: 'dashboard', description: '查看系统核心指标和待办提醒' },
@@ -243,6 +299,12 @@ const sideNavMap: Record<string, NavItem[]> = {
     { key: 'admin-theme', path: '/admin/settings', label: '主题设置', icon: 'system-setting', description: '配置品牌、上传限制和系统参数' },
     { key: 'admin-users', path: '/admin/users', label: '用户管理', icon: 'usergroup', description: '维护用户账号、角色和权限' },
     { key: 'admin-logs', path: '/admin/operation-logs', label: '操作记录', icon: 'file-paste', description: '查看系统操作留痕' },
+  ],
+  '/settings': [
+    { key: 'settings-profile', path: '/settings', query: { section: 'profile' }, label: '个人资料', icon: 'user', description: '修改姓名、头像和工作信息' },
+    { key: 'settings-sync', path: '/settings', query: { section: 'sync' }, label: '文件同步', icon: 'folder', description: '设置 Windows 本机同步文件夹' },
+    { key: 'settings-security', path: '/settings', query: { section: 'security' }, label: '账号安全', icon: 'lock-on', description: '修改当前账号登录密码' },
+    { key: 'settings-about', path: '/settings', query: { section: 'about' }, label: '关于与更新', icon: 'info-circle', description: '查看客户端版本并检查更新' },
   ],
 }
 
@@ -298,6 +360,7 @@ function toggleSidebarMode() {
 }
 
 onMounted(async () => {
+  recordCurrentWorkspaceRoute()
   const saved = window.localStorage.getItem(SIDEBAR_MODE_KEY)
   if (saved === 'full' || saved === 'icon' || saved === 'hidden') {
     sidebarMode.value = saved
@@ -306,6 +369,11 @@ onMounted(async () => {
   if (savedWidth >= 216 && savedWidth <= 360) sidebarWidth.value = savedWidth
   const savedOrder = safeParseNavOrder(window.localStorage.getItem(SIDEBAR_ORDER_KEY))
   navOrder.value = savedOrder.length ? savedOrder : defaultNavOrder
+  window.addEventListener('keydown', handleWorkspaceKeyboard)
+  window.addEventListener('mouseup', handleWorkspaceMouseNavigation)
+  unsubscribeDesktopWorkspaceCommand = window.jiqingDesktop?.onWorkspaceCommand(
+    handleDesktopWorkspaceCommand,
+  ) || null
   await loadSidebarNavOrder()
 })
 
@@ -319,6 +387,15 @@ watch(sidebarWidth, (width) => {
 
 watch(navOrder, (order) => {
   window.localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(normalizeNavOrder(order)))
+}, { deep: true })
+
+watch(
+  () => route.fullPath,
+  () => recordCurrentWorkspaceRoute(),
+)
+
+watch(workspaceState, (state) => {
+  window.sessionStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(state))
 }, { deep: true })
 
 watch(() => authStore.isAuthenticated, (authenticated) => {
@@ -367,7 +444,13 @@ function startSidebarResize(event: PointerEvent) {
   window.addEventListener('dragstart', preventResizeSelection, true)
 }
 
-onBeforeUnmount(stopSidebarResize)
+onBeforeUnmount(() => {
+  stopSidebarResize()
+  window.removeEventListener('keydown', handleWorkspaceKeyboard)
+  window.removeEventListener('mouseup', handleWorkspaceMouseNavigation)
+  unsubscribeDesktopWorkspaceCommand?.()
+  unsubscribeDesktopWorkspaceCommand = null
+})
 
 function preventResizeSelection(event: Event) {
   if (!resizing.value) return
@@ -432,6 +515,122 @@ async function saveSidebarNavOrder() {
   }
 }
 
+function currentWorkspaceRoute(): WorkspaceRouteInput {
+  return {
+    path: route.path,
+    fullPath: route.fullPath,
+    query: route.query as Record<string, unknown>,
+    metaTitle: typeof route.meta.title === 'string' ? route.meta.title : '',
+  }
+}
+
+function recordCurrentWorkspaceRoute() {
+  workspaceState.value = recordWorkspaceRoute(workspaceState.value, currentWorkspaceRoute())
+}
+
+async function navigateToWorkspaceRoute(target: string) {
+  if (!target || target === route.fullPath) return
+  await router.push(target)
+}
+
+async function activateTab(tabId: string) {
+  const result = activateWorkspaceTab(workspaceState.value, tabId)
+  workspaceState.value = result.state
+  await navigateToWorkspaceRoute(result.route)
+}
+
+async function closeTab(tabId: string) {
+  const result = closeWorkspaceTab(workspaceState.value, tabId)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function closeOtherTabs(tabId: string) {
+  workspaceState.value = closeOtherWorkspaceTabs(workspaceState.value, tabId)
+}
+
+function toggleTabPin(tabId: string) {
+  const tab = workspaceState.value.tabs.find((item) => item.id === tabId)
+  if (!tab) return
+  workspaceState.value = setWorkspaceTabPinned(workspaceState.value, tabId, !tab.pinned)
+}
+
+async function restoreClosedTab() {
+  const result = restoreLastClosedWorkspaceTab(workspaceState.value)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function reorderTab(tabId: string, targetIndex: number) {
+  workspaceState.value = reorderWorkspaceTab(workspaceState.value, tabId, targetIndex)
+}
+
+async function navigateTabHistory(direction: -1 | 1) {
+  const result = navigateWorkspaceHistory(workspaceState.value, direction)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function handleWorkspaceKeyboard(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  const editing = Boolean(target?.closest('input, textarea, [contenteditable="true"]'))
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    commandCenterVisible.value = true
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 't') {
+    event.preventDefault()
+    restoreClosedTab()
+    return
+  }
+  if (editing || !event.altKey) return
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    navigateTabHistory(-1)
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    navigateTabHistory(1)
+  }
+}
+
+function handleWorkspaceMouseNavigation(event: MouseEvent) {
+  if (event.button === 3) navigateTabHistory(-1)
+  if (event.button === 4) navigateTabHistory(1)
+}
+
+function handleDesktopWorkspaceCommand(command: string) {
+  if (command === 'workspace:back') navigateTabHistory(-1)
+  if (command === 'workspace:forward') navigateTabHistory(1)
+  if (command === 'workspace:command-center') commandCenterVisible.value = true
+  if (command === 'workspace:restore-closed-tab') restoreClosedTab()
+}
+
+async function navigateFromCommandCenter(target: string) {
+  await navigateToWorkspaceRoute(target)
+}
+
+async function executeWorkspaceAction(action: string) {
+  if (action === 'desktop:open-sync-folder') {
+    if (!window.jiqingDesktop) {
+      MessagePlugin.info('请在 Windows 桌面客户端中打开本地同步目录')
+      return
+    }
+    try {
+      await window.jiqingDesktop.openSyncFolder()
+    } catch {
+      MessagePlugin.warning('尚未设置本地同步目录，请先到资料中心完成设置')
+    }
+    return
+  }
+
+  const targetPath = action === 'materials:upload' ? '/materials' : '/project-management'
+  if (route.path !== targetPath) await router.push(targetPath)
+  await nextTick()
+  window.dispatchEvent(new CustomEvent('jiqing-sidebar-action', { detail: { action } }))
+}
+
 async function logout() {
   await authStore.logout()
   MessagePlugin.success('已退出')
@@ -444,9 +643,10 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--sidebar-width, 240px) minmax(0, 1fr);
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: 58px 40px minmax(0, 1fr);
   grid-template-areas:
     "topbar topbar"
+    "sidebar tabs"
     "sidebar main";
   background: var(--bg-page);
   color: var(--text-primary);
@@ -460,6 +660,7 @@ async function logout() {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "topbar"
+    "tabs"
     "main";
 }
 
@@ -576,6 +777,41 @@ async function logout() {
   gap: 8px;
 }
 
+.topbar-command-trigger {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 11px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(128, 158, 210, 0.16);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.topbar-command-trigger:hover {
+  color: #0f43d6;
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(22, 93, 255, 0.18);
+}
+
+.topbar-command-trigger kbd {
+  min-width: 40px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  background: rgba(242, 246, 252, 0.9);
+  border: 1px solid rgba(128, 158, 210, 0.18);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 10px;
+}
+
 .topbar-user {
   position: relative;
   height: 42px;
@@ -594,6 +830,7 @@ async function logout() {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, .78) inset,
     0 10px 26px rgba(55, 92, 155, 0.1);
+  text-decoration: none;
 }
 
 .topbar-user::before {
@@ -611,6 +848,41 @@ async function logout() {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.topbar-user__avatar {
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #fff !important;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #165dff, #0f43d6);
+}
+
+.topbar-user__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.topbar-user__avatar > span {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topbar-user__copy {
+  min-width: 0;
+  display: grid;
+}
+
+.topbar-user__copy small {
+  color: #8490a6;
+  font-size: 10px;
+  line-height: 1.1;
 }
 
 .topbar-user strong {
@@ -1061,7 +1333,7 @@ async function logout() {
 .system-main {
   grid-area: main;
   min-width: 0;
-  min-height: calc(100vh - 58px);
+  min-height: calc(100vh - 98px);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }
@@ -1077,7 +1349,7 @@ async function logout() {
 @media (max-width: 900px) {
   .system-shell {
     grid-template-columns: 72px minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 40px minmax(0, 1fr);
   }
   .system-shell--hidden {
     grid-template-columns: minmax(0, 1fr);
@@ -1101,6 +1373,9 @@ async function logout() {
   .topbar-user strong { max-width: 96px; font-size: 12px; }
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
+  .topbar-command-trigger span,
+  .topbar-command-trigger kbd { display: none; }
+  .topbar-command-trigger { width: 34px; padding: 0; justify-content: center; }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
   .sidebar-module-heading strong,
   .sidebar-module-caret,
@@ -1120,13 +1395,21 @@ async function logout() {
 @media (max-width: 640px) {
   .system-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto 40px minmax(0, 1fr);
     grid-template-areas:
       "topbar"
       "sidebar"
+      "tabs"
       "main";
   }
-  .system-shell--hidden { grid-template-columns: minmax(0, 1fr); }
+  .system-shell--hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 40px minmax(0, 1fr);
+    grid-template-areas:
+      "topbar"
+      "tabs"
+      "main";
+  }
   .platform-topbar {
     position: sticky;
     grid-template-columns: 1fr auto;

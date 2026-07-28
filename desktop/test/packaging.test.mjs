@@ -36,6 +36,10 @@ test('Windows packaging is a branded per-user x64 NSIS installer', () => {
   assert.equal(config.nsis.deleteAppDataOnUninstall, false)
   assert.equal(config.beforePack, 'scripts/before-pack.mjs')
   assert.equal(config.afterPack, 'scripts/after-pack.mjs')
+  assert.deepEqual(config.publish, [{
+    provider: 'generic',
+    url: '${env.DESKTOP_UPDATE_URL}',
+  }])
 })
 
 test('NSIS packaging reuses the verified unpacked application', () => {
@@ -72,28 +76,22 @@ test('Windows build reuses the installed unpacked Electron runtime', () => {
     buildScript,
     /assertDescendant\([\s\S]*installedElectronDist[\s\S]*desktopRoot/,
   )
-  assert.match(buildScript, /mkdtempSync\(/)
+  assert.match(
+    buildScript,
+    /mkdtempSync\(\s*join\(temporaryRoot,\s*'b-'\)/,
+  )
+  assert.match(buildScript, /shortOutput = join\(shortBuildRoot, 'o'\)/)
+  assert.match(buildScript, /const MAX_BUILD_ATTEMPTS = 3/)
+  assert.match(buildScript, /attemptOutput = `\$\{shortOutput\}-\$\{attempt\}`/)
+  assert.match(buildScript, /setTimeout\(resolve, BUILD_RETRY_DELAY_MS\)/)
+  assert.doesNotMatch(buildScript, /mkdirSync\(shortOutput/)
   assert.match(buildScript, /temporaryRootPath = join\(desktopRoot, '\.tmp'\)/)
-  assert.match(
-    buildScript,
-    /trustedBuildParentPath = join\(temporaryRoot, 'windows-build'\)/,
-  )
-  assert.match(
-    buildScript,
-    /assertDescendant\([\s\S]*trustedBuildParent[\s\S]*desktopRoot/,
-  )
-  assert.ok(
-    buildScript.indexOf("'temporary build parent'")
-      < buildScript.indexOf('mkdtempSync('),
-    'the physical build-parent guard must run before creating a run directory',
-  )
-  assert.ok(
-    buildScript.indexOf("'temporary directory'")
-      < buildScript.indexOf('mkdirSync(trustedBuildParentPath'),
-    'the physical temporary-root guard must run before creating the build parent',
-  )
+  assert.doesNotMatch(buildScript, /windows-build/)
   assert.doesNotMatch(buildScript, /homedir\(/)
   assert.doesNotMatch(buildScript, /process\.env\.PUBLIC/)
+  assert.match(buildScript, /DESKTOP_UPDATE_URL/)
+  assert.match(buildScript, /desktop-updates/)
+  assert.match(buildScript, /writePackagedUpdateConfig/)
 })
 
 test('desktop package exposes reproducible smoke and verification commands', () => {
@@ -107,6 +105,10 @@ test('desktop package exposes reproducible smoke and verification commands', () 
   assert.match(
     packageJson.scripts['dist:production'],
     /build-windows\.mjs production/,
+  )
+  assert.equal(
+    packageJson.scripts['stage:update'],
+    'node scripts/stage-update-feed.mjs',
   )
 })
 
@@ -139,7 +141,7 @@ test('packaging hardens every Electron V1 fuse', () => {
     HARDENED_FUSE_CONFIG[
       FuseV1Options.LoadBrowserProcessSpecificV8Snapshot
     ],
-    true,
+    false,
   )
   assert.equal(
     HARDENED_FUSE_CONFIG[

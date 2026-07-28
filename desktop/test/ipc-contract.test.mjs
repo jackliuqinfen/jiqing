@@ -19,7 +19,7 @@ function validStartRequest(overrides = {}) {
   }
 }
 
-test('desktop IPC contract contains exactly six requests and one state event', () => {
+test('desktop IPC contract contains bounded sync, update, and workspace channels', () => {
   assert.deepEqual(DESKTOP_IPC_CHANNELS, {
     getCapabilities: 'desktop:get-capabilities',
     selectSyncFolder: 'desktop:select-sync-folder',
@@ -27,7 +27,12 @@ test('desktop IPC contract contains exactly six requests and one state event', (
     startSync: 'desktop:start-sync',
     pauseSync: 'desktop:pause-sync',
     openSyncFolder: 'desktop:open-sync-folder',
+    getUpdateState: 'desktop:get-update-state',
+    checkForUpdates: 'desktop:check-for-updates',
+    installUpdate: 'desktop:install-update',
     syncState: 'desktop:sync-state',
+    updateState: 'desktop:update-state',
+    workspaceCommand: 'desktop:workspace-command',
   })
 })
 
@@ -178,7 +183,7 @@ test('every request handler rejects an untrusted sender before side effects', as
     },
   })
 
-  assert.equal(harness.handlers.size, 6)
+  assert.equal(harness.handlers.size, 9)
   for (const [channel, handler] of harness.handlers) {
     const args = channel === DESKTOP_IPC_CHANNELS.startSync
       ? [validStartRequest()]
@@ -191,6 +196,54 @@ test('every request handler rejects an untrusted sender before side effects', as
   }
   assert.equal(selected, 0)
   assert.equal(opened, 0)
+})
+
+test('trusted update handlers expose state and delegate user actions', async () => {
+  const harness = createIpcHarness()
+  const calls = []
+  const updateState = {
+    status: 'idle',
+    currentVersion: '1.0.3',
+    availableVersion: '',
+    progressPercent: 0,
+    canCheck: true,
+    canInstall: false,
+    lastCheckedAt: '',
+    message: '可检查是否有新的客户端版本',
+  }
+  registerDesktopIpcHandlers({
+    ipcMain: harness.ipcMain,
+    allowedOrigin: TRUSTED_ORIGIN,
+    appVersion: '1.0.3',
+    releaseChannel: 'internal-test',
+    controller: createDesktopIpcController(),
+    updateController: {
+      getState: () => updateState,
+      async check() {
+        calls.push('check')
+        return { ...updateState, status: 'checking', canCheck: false }
+      },
+      install() {
+        calls.push('install')
+      },
+    },
+    async selectFolder() {
+      return ''
+    },
+    async openFolder() {},
+  })
+  const event = { senderFrame: { url: `${TRUSTED_ORIGIN}/#/settings` } }
+
+  assert.deepEqual(
+    await harness.handlers.get(DESKTOP_IPC_CHANNELS.getUpdateState)(event),
+    updateState,
+  )
+  assert.equal(
+    (await harness.handlers.get(DESKTOP_IPC_CHANNELS.checkForUpdates)(event)).status,
+    'checking',
+  )
+  await harness.handlers.get(DESKTOP_IPC_CHANNELS.installUpdate)(event)
+  assert.deepEqual(calls, ['check', 'install'])
 })
 
 test('trusted handlers reject unexpected arguments and expose real capability metadata', async () => {

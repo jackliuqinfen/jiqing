@@ -9,6 +9,7 @@ import {
 
 import {
   assertHardenedFuseWire,
+  validatePackagedUpdateConfiguration,
   validatePackagedReleaseProfile,
 } from '../scripts/verify-packaged-app.mjs'
 
@@ -21,7 +22,7 @@ function hardenedWire() {
     [FuseV1Options.EnableNodeCliInspectArguments]: FuseState.DISABLE,
     [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: FuseState.ENABLE,
     [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.ENABLE,
-    [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: FuseState.ENABLE,
+    [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: FuseState.DISABLE,
     [FuseV1Options.GrantFileProtocolExtraPrivileges]: FuseState.DISABLE,
     [FuseV1Options.WasmTrapHandlers]: FuseState.ENABLE,
   }
@@ -57,5 +58,32 @@ test('packaged app verifier accepts an exact expected embedded profile', () => {
       expectedOrigin: 'https://erp.example.cn',
     }),
     /release channel/,
+  )
+})
+
+test('packaged updater must use the channel-specific trusted server feed', () => {
+  assert.deepEqual(
+    validatePackagedUpdateConfiguration({
+      provider: 'generic',
+      url: 'http://121.4.36.112:8088/desktop-updates/internal-test',
+    }, {
+      expectedChannel: 'internal-test',
+      expectedOrigin: 'http://121.4.36.112:8088',
+    }),
+    {
+      provider: 'generic',
+      url: 'http://121.4.36.112:8088/desktop-updates/internal-test',
+    },
+  )
+
+  assert.throws(
+    () => validatePackagedUpdateConfiguration({
+      provider: 'generic',
+      url: 'https://untrusted.example/desktop-updates/internal-test',
+    }, {
+      expectedChannel: 'internal-test',
+      expectedOrigin: 'http://121.4.36.112:8088',
+    }),
+    /update feed/,
   )
 })

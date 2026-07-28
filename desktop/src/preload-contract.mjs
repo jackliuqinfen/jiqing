@@ -23,6 +23,32 @@ const STATE_KEYS = Object.freeze([
   'totalFiles',
 ])
 const PROJECT_REF_PATTERN = /^(project|audit):[A-Za-z0-9-]+$/
+const WORKSPACE_COMMANDS = new Set([
+  'workspace:back',
+  'workspace:forward',
+  'workspace:command-center',
+  'workspace:restore-closed-tab',
+])
+const UPDATE_STATUSES = new Set([
+  'unavailable',
+  'idle',
+  'checking',
+  'available',
+  'downloading',
+  'downloaded',
+  'up_to_date',
+  'error',
+])
+const UPDATE_STATE_KEYS = Object.freeze([
+  'availableVersion',
+  'canCheck',
+  'canInstall',
+  'currentVersion',
+  'lastCheckedAt',
+  'message',
+  'progressPercent',
+  'status',
+])
 
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -92,6 +118,39 @@ export function validateDesktopSyncState(value) {
   })
 }
 
+export function validateWorkspaceCommand(value) {
+  return typeof value === 'string' && WORKSPACE_COMMANDS.has(value)
+    ? value
+    : null
+}
+
+export function validateDesktopUpdateState(value) {
+  if (!isPlainObject(value)) return null
+  const keys = Object.keys(value).sort()
+  if (
+    keys.length !== UPDATE_STATE_KEYS.length
+    || !keys.every((key, index) => key === UPDATE_STATE_KEYS[index])
+    || !UPDATE_STATUSES.has(value.status)
+    || typeof value.currentVersion !== 'string'
+    || value.currentVersion.length < 1
+    || value.currentVersion.length > 64
+    || typeof value.availableVersion !== 'string'
+    || value.availableVersion.length > 64
+    || !Number.isInteger(value.progressPercent)
+    || value.progressPercent < 0
+    || value.progressPercent > 100
+    || typeof value.canCheck !== 'boolean'
+    || typeof value.canInstall !== 'boolean'
+    || typeof value.lastCheckedAt !== 'string'
+    || value.lastCheckedAt.length > 64
+    || typeof value.message !== 'string'
+    || value.message.length > 1024
+  ) {
+    return null
+  }
+  return Object.freeze({ ...value })
+}
+
 export function createDesktopBridge(
   ipc,
   channels = DESKTOP_IPC_CHANNELS,
@@ -116,6 +175,9 @@ export function createDesktopBridge(
     startSync: (request) => invoke(channels.startSync, request),
     pauseSync: () => invoke(channels.pauseSync),
     openSyncFolder: () => invokeUserAction(channels.openSyncFolder),
+    getUpdateState: () => invoke(channels.getUpdateState),
+    checkForUpdates: () => invokeUserAction(channels.checkForUpdates),
+    installUpdate: () => invokeUserAction(channels.installUpdate),
     onSyncState(listener) {
       if (typeof listener !== 'function') {
         throw new TypeError('sync state listener must be a function')
@@ -127,6 +189,32 @@ export function createDesktopBridge(
       ipc.on(channels.syncState, guardedListener)
       return () => {
         ipc.removeListener(channels.syncState, guardedListener)
+      }
+    },
+    onWorkspaceCommand(listener) {
+      if (typeof listener !== 'function') {
+        throw new TypeError('workspace command listener must be a function')
+      }
+      const guardedListener = (_event, payload) => {
+        const command = validateWorkspaceCommand(payload)
+        if (command) listener(command)
+      }
+      ipc.on(channels.workspaceCommand, guardedListener)
+      return () => {
+        ipc.removeListener(channels.workspaceCommand, guardedListener)
+      }
+    },
+    onUpdateState(listener) {
+      if (typeof listener !== 'function') {
+        throw new TypeError('update state listener must be a function')
+      }
+      const guardedListener = (_event, payload) => {
+        const state = validateDesktopUpdateState(payload)
+        if (state) listener(state)
+      }
+      ipc.on(channels.updateState, guardedListener)
+      return () => {
+        ipc.removeListener(channels.updateState, guardedListener)
       }
     },
   })

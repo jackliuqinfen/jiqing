@@ -82,6 +82,17 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'settings',
+        name: 'PersonalSettings',
+        component: () => import('@/views/PersonalSettingsView.vue'),
+        meta: {
+          title: '个人设置',
+          subtitle: '个人资料 · 本机同步目录 · 账号安全',
+          icon: 'user',
+          description: '管理当前登录用户的个人资料、头像、Windows 本机资料同步位置和登录密码。',
+        },
+      },
+      {
         path: 'admin',
         component: () => import('@/views/admin/AdminLayout.vue'),
         meta: { requiresAuth: true, requiresAdmin: true },

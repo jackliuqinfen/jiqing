@@ -37,9 +37,9 @@ test('icon build emits the required square PNG sizes and splash artwork', async 
   assert.equal(splash.height, 512)
 })
 
-test('icon output is non-empty and records the exact enterprise SVG source', async () => {
+test('icon output is non-empty and records the exact approved app icon source', async () => {
   const sourceUrl = new URL(
-    '../../public/aoqiang-construction-logo.svg',
+    '../assets/app-icon-source.png',
     import.meta.url,
   )
   const manifestUrl = new URL('../assets/icon-manifest.json', import.meta.url)
@@ -50,7 +50,7 @@ test('icon output is non-empty and records the exact enterprise SVG source', asy
     .digest('hex')
   const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8'))
   assert.equal(manifest.schemaVersion, 1)
-  assert.equal(manifest.source, 'public/aoqiang-construction-logo.svg')
+  assert.equal(manifest.source, 'desktop/assets/app-icon-source.png')
   assert.equal(manifest.sourceSha256, sourceSha256)
 
   const { data, info } = await sharp(

@@ -7,6 +7,7 @@ import {
 } from '@electron/fuses'
 import {
   existsSync,
+  readFileSync,
   statSync,
 } from 'node:fs'
 import { resolve } from 'node:path'
@@ -14,6 +15,7 @@ import {
   fileURLToPath,
   pathToFileURL,
 } from 'node:url'
+import yaml from 'js-yaml'
 
 import { validateEmbeddedReleaseProfile } from '../src/config.mjs'
 
@@ -24,7 +26,7 @@ const EXPECTED_FUSE_STATES = Object.freeze({
   [FuseV1Options.EnableNodeCliInspectArguments]: FuseState.DISABLE,
   [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: FuseState.ENABLE,
   [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.ENABLE,
-  [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: FuseState.ENABLE,
+  [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: FuseState.DISABLE,
   [FuseV1Options.GrantFileProtocolExtraPrivileges]: FuseState.DISABLE,
   [FuseV1Options.WasmTrapHandlers]: FuseState.ENABLE,
 })
@@ -69,6 +71,26 @@ export function readPackagedReleaseProfile(asarPath) {
   }
 }
 
+export function validatePackagedUpdateConfiguration(
+  value,
+  { expectedChannel, expectedOrigin },
+) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('packaged update configuration is invalid')
+  }
+  const expectedUrl = new URL(
+    `/desktop-updates/${expectedChannel}`,
+    expectedOrigin,
+  ).href.replace(/\/$/, '')
+  if (value.provider !== 'generic' || value.url !== expectedUrl) {
+    throw new Error('packaged update feed does not match the trusted server')
+  }
+  return Object.freeze({
+    provider: value.provider,
+    url: value.url,
+  })
+}
+
 export async function inspectPackagedApp({
   appDirectory,
   expectedChannel,
@@ -77,7 +99,12 @@ export async function inspectPackagedApp({
   const applicationPath = resolve(appDirectory)
   const executablePath = resolve(applicationPath, 'JiqingERP.exe')
   const asarPath = resolve(applicationPath, 'resources', 'app.asar')
-  for (const path of [executablePath, asarPath]) {
+  const updateConfigurationPath = resolve(
+    applicationPath,
+    'resources',
+    'app-update.yml',
+  )
+  for (const path of [executablePath, asarPath, updateConfigurationPath]) {
     if (!existsSync(path) || !statSync(path).isFile()) {
       throw new Error(`packaged artifact is missing: ${path}`)
     }
@@ -89,6 +116,10 @@ export async function inspectPackagedApp({
     readPackagedReleaseProfile(asarPath),
     { expectedChannel, expectedOrigin },
   )
+  const updateConfiguration = validatePackagedUpdateConfiguration(
+    yaml.load(readFileSync(updateConfigurationPath, 'utf8')),
+    { expectedChannel, expectedOrigin },
+  )
 
   return Object.freeze({
     applicationPath,
@@ -97,6 +128,7 @@ export async function inspectPackagedApp({
     executablePath,
     executableBytes: statSync(executablePath).size,
     profile,
+    updateConfiguration,
   })
 }
 

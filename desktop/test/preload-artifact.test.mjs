@@ -82,9 +82,14 @@ test('main loads a sandbox-compatible single-file CommonJS preload artifact', ()
   assert.deepEqual(
     Array.from(Object.keys(exposedBridge).sort()),
     [
+      'checkForUpdates',
       'getCapabilities',
       'getSyncState',
+      'getUpdateState',
+      'installUpdate',
       'onSyncState',
+      'onUpdateState',
+      'onWorkspaceCommand',
       'openSyncFolder',
       'pauseSync',
       'selectSyncFolder',
@@ -103,6 +108,9 @@ test('main loads a sandbox-compatible single-file CommonJS preload artifact', ()
     }),
     exposedBridge.pauseSync(),
     exposedBridge.openSyncFolder(),
+    exposedBridge.getUpdateState(),
+    exposedBridge.checkForUpdates(),
+    exposedBridge.installUpdate(),
   ]).then(() => {
     assert.deepEqual(
       Array.from(invocations, ([channel]) => channel),
@@ -113,6 +121,9 @@ test('main loads a sandbox-compatible single-file CommonJS preload artifact', ()
         'desktop:start-sync',
         'desktop:pause-sync',
         'desktop:open-sync-folder',
+        'desktop:get-update-state',
+        'desktop:check-for-updates',
+        'desktop:install-update',
       ],
     )
 
@@ -125,5 +136,39 @@ test('main loads a sandbox-compatible single-file CommonJS preload artifact', ()
     assert.equal(received.length, 1)
     cleanup()
     assert.equal(listeners.has('desktop:sync-state'), false)
+
+    const commands = []
+    const commandCleanup = exposedBridge.onWorkspaceCommand(
+      (command) => commands.push(command),
+    )
+    const commandListener = listeners.get('desktop:workspace-command')
+    assert.equal(typeof commandListener, 'function')
+    commandListener({}, 'workspace:back')
+    commandListener({}, 'workspace:open-url')
+    assert.deepEqual(commands, ['workspace:back'])
+    commandCleanup()
+    assert.equal(listeners.has('desktop:workspace-command'), false)
+
+    const updates = []
+    const updateCleanup = exposedBridge.onUpdateState(
+      (state) => updates.push(state),
+    )
+    const updateListener = listeners.get('desktop:update-state')
+    assert.equal(typeof updateListener, 'function')
+    const validUpdate = {
+      status: 'idle',
+      currentVersion: '1.0.3',
+      availableVersion: '',
+      progressPercent: 0,
+      canCheck: true,
+      canInstall: false,
+      lastCheckedAt: '',
+      message: '可检查是否有新的客户端版本',
+    }
+    updateListener({}, validUpdate)
+    updateListener({}, { ...validUpdate, progressPercent: 101 })
+    assert.equal(updates.length, 1)
+    updateCleanup()
+    assert.equal(listeners.has('desktop:update-state'), false)
   })
 })

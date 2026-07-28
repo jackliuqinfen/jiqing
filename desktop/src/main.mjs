@@ -5,11 +5,13 @@ import {
   ipcMain,
   Menu,
   net,
+  Notification,
   protocol,
   screen,
   session,
   shell,
 } from 'electron'
+import electronUpdater from 'electron-updater'
 import {
   existsSync,
   mkdirSync,
@@ -20,7 +22,10 @@ import {
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { registerAppProtocol } from './app-protocol.mjs'
+import {
+  registerAppProtocol,
+  resolveAppPage,
+} from './app-protocol.mjs'
 import {
   loadDesktopConfig,
   readEmbeddedReleaseProfile,
@@ -40,6 +45,11 @@ import {
   isReviewedExternalUrl,
   normalizeWindowBounds,
 } from './security.mjs'
+import {
+  closeEnterpriseSplashWindow,
+  createEnterpriseSplashWindow,
+  SPLASH_PARTITION,
+} from './splash-window.mjs'
 import { DesktopApiClient } from './sync/api-client.mjs'
 import { SyncEngine } from './sync/sync-engine.mjs'
 import { pathsOverlap } from './sync/path-policy.mjs'
@@ -47,9 +57,26 @@ import {
   desktopWindowTitle,
   installEnvironmentTitleGuard,
 } from './window-title.mjs'
+import {
+  createIntegratedTitleBarOptions,
+  hasLiveWindowWebContents,
+  INTEGRATED_TITLE_BAR_CSS,
+} from './window-chrome.mjs'
+import {
+  createWindowsMenuTemplate,
+  syncPresentation,
+} from './windows-integration.mjs'
+import {
+  readDesktopPreferences,
+  writeDesktopPreferences,
+} from './desktop-preferences.mjs'
+import { createDesktopUpdateController } from './update-controller.mjs'
+
+const { autoUpdater } = electronUpdater
 
 const moduleRoot = fileURLToPath(new URL('.', import.meta.url))
 const uiRoot = join(moduleRoot, '..', 'ui')
+const assetsRoot = join(moduleRoot, '..', 'assets')
 const unpackagedSmoke = (
   !app.isPackaged
   && process.env.DESKTOP_UNPACKAGED_SMOKE === '1'
@@ -76,9 +103,13 @@ const config = loadDesktopConfig({
 const sessionPartition = 'desktop-erp-memory'
 const applicationDirectory = dirname(process.execPath)
 let desktopIpcController = null
+let desktopUpdateController = null
 let mainWindow = null
+let splashWindow = null
 let desktopIpcRegistered = false
 let smokeCompleted = false
+let lastMenuStateKey = ''
+let lastSyncStatus = ''
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -228,6 +259,12 @@ async function selectDesktopSyncFolder() {
     }
     return ''
   }
+  try {
+    writeDesktopPreferences(app.getPath('userData'), { localRoot: selected })
+  } catch {
+    // A selected folder remains usable for this session even if preferences
+    // cannot be persisted because of an operating-system permission issue.
+  }
   return selected
 }
 
@@ -236,10 +273,122 @@ async function openDesktopSyncFolder(localRoot) {
   if (errorMessage) throw new Error('unable to open sync folder')
 }
 
-function emitDesktopSyncState(state) {
+function navigateDesktopModule(path, query = '') {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  if (!isAllowedNavigation(mainWindow.webContents.getURL(), config.origin)) return
-  mainWindow.webContents.send(DESKTOP_IPC_CHANNELS.syncState, state)
+  const target = new URL(config.origin)
+  target.hash = `${path}${query}`
+  void mainWindow.loadURL(target.href).catch(() => {})
+}
+
+function emitWorkspaceCommand(command) {
+  const window = mainWindow
+  if (!hasLiveWindowWebContents(window)) return
+  if (!isAllowedNavigation(window.webContents.getURL(), config.origin)) return
+  window.webContents.send(DESKTOP_IPC_CHANNELS.workspaceCommand, command)
+}
+
+async function chooseSyncFolderFromMenu() {
+  if (!desktopIpcController) return
+  const selected = await selectDesktopSyncFolder()
+  if (!selected) return
+  emitDesktopSyncState(desktopIpcController.setLocalRoot(selected))
+}
+
+async function openSyncFolderFromMenu() {
+  const localRoot = desktopIpcController?.getState().localRoot
+  if (!localRoot) return
+  await openDesktopSyncFolder(localRoot)
+}
+
+async function pauseSyncFromMenu() {
+  if (!desktopIpcController) return
+  emitDesktopSyncState(await desktopIpcController.pause())
+}
+
+async function showDesktopAbout() {
+  const options = {
+    type: 'info',
+    title: '关于集庆工程管理',
+    message: '集庆工程管理',
+    detail: [
+      `版本 ${app.getVersion()}`,
+      `发布通道：${config.releaseChannel}`,
+      '项目、资料、审计与结算一体化 Windows 工作台',
+    ].join('\n'),
+    buttons: ['确定'],
+    defaultId: 0,
+    noLink: true,
+    icon: join(assetsRoot, 'icon.ico'),
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await dialog.showMessageBox(mainWindow, options)
+  } else {
+    await dialog.showMessageBox(options)
+  }
+}
+
+function installWindowsApplicationMenu(force = false) {
+  if (!desktopIpcController || !mainWindow || mainWindow.isDestroyed()) return
+  const state = desktopIpcController.getState()
+  const stateKey = `${state.status}:${state.localRoot ? 'folder' : 'none'}`
+  if (!force && stateKey === lastMenuStateKey) return
+  lastMenuStateKey = stateKey
+  const template = createWindowsMenuTemplate({
+    state,
+    actions: {
+      navigate: (path) => navigateDesktopModule(path),
+      dispatchWorkspaceCommand: (command) => emitWorkspaceCommand(command),
+      openSyncSettings: () => navigateDesktopModule(
+        '/materials',
+        `?desktopSync=${Date.now()}`,
+      ),
+      selectSyncFolder: () => void chooseSyncFolderFromMenu(),
+      openSyncFolder: () => void openSyncFolderFromMenu(),
+      pauseSync: () => void pauseSyncFromMenu(),
+      showAbout: () => void showDesktopAbout(),
+    },
+  })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  mainWindow.setMenuBarVisibility(true)
+}
+
+function applyWindowsSyncFeedback(state) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const presentation = syncPresentation(state, lastSyncStatus)
+  lastSyncStatus = state.status
+  mainWindow.setProgressBar(
+    presentation.progress,
+    presentation.progressMode === 'none'
+      ? undefined
+      : { mode: presentation.progressMode },
+  )
+  if (
+    presentation.notification
+    && !unpackagedSmoke
+    && Notification.isSupported()
+  ) {
+    new Notification({
+      ...presentation.notification,
+      icon: join(assetsRoot, 'icon.ico'),
+      silent: true,
+    }).show()
+  }
+  installWindowsApplicationMenu()
+}
+
+function emitDesktopSyncState(state) {
+  const window = mainWindow
+  if (!hasLiveWindowWebContents(window)) return
+  applyWindowsSyncFeedback(state)
+  if (!isAllowedNavigation(window.webContents.getURL(), config.origin)) return
+  window.webContents.send(DESKTOP_IPC_CHANNELS.syncState, state)
+}
+
+function emitDesktopUpdateState(state) {
+  const window = mainWindow
+  if (!hasLiveWindowWebContents(window)) return
+  if (!isAllowedNavigation(window.webContents.getURL(), config.origin)) return
+  window.webContents.send(DESKTOP_IPC_CHANNELS.updateState, state)
 }
 
 function registerDesktopBridge() {
@@ -253,6 +402,7 @@ function registerDesktopBridge() {
     appVersion: app.getVersion(),
     releaseChannel: config.releaseChannel,
     controller: desktopIpcController,
+    updateController: desktopUpdateController,
     selectFolder: selectDesktopSyncFolder,
     openFolder: openDesktopSyncFolder,
     emitState: emitDesktopSyncState,
@@ -280,7 +430,12 @@ function protectWebContents(window) {
   )
 
   const guardNavigation = (event, target) => {
-    if (isAllowedNavigation(target, config.origin)) return
+    if (
+      isAllowedNavigation(target, config.origin)
+      || resolveAppPage(target, uiRoot)
+    ) {
+      return
+    }
     event.preventDefault()
     for (const listener of navigationBlockedListeners) listener(target)
     openReviewedExternalUrl(target)
@@ -348,9 +503,11 @@ async function createMainWindow() {
       : {}),
     minWidth: 1100,
     minHeight: 720,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
+    backgroundColor: '#F8FBFF',
     show: false,
     title: windowTitle,
+    ...createIntegratedTitleBarOptions(),
     icon: join(app.getAppPath(), 'assets', 'icon.ico'),
     webPreferences,
   })
@@ -396,9 +553,13 @@ async function createMainWindow() {
     window,
     environmentLabel: config.environmentLabel,
   })
-  window.once('ready-to-show', () => window.show())
   window.on('close', () => saveWindowBounds(window))
+  window.on('app-command', (_event, command) => {
+    if (command === 'browser-backward') emitWorkspaceCommand('workspace:back')
+    if (command === 'browser-forward') emitWorkspaceCommand('workspace:forward')
+  })
   window.webContents.once('destroyed', () => {
+    if (mainWindow === window) mainWindow = null
     if (desktopIpcController) desktopIpcController.clearSession()
   })
   window.on('closed', () => {
@@ -419,6 +580,10 @@ async function createMainWindow() {
         : { message: String(error), name: 'UnknownError' }
     },
   )
+  await window.webContents.insertCSS(INTEGRATED_TITLE_BAR_CSS)
+  window.webContents.on('did-finish-load', () => {
+    void window.webContents.insertCSS(INTEGRATED_TITLE_BAR_CSS)
+  })
   window.webContents.removeListener(
     'did-fail-load',
     captureSmokeLoadFailure,
@@ -485,13 +650,27 @@ if (!ownsSingleInstance) {
   })
 
   app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null)
+    app.setAppUserModelId('com.jiqing.erp')
     const desktopSession = session.fromPartition(sessionPartition)
     registerAppProtocol(
       desktopSession.protocol,
       net,
       uiRoot,
+      assetsRoot,
     )
+    if (!unpackagedSmoke) {
+      const splashSession = session.fromPartition(SPLASH_PARTITION)
+      registerAppProtocol(
+        splashSession.protocol,
+        net,
+        uiRoot,
+        assetsRoot,
+      )
+      splashWindow = await createEnterpriseSplashWindow({
+        BrowserWindow,
+        iconPath: join(assetsRoot, 'icon.ico'),
+      })
+    }
     const apiClient = new DesktopApiClient({
       origin: config.origin,
       fetchImpl: net.fetch,
@@ -504,8 +683,34 @@ if (!ownsSingleInstance) {
       installationDirectory: applicationDirectory,
     })
     desktopIpcController = createDesktopIpcController({ syncEngine })
+    desktopUpdateController = createDesktopUpdateController({
+      currentVersion: app.getVersion(),
+      enabled: (
+        app.isPackaged
+        && process.platform === 'win32'
+        && config.releaseChannel !== 'development'
+      ),
+      updater: autoUpdater,
+      emitState: emitDesktopUpdateState,
+    })
+    const preferences = readDesktopPreferences(app.getPath('userData'))
+    if (preferences.localRoot) {
+      try {
+        assertSafeSyncRoot(preferences.localRoot)
+        desktopIpcController.setLocalRoot(preferences.localRoot)
+      } catch {
+        // Ignore a stale or newly unsafe path and let the user select again.
+      }
+    }
     registerDesktopBridge()
     mainWindow = await createMainWindow()
+    installWindowsApplicationMenu(true)
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+    closeEnterpriseSplashWindow(splashWindow)
+    splashWindow = null
     if (unpackagedSmoke && smokeCase === 'second-instance-primary') {
       markSmokeReady()
     }
@@ -514,6 +719,9 @@ if (!ownsSingleInstance) {
       if (!mainWindow) mainWindow = await createMainWindow()
     })
   }).catch((error) => {
+    closeEnterpriseSplashWindow(splashWindow)
+    splashWindow = null
+    console.error('desktop startup failed', error)
     if (unpackagedSmoke) {
       completeSmoke({
         runtimeError: error instanceof Error ? error.message : 'unknown error',

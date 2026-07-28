@@ -53,6 +53,7 @@ server/*.db
 
 # Optional npm cache directory
 .npm
+desktop/.npm-cache/
 
 # Optional eslint cache
 .eslintcache

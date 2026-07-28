@@ -150,6 +150,10 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
   }
 
+  function setCurrentUserProfile(profile: UserProfile) {
+    user.value = profile
+  }
+
   return {
     // state
     user,
@@ -173,5 +177,6 @@ export const useAuthStore = defineStore('auth', () => {
     fetchSystemSettings,
     checkRegistrationOpen,
     clearError,
+    setCurrentUserProfile,
   }
 })

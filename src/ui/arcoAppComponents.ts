@@ -25,6 +25,7 @@ import {
 } from '@arco-design/web-vue'
 import {
   IconApps,
+  IconCalendar,
   IconCheck,
   IconCheckCircle,
   IconCheckSquare,
@@ -40,13 +41,16 @@ import {
   IconImage,
   IconInfoCircle,
   IconList,
+  IconLeft,
   IconLock,
   IconMenuFold,
   IconMenuUnfold,
   IconPhone,
   IconPlayCircle,
   IconPlus,
+  IconPushpin,
   IconRefresh,
+  IconRight,
   IconSearch,
   IconSettings,
   IconTag,
@@ -66,6 +70,7 @@ export interface AppFormInstance {
 
 const iconMap: Record<string, Component> = {
   add: IconPlus,
+  calendar: IconCalendar,
   call: IconPhone,
   check: IconCheck,
   'check-circle': IconCheckCircle,
@@ -85,10 +90,13 @@ const iconMap: Record<string, Component> = {
   'info-circle': IconInfoCircle,
   layers: IconApps,
   list: IconList,
+  'chevron-left': IconLeft,
+  'chevron-right': IconRight,
   'lock-on': IconLock,
   'menu-fold': IconMenuFold,
   'menu-unfold': IconMenuUnfold,
   'play-circle': IconPlayCircle,
+  pin: IconPushpin,
   refresh: IconRefresh,
   rollback: IconUndo,
   search: IconSearch,
@@ -467,5 +475,4 @@ export function installArcoAppComponents(app: App) {
     app.component(name, component)
   })
 }
-
 

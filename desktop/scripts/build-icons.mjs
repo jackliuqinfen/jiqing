@@ -15,7 +15,7 @@ import sharp from 'sharp'
 
 const desktopRoot = fileURLToPath(new URL('..', import.meta.url))
 const sourcePath = fileURLToPath(
-  new URL('../../public/aoqiang-construction-logo.svg', import.meta.url),
+  new URL('../assets/app-icon-source.png', import.meta.url),
 )
 const assetsPath = join(desktopRoot, 'assets')
 const generatedPath = join(assetsPath, 'generated')
@@ -49,9 +49,9 @@ async function squareLogo(source, size) {
 
 export async function buildIcons() {
   mkdirSync(generatedPath, { recursive: true })
-  const sourceSvg = readFileSync(sourcePath)
-  const trimmedLogo = await sharp(sourceSvg, { density: 768 })
-    .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  const sourceArtwork = readFileSync(sourcePath)
+  const trimmedLogo = await sharp(sourceArtwork)
+    .trim()
     .png()
     .toBuffer()
 
@@ -72,8 +72,8 @@ export async function buildIcons() {
     manifestPath,
     `${JSON.stringify({
       schemaVersion: 1,
-      source: 'public/aoqiang-construction-logo.svg',
-      sourceSha256: createHash('sha256').update(sourceSvg).digest('hex'),
+      source: 'desktop/assets/app-icon-source.png',
+      sourceSha256: createHash('sha256').update(sourceArtwork).digest('hex'),
     }, null, 2)}\n`,
     'utf8',
   )

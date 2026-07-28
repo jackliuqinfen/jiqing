@@ -148,6 +148,7 @@
             :loading="loading"
             :bordered="true"
             hover
+            @row-contextmenu="openFileContextMenu"
           >
           <template #file="{ row }">
             <div class="file-cell">
@@ -251,12 +252,21 @@
       v-if="isDesktop"
       v-model:visible="syncDialogVisible"
     />
+
+    <ObjectContextMenu
+      v-model:visible="fileContextMenu.visible"
+      :x="fileContextMenu.x"
+      :y="fileContextMenu.y"
+      :items="fileContextMenuItems"
+      @select="handleFileContextAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import type { TableData } from '@arco-design/web-vue'
 import {
   fetchAttachmentDownloadBlob,
   fetchAttachmentPreviewBlob,
@@ -275,10 +285,13 @@ import { auditStageOptions } from '@/utils/businessDictionaries'
 import DesktopSyncDialog from '@/components/desktop/DesktopSyncDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
+import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { useDesktopClient } from '@/composables/useDesktopClient'
 
 const route = useRoute()
+const router = useRouter()
 const { isDesktop } = useDesktopClient()
+const MATERIALS_WORKSPACE_STATE_KEY = 'materials-workspace-state-v1'
 const tableColumns = [
   { colKey: 'file', title: '文件', width: 320 },
   { colKey: 'project', title: '项目名称' },
@@ -316,6 +329,7 @@ const selectedStage = ref('')
 const uploader = ref('')
 const uploadInputRef = ref<HTMLInputElement | null>(null)
 const syncDialogVisible = ref(false)
+const restoringWorkspace = ref(false)
 
 const uploadDialog = reactive({
   visible: false,
@@ -335,6 +349,13 @@ const preview = reactive({
   url: '',
   text: '',
   error: '',
+})
+
+const fileContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  file: null as ProjectEvidenceFile | null,
 })
 
 const filteredFiles = computed(() => {
@@ -384,14 +405,39 @@ const categoryOptions = computed(() => meta.categories.map((category) => ({
   value: category.categoryKey,
 })))
 
+const fileContextMenuItems = computed<ObjectContextMenuItem[]>(() => {
+  const file = fileContextMenu.file
+  if (!file) return []
+  return [
+    { key: 'preview', label: '预览资料', icon: 'eye', disabled: !file.canPreview },
+    { key: 'download', label: '下载到本地', icon: 'rollback' },
+    { key: 'copy-name', label: '复制文件名', icon: 'file-copy' },
+    { key: 'divider-1', divider: true },
+    { key: 'open-project', label: '打开所属项目', icon: 'task', disabled: !file.projectId },
+  ]
+})
+
 watch([keyword, fileType, selectedStage, uploader], () => {
+  if (restoringWorkspace.value) return
   selectedProject.value = ''
 })
+
+watch([keyword, fileType, selectedProject, selectedStage, uploader], saveMaterialsWorkspaceState)
 
 watch(
   () => route.query.fileType,
   (value) => {
     fileType.value = typeof value === 'string' ? value : ''
+  },
+  { immediate: true },
+)
+
+watch(
+  [() => route.query.desktopSync, isDesktop],
+  ([request, desktop]) => {
+    if (desktop && typeof request === 'string' && request.length > 0) {
+      syncDialogVisible.value = true
+    }
   },
   { immediate: true },
 )
@@ -402,6 +448,39 @@ function clearFilters() {
   selectedProject.value = ''
   selectedStage.value = ''
   uploader.value = ''
+}
+
+function saveMaterialsWorkspaceState() {
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  window.sessionStorage.setItem(MATERIALS_WORKSPACE_STATE_KEY, JSON.stringify({
+    keyword: keyword.value,
+    fileType: fileType.value,
+    selectedProject: selectedProject.value,
+    selectedStage: selectedStage.value,
+    uploader: uploader.value,
+    scrollTop: scrollContainer?.scrollTop || 0,
+  }))
+}
+
+function restoreMaterialsWorkspaceState() {
+  try {
+    const raw = window.sessionStorage.getItem(MATERIALS_WORKSPACE_STATE_KEY)
+    if (!raw) return 0
+    const state = JSON.parse(raw) as Record<string, unknown>
+    restoringWorkspace.value = true
+    keyword.value = typeof state.keyword === 'string' ? state.keyword : ''
+    fileType.value = typeof state.fileType === 'string' ? state.fileType : ''
+    selectedProject.value = typeof state.selectedProject === 'string' ? state.selectedProject : ''
+    selectedStage.value = typeof state.selectedStage === 'string' ? state.selectedStage : ''
+    uploader.value = typeof state.uploader === 'string' ? state.uploader : ''
+    return Math.max(0, Number(state.scrollTop || 0))
+  } catch {
+    return 0
+  } finally {
+    nextTick(() => {
+      restoringWorkspace.value = false
+    })
+  }
 }
 
 function attachmentName(file: ProjectEvidenceFile) {
@@ -606,18 +685,55 @@ async function downloadFile(file: ProjectEvidenceFile) {
   }
 }
 
+function openFileContextMenu(file: TableData, event: Event) {
+  const pointer = event as MouseEvent
+  pointer.preventDefault()
+  fileContextMenu.file = file as ProjectEvidenceFile
+  fileContextMenu.x = pointer.clientX
+  fileContextMenu.y = pointer.clientY
+  fileContextMenu.visible = true
+}
+
+async function handleFileContextAction(action: string) {
+  const file = fileContextMenu.file
+  if (!file) return
+  if (action === 'preview' && file.canPreview) await openPreview(file)
+  if (action === 'download') await downloadFile(file)
+  if (action === 'copy-name') {
+    try {
+      await navigator.clipboard.writeText(attachmentName(file))
+      MessagePlugin.success('文件名已复制')
+    } catch {
+      MessagePlugin.warning('复制失败，请手动选择文件名')
+    }
+  }
+  if (action === 'open-project' && file.projectId) {
+    await router.push({
+      path: '/project-management',
+      query: {
+        projectId: file.projectId,
+        projectName: file.projectName || '项目详情',
+      },
+    })
+  }
+}
+
 function handleSidebarAction(event: Event) {
   const action = (event as CustomEvent<{ action?: string }>).detail?.action
   if (action === 'materials:upload') openUploadDialog()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  const restoredScrollTop = restoreMaterialsWorkspaceState()
   window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
-  loadFiles()
-  loadUploadOptions()
+  await Promise.all([loadFiles(), loadUploadOptions()])
+  await nextTick()
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  if (scrollContainer && restoredScrollTop > 0) scrollContainer.scrollTop = restoredScrollTop
 })
 
 onBeforeUnmount(() => {
+  saveMaterialsWorkspaceState()
   window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
 })
 </script>

@@ -189,6 +189,7 @@
               :horizontal-scroll-affixed-bottom="true"
               bordered
               hover
+              @row-contextmenu="openProjectContextMenu"
             >
               <template #select="{ row }">
                 <ACheckbox
@@ -1193,18 +1194,28 @@
         </label>
       </div>
     </AModal>
+
+    <ObjectContextMenu
+      v-model:visible="projectContextMenu.visible"
+      :x="projectContextMenu.x"
+      :y="projectContextMenu.y"
+      :items="projectContextMenuItems"
+      @select="handleProjectContextAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { TableData } from '@arco-design/web-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
 import DocumentDrivenEntry from '@/components/document-review/DocumentDrivenEntry.vue'
+import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
@@ -1279,6 +1290,7 @@ type SavedProjectFilterView = {
 }
 
 const SAVED_PROJECT_FILTERS_KEY = 'project-management-saved-filters'
+const PROJECT_WORKSPACE_STATE_KEY = 'project-management-workspace-state-v1'
 
 const baseTableColumns = [
   { colKey: 'select', title: '选择', width: 64, fixed: 'left' as const },
@@ -1510,6 +1522,12 @@ const filePreview = reactive({
 const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const renameDialog = reactive({ visible: false, saving: false, id: '', displayName: '' })
+const projectContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  record: null as ProjectRecord | null,
+})
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const projectFormRef = ref<AppFormInstance | null>(null)
 const projectWizardStepIndex = ref(0)
@@ -1634,6 +1652,26 @@ const activeFilterChips = computed<ProjectFilterChip[]>(() => {
     chips.push({ key: 'sort', label: '排序', value: sortOptions.find((item) => item.value === filters.sort)?.label || filters.sort })
   }
   return chips
+})
+
+const projectContextMenuItems = computed<ObjectContextMenuItem[]>(() => {
+  const record = projectContextMenu.record
+  if (!record) return []
+  return [
+    { key: 'view', label: '查看项目详情', icon: 'eye', shortcut: 'Enter' },
+    { key: 'edit', label: '编辑项目', icon: 'edit-1', disabled: !authStore.isEditor },
+    { key: 'upload', label: '上传项目资料', icon: 'upload', disabled: !authStore.isEditor },
+    record.auditProjectId
+      ? { key: 'audit', label: '查看审计进度', icon: 'view-module' }
+      : { key: 'start-audit', label: '发起审计', icon: 'play-circle', disabled: !authStore.isEditor },
+    { key: 'divider-1', divider: true },
+    {
+      key: selectedProjectIds.value.includes(record.id) ? 'unselect' : 'select',
+      label: selectedProjectIds.value.includes(record.id) ? '取消选择' : '加入批量选择',
+      icon: 'check',
+    },
+    { key: 'delete', label: '删除项目', icon: 'close', danger: true, disabled: !canDelete },
+  ]
 })
 const showProjectEmptyOnboarding = computed(() => !loading.value && total.value === 0 && activeFilterChips.value.length === 0)
 const groupedDisplayRecords = computed(() => {
@@ -2295,6 +2333,52 @@ function persistSavedFilterViews() {
   window.localStorage.setItem(SAVED_PROJECT_FILTERS_KEY, JSON.stringify(savedFilterViews.value.slice(0, 8)))
 }
 
+function saveProjectWorkspaceState() {
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  window.sessionStorage.setItem(PROJECT_WORKSPACE_STATE_KEY, JSON.stringify({
+    filters: normalizeProjectFilters({ ...filters }),
+    activeSavedView: activeSavedView.value,
+    activeCustomFilterId: activeCustomFilterId.value,
+    activeSummaryKey: activeSummaryKey.value,
+    groupBy: groupBy.value,
+    visibleProjectColumnKeys: visibleProjectColumnKeys.value,
+    scrollTop: scrollContainer?.scrollTop || 0,
+  }))
+}
+
+function restoreProjectWorkspaceState() {
+  try {
+    const raw = window.sessionStorage.getItem(PROJECT_WORKSPACE_STATE_KEY)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw) as {
+      filters?: Partial<ProjectFilters>
+      activeSavedView?: BuiltInProjectView
+      activeCustomFilterId?: string
+      activeSummaryKey?: string
+      groupBy?: ProjectGroupBy
+      visibleProjectColumnKeys?: string[]
+      scrollTop?: number
+    }
+    if (parsed.filters) assignProjectFilters(parsed.filters)
+    if (['all', 'risk', 'audit'].includes(String(parsed.activeSavedView))) {
+      activeSavedView.value = parsed.activeSavedView as BuiltInProjectView
+    }
+    activeCustomFilterId.value = String(parsed.activeCustomFilterId || '')
+    activeSummaryKey.value = String(parsed.activeSummaryKey || '')
+    if (['none', 'status', 'owner', 'audit'].includes(String(parsed.groupBy))) {
+      groupBy.value = parsed.groupBy as ProjectGroupBy
+    }
+    if (Array.isArray(parsed.visibleProjectColumnKeys)) {
+      const allowed = new Set(baseTableColumns.map((column) => String(column.colKey)))
+      const keys = parsed.visibleProjectColumnKeys.filter((key) => allowed.has(key))
+      if (keys.includes('project')) visibleProjectColumnKeys.value = keys
+    }
+    return Math.max(0, Number(parsed.scrollTop || 0))
+  } catch {
+    return 0
+  }
+}
+
 function saveCurrentFilterView() {
   filterViewDialog.name = ''
   filterViewDialog.error = ''
@@ -2409,19 +2493,23 @@ function applyRouteFilters() {
   const managerName = String(query.managerName || '').trim()
   const onlyMissingDocuments = String(query.onlyMissingDocuments || '').trim()
   const onlyMonthlyNew = String(query.onlyMonthlyNew || '').trim()
+  let applied = false
 
   if (view === 'risk') {
+    applied = true
     activeSummaryKey.value = 'risk'
     activeSavedView.value = 'risk'
     activeCustomFilterId.value = ''
     filters.onlyRisk = true
     filters.sort = 'plannedEndDate'
   } else if (view === 'audit') {
+    applied = true
     activeSummaryKey.value = 'audit'
     activeSavedView.value = 'audit'
     activeCustomFilterId.value = ''
     filters.onlyAuditLinked = true
   } else if (view === 'due') {
+    applied = true
     activeSummaryKey.value = 'due'
     activeSavedView.value = 'all'
     activeCustomFilterId.value = ''
@@ -2430,25 +2518,32 @@ function applyRouteFilters() {
   }
 
   if (projectStatus) {
+    applied = true
     filters.projectStatus = projectStatus
     activeSummaryKey.value = projectStatus
   }
   if (managerName) {
+    applied = true
     filters.managerName = managerName
     activeSummaryKey.value = 'owner'
   }
   if (onlyMissingDocuments === '1' || onlyMissingDocuments === 'true') {
+    applied = true
     filters.onlyMissingDocuments = true
     activeSummaryKey.value = 'missing'
   }
   if (onlyMonthlyNew === '1' || onlyMonthlyNew === 'true') {
+    applied = true
     filters.onlyMonthlyNew = true
     activeSummaryKey.value = 'monthly'
     activeSavedView.value = 'all'
     activeCustomFilterId.value = ''
   }
-  if (sort) filters.sort = sort
-  filters.page = 1
+  if (sort) {
+    applied = true
+    filters.sort = sort
+  }
+  if (applied) filters.page = 1
 }
 
 function applySummaryFilter(key: string) {
@@ -2557,6 +2652,30 @@ function toggleProjectSelection(id: string) {
   selectedProjectIds.value = selectedProjectIds.value.includes(id)
     ? selectedProjectIds.value.filter((item) => item !== id)
     : [...selectedProjectIds.value, id]
+}
+
+function openProjectContextMenu(record: TableData, event: Event) {
+  const pointer = event as MouseEvent
+  pointer.preventDefault()
+  projectContextMenu.record = record as ProjectRecord
+  projectContextMenu.x = pointer.clientX
+  projectContextMenu.y = pointer.clientY
+  projectContextMenu.visible = true
+}
+
+async function handleProjectContextAction(action: string) {
+  const record = projectContextMenu.record
+  if (!record) return
+  if (action === 'view') await selectProject(record)
+  if (action === 'edit') openProjectForm(record)
+  if (action === 'upload') {
+    await loadCurrentProject(record.id)
+    if (currentProject.value) openFileDialog()
+  }
+  if (action === 'audit' && record.auditProjectId) goAudit(record.auditProjectId)
+  if (action === 'start-audit') await startAudit(record)
+  if (action === 'select' || action === 'unselect') toggleProjectSelection(record.id)
+  if (action === 'delete') await confirmDeleteProject(record)
 }
 
 function selectCurrentPage() {
@@ -2902,6 +3021,7 @@ async function loadRecords() {
     total.value = result.total
     page.value = result.page
     pageSize.value = result.pageSize
+    saveProjectWorkspaceState()
     if (!currentProject.value || !records.value.find((item) => item.id === currentProject.value?.id)) {
       if (await openProjectFromRoute()) {
         return
@@ -2980,6 +3100,17 @@ function showAuditIntentGuide() {
 }
 
 async function selectProject(record: ProjectRecord, fetchDetail = true) {
+  const routeProjectId = String(route.query.projectId || '')
+  if (routeProjectId !== record.id) {
+    await router.push({
+      path: '/project-management',
+      query: {
+        projectId: record.id,
+        projectName: record.projectName,
+      },
+    })
+    return
+  }
   if (currentProject.value?.id === record.id && !fetchDetail) return
   detailDialogVisible.value = true
   if (!fetchDetail) {
@@ -2996,6 +3127,9 @@ function closeProjectDetail() {
   currentProject.value = null
   activeTab.value = 'overview'
   closeFilePreview()
+  if (route.path === '/project-management' && route.query.projectId) {
+    router.push({ path: '/project-management', query: { view: 'ledger' } })
+  }
 }
 
 async function saveProject() {
@@ -3260,14 +3394,19 @@ function handleSidebarAction(event: Event) {
   if (action === 'project:create') openProjectForm()
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadSavedFilterViews()
+  const restoredScrollTop = restoreProjectWorkspaceState()
   window.addEventListener('keydown', handleProjectKeyboard)
   window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
-  loadAll()
+  await loadAll()
+  await nextTick()
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  if (scrollContainer && restoredScrollTop > 0) scrollContainer.scrollTop = restoredScrollTop
 })
 
 onBeforeUnmount(() => {
+  saveProjectWorkspaceState()
   window.removeEventListener('keydown', handleProjectKeyboard)
   window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
   closeFilePreview()
@@ -3287,6 +3426,9 @@ watch(detailDialogVisible, (visible) => {
     currentProject.value = null
     activeTab.value = 'overview'
     closeFilePreview()
+    if (route.path === '/project-management' && route.query.projectId) {
+      router.push({ path: '/project-management', query: { view: 'ledger' } })
+    }
   }
 })
 </script>

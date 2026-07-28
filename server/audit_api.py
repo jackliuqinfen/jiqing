@@ -304,6 +304,11 @@ def user_payload(row):
         "username": row["username"],
         "displayName": row["display_name"],
         "email": row["email"],
+        "avatarUrl": row_get(row, "avatar_url", ""),
+        "phone": row_get(row, "phone", ""),
+        "department": row_get(row, "department", ""),
+        "jobTitle": row_get(row, "job_title", ""),
+        "bio": row_get(row, "bio", ""),
         "role": row["role"],
         "isActive": bool(row["is_active"]),
         "createdAt": row["created_at"],
@@ -1437,6 +1442,13 @@ def seed_admin_user(conn):
 
 def ensure_compatible_columns(conn):
     migrations = {
+        "system_users": {
+            "avatar_url": "TEXT DEFAULT ''",
+            "phone": "TEXT DEFAULT ''",
+            "department": "TEXT DEFAULT ''",
+            "job_title": "TEXT DEFAULT ''",
+            "bio": "TEXT DEFAULT ''",
+        },
         "audit_projects": {
             "project_id": "TEXT DEFAULT ''",
             "project_code": "TEXT DEFAULT ''",
@@ -3997,6 +4009,123 @@ class Handler(BaseHTTPRequestHandler):
         fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
         self.respond(200, {"success": True, "data": user_payload(fresh)})
 
+    def update_current_user_profile(self, conn, data):
+        user = self.require_user(conn)
+        if not user:
+            return
+
+        username = str(data.get("username", user["username"]) or "").strip()
+        display_name = str(data.get("displayName", user["display_name"]) or "").strip()
+        email = str(data.get("email", user["email"]) or "").strip()
+        avatar_url = str(data.get("avatarUrl", row_get(user, "avatar_url", "")) or "").strip()
+        phone = str(data.get("phone", row_get(user, "phone", "")) or "").strip()
+        department = str(data.get("department", row_get(user, "department", "")) or "").strip()
+        job_title = str(data.get("jobTitle", row_get(user, "job_title", "")) or "").strip()
+        bio = str(data.get("bio", row_get(user, "bio", "")) or "").strip()
+
+        if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
+            self.respond(400, {"success": False, "error": "账号仅支持 3-32 位字母、数字、点、下划线或短横线"})
+            return
+        if not display_name or len(display_name) > 50:
+            self.respond(400, {"success": False, "error": "姓名不能为空且不能超过 50 个字符"})
+            return
+        if email and (len(email) > 120 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)):
+            self.respond(400, {"success": False, "error": "请输入有效的邮箱地址"})
+            return
+        if len(phone) > 30 or len(department) > 80 or len(job_title) > 80 or len(bio) > 300:
+            self.respond(400, {"success": False, "error": "个人资料字段长度超出限制"})
+            return
+        if avatar_url:
+            if len(avatar_url) > 700000 or not re.fullmatch(
+                r"data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=\r\n]+",
+                avatar_url,
+            ):
+                self.respond(400, {"success": False, "error": "头像格式无效，请上传 PNG、JPG 或 WebP 图片"})
+                return
+
+        duplicate = conn.execute(
+            "SELECT id FROM system_users WHERE username = ? AND id <> ?",
+            (username, user["id"]),
+        ).fetchone()
+        if duplicate:
+            self.respond(409, {"success": False, "error": "该账号已被使用"})
+            return
+
+        ts = now_iso()
+        conn.execute(
+            """
+            UPDATE system_users
+            SET username = ?, display_name = ?, email = ?, avatar_url = ?,
+                phone = ?, department = ?, job_title = ?, bio = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                username,
+                display_name,
+                email,
+                avatar_url,
+                phone,
+                department,
+                job_title,
+                bio,
+                ts,
+                user["id"],
+            ),
+        )
+        fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (user["id"],)).fetchone()
+        self.write_operation_log(
+            conn,
+            "user.profile_update",
+            fresh,
+            "system_user",
+            user["id"],
+            detail={"changedFields": sorted([
+                key for key in (
+                    "username", "displayName", "email", "avatarUrl",
+                    "phone", "department", "jobTitle", "bio",
+                ) if key in data
+            ])},
+        )
+        conn.commit()
+        self.respond(200, {"success": True, "data": user_payload(fresh)})
+
+    def change_current_user_password(self, conn, data):
+        user = self.require_user(conn)
+        if not user:
+            return
+        current_password = str(data.get("currentPassword") or "")
+        new_password = str(data.get("newPassword") or "")
+        if not verify_password(current_password, user["password_hash"]):
+            self.respond(400, {"success": False, "error": "当前密码不正确"})
+            return
+        rules_row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'login_rules'"
+        ).fetchone()
+        try:
+            rules = json.loads(rules_row["setting_value"] or "{}") if rules_row else {}
+        except (TypeError, ValueError):
+            rules = {}
+        try:
+            min_length = max(1, min(int(rules.get("minPasswordLength", 8)), 128))
+        except (TypeError, ValueError):
+            min_length = 8
+        if len(new_password) < min_length or len(new_password) > 128:
+            self.respond(400, {
+                "success": False,
+                "error": f"新密码长度应为 {min_length}-128 个字符",
+            })
+            return
+        if current_password == new_password:
+            self.respond(400, {"success": False, "error": "新密码不能与当前密码相同"})
+            return
+        conn.execute(
+            "UPDATE system_users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(new_password), now_iso(), user["id"]),
+        )
+        self.write_operation_log(conn, "user.password_update", user, "system_user", user["id"])
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
     def delete_user(self, conn, uid):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -4696,6 +4825,10 @@ class Handler(BaseHTTPRequestHandler):
                 project_match = re.match(r"^/api/projects/([^/]+)$", path)
                 if project_match:
                     self.update_project_record(conn, project_match.group(1), data)
+                elif path == "/api/auth/profile":
+                    self.update_current_user_profile(conn, data)
+                elif path == "/api/auth/password":
+                    self.change_current_user_password(conn, data)
                 elif re.match(r"^/api/project-document-categories/([^/]+)$", path):
                     self.update_project_document_category(conn, re.match(r"^/api/project-document-categories/([^/]+)$", path).group(1), data)
                 elif re.match(r"^/api/project-files/([^/]+)$", path):

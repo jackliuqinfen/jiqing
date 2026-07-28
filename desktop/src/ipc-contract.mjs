@@ -7,7 +7,12 @@ export const DESKTOP_IPC_CHANNELS = Object.freeze({
   startSync: 'desktop:start-sync',
   pauseSync: 'desktop:pause-sync',
   openSyncFolder: 'desktop:open-sync-folder',
+  getUpdateState: 'desktop:get-update-state',
+  checkForUpdates: 'desktop:check-for-updates',
+  installUpdate: 'desktop:install-update',
   syncState: 'desktop:sync-state',
+  updateState: 'desktop:update-state',
+  workspaceCommand: 'desktop:workspace-command',
 })
 
 const PROJECT_REF_PATTERN = /^(project|audit):[A-Za-z0-9-]+$/
@@ -199,6 +204,7 @@ export function registerDesktopIpcHandlers({
   appVersion,
   releaseChannel,
   controller,
+  updateController = null,
   selectFolder,
   openFolder,
   emitState = () => {},
@@ -254,5 +260,20 @@ export function registerDesktopIpcHandlers({
     const localRoot = controller.getState().localRoot
     if (!localRoot) throw new Error('sync folder is not selected')
     await openFolder(localRoot)
+  })
+  handle(DESKTOP_IPC_CHANNELS.getUpdateState, async (args) => {
+    assertNoArguments(args)
+    if (!updateController) throw new Error('desktop update unavailable')
+    return updateController.getState()
+  })
+  handle(DESKTOP_IPC_CHANNELS.checkForUpdates, async (args) => {
+    assertNoArguments(args)
+    if (!updateController) throw new Error('desktop update unavailable')
+    return updateController.check()
+  })
+  handle(DESKTOP_IPC_CHANNELS.installUpdate, async (args) => {
+    assertNoArguments(args)
+    if (!updateController) throw new Error('desktop update unavailable')
+    updateController.install()
   })
 }

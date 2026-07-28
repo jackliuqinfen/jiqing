@@ -15,8 +15,15 @@ const UI_ROOT = 'C:\\Program Files\\JiqingERP\\resources\\ui'
 const REAL_UI_ROOT = dirname(
   fileURLToPath(new URL('../ui/connecting.html', import.meta.url)),
 )
+const REAL_ASSETS_ROOT = dirname(
+  fileURLToPath(new URL('../assets/splash-logo.png', import.meta.url)),
+)
 
-test('local protocol resolves only the three fixed fallback pages', () => {
+test('local protocol resolves only the fixed startup and fallback pages', () => {
+  assert.equal(
+    basename(resolveAppPage('app://splash', UI_ROOT)),
+    'splash.html',
+  )
   assert.equal(
     basename(resolveAppPage('app://connecting', UI_ROOT)),
     'connecting.html',
@@ -46,7 +53,7 @@ test('local protocol rejects unknown pages and traversal forms', () => {
   }
 })
 
-test('local protocol returns fixed HTML without forwarding through file URLs', async () => {
+test('local protocol returns fixed startup HTML and logo without file URLs', async () => {
   let handler
   const protocol = {
     handle(scheme, value) {
@@ -54,13 +61,20 @@ test('local protocol returns fixed HTML without forwarding through file URLs', a
       handler = value
     },
   }
-  registerAppProtocol(protocol, null, REAL_UI_ROOT)
+  registerAppProtocol(protocol, null, REAL_UI_ROOT, REAL_ASSETS_ROOT)
 
-  const response = await handler({ url: 'app://connecting/' })
+  const response = await handler({ url: 'app://splash/' })
   assert.equal(response.status, 200)
   assert.equal(
     response.headers.get('Content-Type'),
     'text/html; charset=utf-8',
   )
-  assert.match(await response.text(), /正在连接工程管理系统/)
+  assert.match(await response.text(), /集庆工程管理/)
+
+  const logoResponse = await handler({
+    url: 'app://brand/splash-logo.png',
+  })
+  assert.equal(logoResponse.status, 200)
+  assert.equal(logoResponse.headers.get('Content-Type'), 'image/png')
+  assert.ok((await logoResponse.arrayBuffer()).byteLength > 1000)
 })

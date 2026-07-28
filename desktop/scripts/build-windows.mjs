@@ -19,6 +19,10 @@ import {
   validateWindowsBuildConfiguration,
 } from './validate-release-configuration.mjs'
 import { verifyWindowsSignatures } from './verify-windows-signatures.mjs'
+import { writePackagedUpdateConfig } from './write-update-config.mjs'
+
+const MAX_BUILD_ATTEMPTS = 3
+const BUILD_RETRY_DELAY_MS = 1500
 
 function assertDescendant(target, parent, label) {
   const resolvedParent = realpathSync(parent)
@@ -45,14 +49,6 @@ const temporaryRootPath = join(desktopRoot, '.tmp')
 mkdirSync(temporaryRootPath, { recursive: true })
 const temporaryRoot = realpathSync(temporaryRootPath)
 assertDescendant(temporaryRoot, desktopRoot, 'temporary directory')
-const trustedBuildParentPath = join(temporaryRoot, 'windows-build')
-mkdirSync(trustedBuildParentPath, { recursive: true })
-const trustedBuildParent = realpathSync(trustedBuildParentPath)
-assertDescendant(
-  trustedBuildParent,
-  desktopRoot,
-  'temporary build parent',
-)
 const installedElectronDist = realpathSync(
   join(desktopRoot, 'node_modules', 'electron', 'dist'),
 )
@@ -71,20 +67,26 @@ validateWindowsBuildConfiguration({
   mode,
   origin: process.env.DESKTOP_SERVER_URL,
 })
+const updateFeedUrl = new URL(
+  `/desktop-updates/${process.env.DESKTOP_RELEASE_CHANNEL}`,
+  process.env.DESKTOP_SERVER_URL,
+).href.replace(/\/$/, '')
+const buildEnvironment = {
+  ...process.env,
+  DESKTOP_UPDATE_URL: updateFeedUrl,
+}
 
-const shortBuildRoot = mkdtempSync(
-  join(trustedBuildParent, 'run-'),
-)
-const shortOutput = join(shortBuildRoot, 'out')
+const shortBuildRoot = mkdtempSync(join(temporaryRoot, 'b-'))
+const shortOutput = join(shortBuildRoot, 'o')
 
-assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')
+assertDescendant(shortBuildRoot, temporaryRoot, 'temporary build root')
 
-function builderArguments() {
+function builderArguments(output) {
   const commonConfiguration = [
     '--config',
     'electron-builder.yml',
     `--config.electronDist=${installedElectronDist}`,
-    `--config.directories.output=${shortOutput}`,
+    `--config.directories.output=${output}`,
   ]
   if (mode === 'dir') {
     return ['--dir', '--win', ...commonConfiguration]
@@ -101,7 +103,7 @@ function builderArguments() {
       unpackedPath,
       '--config',
       'electron-builder.yml',
-      `--config.directories.output=${shortOutput}`,
+      `--config.directories.output=${output}`,
     ]
   }
   return [
@@ -112,39 +114,65 @@ function builderArguments() {
   ]
 }
 
-function copyBuildOutput() {
-  assertDescendant(shortOutput, shortBuildRoot, 'temporary build output')
+function copyBuildOutput(output) {
+  assertDescendant(output, shortBuildRoot, 'temporary build output')
   assertDescendant(distRoot, desktopRoot, 'desktop distribution directory')
-  if (!existsSync(shortOutput)) {
+  if (!existsSync(output)) {
     throw new Error('electron-builder produced no output')
   }
   if (mode === 'dir' || mode === 'production') {
     rmSync(distRoot, { force: true, recursive: true })
   }
   mkdirSync(distRoot, { recursive: true })
-  cpSync(shortOutput, distRoot, {
+  cpSync(output, distRoot, {
     force: true,
     recursive: true,
   })
 }
 
-rmSync(shortBuildRoot, { force: true, recursive: true })
-mkdirSync(shortOutput, { recursive: true })
 try {
-  const result = spawnSync(
-    process.execPath,
-    [builderCli, ...builderArguments()],
-    {
-      cwd: desktopRoot,
-      env: process.env,
-      stdio: 'inherit',
-    },
-  )
-  if (result.error) throw result.error
-  if (result.status !== 0) {
-    throw new Error(`electron-builder failed with exit code ${result.status}`)
+  let completedOutput = ''
+  let lastExitCode = null
+  for (let attempt = 1; attempt <= MAX_BUILD_ATTEMPTS; attempt += 1) {
+    const attemptOutput = `${shortOutput}-${attempt}`
+    const result = spawnSync(
+      process.execPath,
+      [builderCli, ...builderArguments(attemptOutput)],
+      {
+        cwd: desktopRoot,
+        env: buildEnvironment,
+        stdio: 'inherit',
+      },
+    )
+    if (result.error) throw result.error
+    lastExitCode = result.status
+    if (result.status === 0) {
+      completedOutput = attemptOutput
+      break
+    }
+    if (attempt < MAX_BUILD_ATTEMPTS) {
+      process.stderr.write(
+        `electron-builder attempt ${attempt} failed; retrying in `
+          + `${BUILD_RETRY_DELAY_MS} ms\n`,
+      )
+      await new Promise((resolve) => {
+        setTimeout(resolve, BUILD_RETRY_DELAY_MS)
+      })
+    }
   }
-  copyBuildOutput()
+  if (!completedOutput) {
+    throw new Error(
+      `electron-builder failed after ${MAX_BUILD_ATTEMPTS} attempts `
+        + `(last exit code ${lastExitCode})`,
+    )
+  }
+  copyBuildOutput(completedOutput)
+  if (mode === 'dir') {
+    writePackagedUpdateConfig({
+      appDirectory: join(distRoot, 'win-unpacked'),
+      updateFeedUrl,
+    })
+  }
   if (mode === 'production') {
     verifyWindowsSignatures({
       distRoot,
@@ -152,6 +180,6 @@ try {
     })
   }
 } finally {
-  assertDescendant(shortBuildRoot, trustedBuildParent, 'temporary build root')
+  assertDescendant(shortBuildRoot, temporaryRoot, 'temporary build root')
   rmSync(shortBuildRoot, { force: true, recursive: true })
 }

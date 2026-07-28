@@ -15,7 +15,8 @@ export const HARDENED_FUSE_CONFIG = Object.freeze({
   [FuseV1Options.EnableNodeCliInspectArguments]: false,
   [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
   [FuseV1Options.OnlyLoadAppFromAsar]: true,
-  [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: true,
+  // Stock Electron ships the standard snapshot, not a browser-specific one.
+  [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: false,
   [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
   [FuseV1Options.WasmTrapHandlers]: true,
 })
