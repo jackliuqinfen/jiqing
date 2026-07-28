@@ -226,6 +226,7 @@ function launchElectron({
   const completed = new Promise((resolve, reject) => {
     let settled = false
     let spawnError = null
+    let terminationError = null
     let timedOut = false
     let timeout
     const settle = (callback, value) => {
@@ -237,16 +238,8 @@ function launchElectron({
     timeout = setTimeout(() => {
       if (settled) return
       timedOut = true
-      void terminateProcessTree(child).finally(() => {
-        settle(
-          reject,
-          createSmokeFailure({
-            caseName,
-            completed: { stderr, stdout },
-            resultPath,
-            timedOut: true,
-          }),
-        )
+      void terminateProcessTree(child).catch((error) => {
+        terminationError = error
       })
     }, PROCESS_TIMEOUT_MS)
     child.once('error', (error) => {
@@ -254,12 +247,12 @@ function launchElectron({
     })
     child.once('close', (code, signal) => {
       const result = { code, signal, stderr, stdout }
-      if (spawnError || timedOut) {
+      if (spawnError || timedOut || terminationError) {
         settle(
           reject,
           createSmokeFailure({
             caseName,
-            cause: spawnError,
+            cause: spawnError || terminationError,
             completed: result,
             resultPath,
             timedOut,
