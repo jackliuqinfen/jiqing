@@ -25,6 +25,7 @@ const smokeAppPath = fileURLToPath(
   new URL('../test/smoke-app.mjs', import.meta.url),
 )
 const PROCESS_TIMEOUT_MS = 30000
+const PROCESS_CLOSE_GRACE_MS = 5000
 const RESULT_TIMEOUT_MS = 20000
 
 function delay(milliseconds) {
@@ -228,19 +229,42 @@ function launchElectron({
     let spawnError = null
     let terminationError = null
     let timedOut = false
+    let closeFallback
     let timeout
     const settle = (callback, value) => {
       if (settled) return
       settled = true
+      clearTimeout(closeFallback)
       clearTimeout(timeout)
       callback(value)
+    }
+    const scheduleCloseFallback = () => {
+      if (settled) return
+      closeFallback = setTimeout(() => {
+        settle(
+          reject,
+          createSmokeFailure({
+            caseName,
+            cause: terminationError || new Error(
+              'smoke process did not emit close after termination',
+            ),
+            completed: { stderr, stdout },
+            resultPath,
+            timedOut: true,
+          }),
+        )
+      }, PROCESS_CLOSE_GRACE_MS)
     }
     timeout = setTimeout(() => {
       if (settled) return
       timedOut = true
-      void terminateProcessTree(child).catch((error) => {
-        terminationError = error
-      })
+      void terminateProcessTree(child).then(
+        scheduleCloseFallback,
+        (error) => {
+          terminationError = error
+          scheduleCloseFallback()
+        },
+      )
     }, PROCESS_TIMEOUT_MS)
     child.once('error', (error) => {
       spawnError = error

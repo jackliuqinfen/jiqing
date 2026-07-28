@@ -93,7 +93,13 @@ test('smoke runner waits for closed output pipes and wraps scenario assertions',
   assert.doesNotMatch(completionBlock, /child\.once\('exit'/)
   assert.match(timeoutBlock, /timedOut = true/)
   assert.match(timeoutBlock, /terminateProcessTree\(child\)/)
+  assert.match(timeoutBlock, /scheduleCloseFallback/)
   assert.doesNotMatch(timeoutBlock, /settle\(/)
   assert.doesNotMatch(timeoutBlock, /createSmokeFailure\(/)
+  assert.match(completionBlock, /PROCESS_CLOSE_GRACE_MS/)
+  assert.match(
+    completionBlock,
+    /did not emit close after termination/,
+  )
   assert.match(runner, /withProcessDiagnostics/)
 })
