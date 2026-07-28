@@ -1974,6 +1974,36 @@ test('re-fetches policy before downloading a manifest with a newer policy versio
   assert.equal(harness.api.downloadCalls, 1)
 })
 
+test('re-checks project roots when policy changes before downloading', async (t) => {
+  const harness = createTestEngine(t, {
+    manifests: [[entry('r-1', Buffer.from('contract'))]],
+  })
+  const originalManifest = harness.api.getManifest.bind(harness.api)
+  harness.api.getManifest = async (...args) => ({
+    ...await originalManifest(...args),
+    policyVersion: 2,
+  })
+  harness.api.getPolicy = async () => {
+    harness.api.policyCalls += 1
+    return {
+      ...harness.api.policy,
+      policyVersion: harness.api.policyCalls === 1 ? 1 : 2,
+    }
+  }
+  let projectRootCalls = 0
+  const originalProjectRoots = harness.api.getProjectRoots.bind(harness.api)
+  harness.api.getProjectRoots = async (...args) => {
+    projectRootCalls += 1
+    return projectRootCalls === 1 ? originalProjectRoots(...args) : []
+  }
+
+  await harness.engine.start(session())
+
+  assert.equal(projectRootCalls, 2)
+  assert.equal(harness.api.downloadCalls, 0)
+  assert.equal(harness.engine.getState().status, 'permission_changed')
+})
+
 test('does not download when a policy re-fetch remains behind the manifest', async (t) => {
   const harness = createTestEngine(t, {
     manifests: [[entry('r-1', Buffer.from('contract'))]],

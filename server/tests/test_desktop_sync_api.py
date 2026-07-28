@@ -251,10 +251,13 @@ class DesktopSyncApiContractTest(unittest.TestCase):
     def enable_policy(self, **overrides):
         policy = {
             "enabled": True,
-            "allowedRoles": ["editor", "admin"],
-            "allowedUserIds": [],
-            "projectSelectionMode": "user_select",
-            "allowedProjectRefs": [],
+            "allowedRoles": ["admin"],
+            "allowedUserIds": ["editor-user", "limited-user"],
+            "projectSelectionMode": "admin_assigned",
+            "allowedProjectRefs": [
+                "project:project-1",
+                "project:project-2",
+            ],
             "allowedCategoryKeys": [],
             "allowedExtensions": [".pdf"],
             "maxFileSizeMb": 10,
@@ -332,9 +335,8 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             "desktop_sync_disabled",
         )
 
-    def test_manifest_intersects_admin_assigned_projects(self):
+    def test_manifest_rejects_any_project_removed_from_assignment(self):
         self.enable_policy(
-            allowedRoles=["editor"],
             projectSelectionMode="admin_assigned",
             allowedProjectRefs=["project:project-1"],
         )
@@ -348,11 +350,10 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             user_id="editor-user",
         )
 
-        self.assertEqual(status, 200)
-        self.assertEqual(
-            {item["projectRef"] for item in payload["data"]["items"]},
-            {"project:project-1"},
-        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["code"], "desktop_sync_scope_changed")
+        self.assertEqual(payload["revokedProjectRefs"], ["project:project-2"])
+        self.assertEqual(payload["policyVersion"], 1)
 
     def test_next_cursor_does_not_duplicate_rows(self):
         self.enable_policy()
@@ -407,8 +408,11 @@ class DesktopSyncApiContractTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_sync_cursor")
 
-    def test_existing_project_scope_filters_sync_and_web_download(self):
-        self.enable_policy()
+    def test_explicit_assignment_filters_sync_and_web_scope_still_applies(self):
+        self.enable_policy(
+            allowedUserIds=["limited-user"],
+            allowedProjectRefs=["project:project-1"],
+        )
         status, _headers, roots_payload = self.request(
             "GET",
             "/api/desktop/sync/projects",
@@ -434,10 +438,14 @@ class DesktopSyncApiContractTest(unittest.TestCase):
             {item["projectRef"] for item in roots_payload["data"]},
             {"project:project-1"},
         )
-        self.assertEqual(manifest_status, 200)
+        self.assertEqual(manifest_status, 403)
         self.assertEqual(
-            {item["projectRef"] for item in manifest_payload["data"]["items"]},
-            {"project:project-1"},
+            manifest_payload["code"],
+            "desktop_sync_scope_changed",
+        )
+        self.assertEqual(
+            manifest_payload["revokedProjectRefs"],
+            ["project:project-2"],
         )
         self.assertEqual(download_status, 403)
         self.assertFalse(json.loads(download_body.decode("utf-8"))["success"])
@@ -536,7 +544,10 @@ class DesktopSyncApiContractTest(unittest.TestCase):
                 )
 
     def test_out_of_scope_audit_attachment_sync_download_is_forbidden(self):
-        self.enable_policy()
+        self.enable_policy(
+            allowedUserIds=["limited-user"],
+            allowedProjectRefs=["project:project-1"],
+        )
         revision = "attachment-2:9:2026-07-27T09:30:00Z"
         sync_status, _headers, sync_body = self.request_raw(
             "GET",

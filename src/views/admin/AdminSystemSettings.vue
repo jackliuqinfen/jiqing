@@ -340,20 +340,11 @@
           <span class="switch-text">{{ desktopSyncSettings.enabledByDefault ? '默认勾选' : '默认不勾选' }}</span>
         </AFormItem>
 
-        <AFormItem label="允许使用的角色" help="用户符合任一允许角色，或被单独加入允许用户，才具备同步资格。">
-          <div class="desktop-sync-checkboxes">
-            <ACheckbox
-              v-for="role in desktopRoleOptions"
-              :key="role.value"
-              :model-value="desktopSyncSettings.allowedRoles.includes(role.value)"
-              @change="toggleDesktopRole(role.value, Boolean($event))"
-            >
-              {{ role.label }}
-            </ACheckbox>
-          </div>
+        <AFormItem label="管理员权限" help="管理员默认具备同步资格；普通员工必须同时在下方点名，并使用管理员指定项目模式。">
+          <ATag color="arcoblue">仅管理员角色自动授权</ATag>
         </AFormItem>
 
-        <AFormItem label="单独允许的用户" help="列表只显示用户管理中的真实账号；不选择时仅按角色授权。">
+        <AFormItem label="单独允许的员工" help="点名员工不会自动获得全部项目，只能同步管理员在下方明确指定的项目。">
           <ASelect
             v-model="desktopSyncSettings.allowedUserIds"
             mode="multiple"
@@ -365,7 +356,7 @@
           <p v-if="desktopUsersEmptyText" class="desktop-sync-empty">{{ desktopUsersEmptyText }}</p>
         </AFormItem>
 
-        <AFormItem label="项目选择方式" help="员工自选仅能选择其有权访问的项目；管理员指定则只同步下方指定项目。">
+        <AFormItem label="项目选择方式" help="管理员自由选择模式仅供管理员使用；普通员工必须采用管理员指定项目模式。">
           <div class="desktop-sync-segmented" role="group" aria-label="项目选择方式">
             <button
               v-for="mode in desktopProjectModeOptions"
@@ -440,15 +431,10 @@
           <span class="switch-text">{{ desktopSyncSettings.allowFolderSelection ? '允许选择' : '使用客户端默认位置' }}</span>
         </AFormItem>
 
-        <AFormItem label="权限撤销时清理本地文件" help="客户端只会尽力清理受管理的同步副本，无法远程召回员工已经复制到其他位置的文件。">
-          <ASwitch v-model="desktopSyncSettings.removeLocalFilesOnRevocation" size="medium" />
-          <span class="switch-text">{{ desktopSyncSettings.removeLocalFilesOnRevocation ? '尽力清理' : '保留本地副本' }}</span>
-        </AFormItem>
+        <AAlert type="info" class="desktop-sync-warning">
+          权限撤销后客户端会立即停止后续同步，但已下载的本地副本不会被远程删除。请按公司资料管理制度处理离线副本。
+        </AAlert>
       </AForm>
-
-      <AAlert v-if="desktopSyncSettings.removeLocalFilesOnRevocation" type="warning" class="desktop-sync-warning">
-        本地清理只能尽力执行，已复制、另存或转发的文件不能被服务器远程召回。
-      </AAlert>
     </ACard>
   </div>
 </template>
@@ -478,7 +464,6 @@ import {
   workspaceBackgroundCssValue,
 } from '@/ui/theme'
 import type {
-  AdminRole,
   DesktopSyncPolicySetting,
   LoginRulesSetting,
   RegistrationSetting,
@@ -530,11 +515,6 @@ const desktopUserOptions = ref<SelectOption[]>([])
 const desktopProjectOptions = ref<SelectOption[]>([])
 const desktopCategoryOptions = ref<SelectOption[]>([])
 
-const desktopRoleOptions: Array<{ label: string; value: AdminRole }> = [
-  { label: '管理员', value: 'admin' },
-  { label: '编辑者', value: 'editor' },
-  { label: '查看者', value: 'viewer' },
-]
 const desktopProjectModeOptions: Array<{
   label: string
   value: DesktopSyncPolicySetting['projectSelectionMode']
@@ -826,15 +806,13 @@ function normalizeDesktopSyncPolicy(value: unknown): DesktopSyncPolicySetting {
   const raw = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {}
-  const roles = uniqueDesktopSyncStrings(raw.allowedRoles)
-    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
   const projectSelectionMode = raw.projectSelectionMode === 'admin_assigned'
     ? 'admin_assigned'
     : 'user_select'
   return {
     enabled: trustedDesktopSyncBoolean(raw.enabled, false),
     enabledByDefault: trustedDesktopSyncBoolean(raw.enabledByDefault, false),
-    allowedRoles: roles.length ? roles : ['admin'],
+    allowedRoles: ['admin'],
     allowedUserIds: uniqueDesktopSyncStrings(raw.allowedUserIds),
     projectSelectionMode,
     allowedProjectRefs: uniqueDesktopSyncStrings(raw.allowedProjectRefs),
@@ -844,7 +822,7 @@ function normalizeDesktopSyncPolicy(value: unknown): DesktopSyncPolicySetting {
     maxLocalStorageGb: desktopDisplayUnit(raw, 'maxLocalStorageGb', 'maxLocalStorageBytes', 10, 1024 * 1024 * 1024),
     pollIntervalSeconds: boundedDesktopSyncInteger(raw.pollIntervalSeconds, 300, 60, 3600),
     allowFolderSelection: trustedDesktopSyncBoolean(raw.allowFolderSelection, true),
-    removeLocalFilesOnRevocation: trustedDesktopSyncBoolean(raw.removeLocalFilesOnRevocation, false),
+    removeLocalFilesOnRevocation: false,
     policyVersion: boundedDesktopSyncInteger(raw.policyVersion, 1, 1, 2 ** 31 - 1),
   }
 }
@@ -852,11 +830,6 @@ function normalizeDesktopSyncPolicy(value: unknown): DesktopSyncPolicySetting {
 function validateDesktopSyncSettings() {
   if (!desktopSyncPolicyLoaded.value) {
     return '同步策略尚未成功加载，请重新加载后再保存。'
-  }
-  const roles = uniqueDesktopSyncStrings(desktopSyncSettings.allowedRoles)
-    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
-  if (!roles.length) {
-    return '请至少保留一个允许使用的角色。'
   }
   const extensions = inspectDesktopSyncExtensions(desktopSyncSettings.allowedExtensions)
   if (extensions.hasInvalidValue) {
@@ -869,22 +842,6 @@ function validateDesktopSyncSettings() {
     return '请至少保留一种允许同步的文件格式。'
   }
   return ''
-}
-
-function toggleDesktopRole(role: AdminRole, checked: boolean) {
-  if (
-    !checked
-    && desktopSyncSettings.allowedRoles.includes(role)
-    && desktopSyncSettings.allowedRoles.length === 1
-  ) {
-    desktopSyncValidationError.value = '请至少保留一个允许使用的角色。'
-    MessagePlugin.warning(desktopSyncValidationError.value)
-    return
-  }
-  const next = desktopSyncSettings.allowedRoles.filter((item) => item !== role)
-  if (checked) next.push(role)
-  desktopSyncSettings.allowedRoles = next
-  desktopSyncValidationError.value = ''
 }
 
 async function fetchDesktopSyncProjectRoots() {
@@ -1329,15 +1286,14 @@ async function saveDesktopSyncSettings() {
     MessagePlugin.warning(desktopSyncValidationError.value)
     return
   }
-  const allowedRoles = uniqueDesktopSyncStrings(desktopSyncSettings.allowedRoles)
-    .filter((role): role is AdminRole => ['admin', 'editor', 'viewer'].includes(role))
   const allowedExtensions = inspectDesktopSyncExtensions(desktopSyncSettings.allowedExtensions).values
   savingDesktopSync.value = true
   try {
     const normalized = normalizeDesktopSyncPolicy({
       ...desktopSyncSettings,
-      allowedRoles,
+      allowedRoles: ['admin'],
       allowedExtensions,
+      removeLocalFilesOnRevocation: false,
     })
     Object.assign(desktopSyncSettings, normalized)
     await setSystemSetting(

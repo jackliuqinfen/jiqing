@@ -490,6 +490,17 @@ export class SyncEngine {
             'permission_changed',
           )
         }
+        const refreshedProjects = await this.apiClient.getProjectRoots(run.token)
+        this.assertActive(run)
+        const refreshedRefs = new Set(
+          refreshedProjects.map((project) => project.projectRef),
+        )
+        if (projectRefs.some((projectRef) => !refreshedRefs.has(projectRef))) {
+          throw new SyncApiError(
+            'Project permission changed during synchronization',
+            'permission_changed',
+          )
+        }
       }
       if (page.hasMore
         && (page.nextCursor === cursor || seenCursors.has(page.nextCursor))) {

@@ -11,7 +11,7 @@ for (const marker of [
   'projectSelectionMode',
   'maxLocalStorageGb',
   'pollIntervalSeconds',
-  'removeLocalFilesOnRevocation',
+  '已下载的本地副本不会被远程删除',
 ]) {
   if (!settings.includes(marker)) throw new Error(`Missing settings marker: ${marker}`)
 }
@@ -44,7 +44,7 @@ for (const marker of [
   'MAX_DESKTOP_EXTENSION_COUNT = 30',
   'MAX_DESKTOP_EXTENSION_LENGTH = 16',
   'validateDesktopSyncSettings',
-  '请至少保留一个允许使用的角色',
+  "allowedRoles: ['admin']",
   '请至少保留一种允许同步的文件格式',
 ]) {
   if (!settings.includes(marker)) throw new Error(`Missing fail-closed marker: ${marker}`)

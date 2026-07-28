@@ -18,7 +18,7 @@ DEFAULT_DESKTOP_SYNC_POLICY = {
     "policyVersion": 1,
 }
 
-ALLOWED_ROLES = {"admin", "editor", "viewer"}
+ALLOWED_ROLES = {"admin"}
 ALLOWED_PROJECT_MODES = {"user_select", "admin_assigned"}
 
 
@@ -104,7 +104,9 @@ def normalize_desktop_sync_policy(value):
         "maxLocalStorageBytes": max_local_storage_bytes,
         "pollIntervalSeconds": _bounded_int(raw.get("pollIntervalSeconds"), 300, 60, 3600),
         "allowFolderSelection": _trusted_bool(raw.get("allowFolderSelection"), True),
-        "removeLocalFilesOnRevocation": _trusted_bool(raw.get("removeLocalFilesOnRevocation"), False),
+        # The desktop client does not yet have a root-bound selective purge.
+        # Keep the compatibility field fail-closed instead of promising remote recall.
+        "removeLocalFilesOnRevocation": False,
         "policyVersion": _bounded_int(raw.get("policyVersion"), 1, 1, 2 ** 31 - 1),
     }
 
@@ -113,5 +115,8 @@ def effective_desktop_sync_policy(value, user):
     policy = normalize_desktop_sync_policy(value)
     user_id = str(user.get("id") or "")
     role = str(user.get("role") or "")
-    allowed = role in policy["allowedRoles"] or user_id in policy["allowedUserIds"]
+    allowed = role == "admin" or (
+        user_id in policy["allowedUserIds"]
+        and policy["projectSelectionMode"] == "admin_assigned"
+    )
     return {**policy, "enabledForCurrentUser": bool(policy["enabled"] and allowed)}

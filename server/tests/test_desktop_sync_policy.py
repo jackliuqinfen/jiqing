@@ -36,7 +36,7 @@ class DesktopSyncPolicyTest(unittest.TestCase):
             "maxFileSizeMb": 9000,
             "maxLocalStorageGb": -1,
         })
-        self.assertEqual(policy["allowedRoles"], ["admin", "viewer"])
+        self.assertEqual(policy["allowedRoles"], ["admin"])
         self.assertEqual(policy["allowedUserIds"], ["user-1"])
         self.assertEqual(policy["allowedExtensions"], [".pdf", ".docx"])
         self.assertEqual(policy["pollIntervalSeconds"], 60)
@@ -49,6 +49,34 @@ class DesktopSyncPolicyTest(unittest.TestCase):
         admin = effective_desktop_sync_policy(stored, {"id": "u2", "role": "admin"})
         self.assertFalse(viewer["enabledForCurrentUser"])
         self.assertTrue(admin["enabledForCurrentUser"])
+
+    def test_non_admin_requires_explicit_user_and_admin_assigned_projects(self):
+        stored = {
+            **DEFAULT_DESKTOP_SYNC_POLICY,
+            "enabled": True,
+            "allowedUserIds": ["u1"],
+            "projectSelectionMode": "user_select",
+            "allowedProjectRefs": ["project:p1"],
+        }
+        self.assertFalse(
+            effective_desktop_sync_policy(
+                stored,
+                {"id": "u1", "role": "viewer"},
+            )["enabledForCurrentUser"]
+        )
+        stored["projectSelectionMode"] = "admin_assigned"
+        self.assertTrue(
+            effective_desktop_sync_policy(
+                stored,
+                {"id": "u1", "role": "viewer"},
+            )["enabledForCurrentUser"]
+        )
+        self.assertFalse(
+            effective_desktop_sync_policy(
+                stored,
+                {"id": "u2", "role": "viewer"},
+            )["enabledForCurrentUser"]
+        )
 
     def test_normalizer_rejects_untrusted_boolean_and_numeric_values(self):
         policy = normalize_desktop_sync_policy({
@@ -69,6 +97,12 @@ class DesktopSyncPolicyTest(unittest.TestCase):
         self.assertEqual(policy["maxLocalStorageBytes"], 10 * 1024 * 1024 * 1024)
         self.assertEqual(policy["pollIntervalSeconds"], 300)
         self.assertEqual(policy["policyVersion"], 1)
+
+    def test_revocation_cleanup_is_forced_off_until_client_supports_it(self):
+        policy = normalize_desktop_sync_policy({
+            "removeLocalFilesOnRevocation": True,
+        })
+        self.assertFalse(policy["removeLocalFilesOnRevocation"])
 
     def test_normalizer_preserves_normalized_byte_values(self):
         normalized = normalize_desktop_sync_policy({

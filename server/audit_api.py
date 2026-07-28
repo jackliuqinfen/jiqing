@@ -4090,21 +4090,17 @@ class Handler(BaseHTTPRequestHandler):
         value = json.loads(row["setting_value"] or "{}") if row else {}
         return effective_desktop_sync_policy(value, row_dict(user))
 
-    def desktop_sync_accessible_refs(self, conn, user, roots):
-        actor = {
-            "id": user["id"],
-            "name": user["display_name"] or user["username"],
-            "role": user["role"],
-        }
-        allowed_project_ids = self.document_project_scope_provider(conn, actor)
-        if allowed_project_ids is None:
-            return {item["projectRef"] for item in roots}
-        allowed_project_ids = {str(item) for item in allowed_project_ids if item}
-        return {
-            item["projectRef"]
-            for item in roots
-            if item["canonicalProjectId"] in allowed_project_ids
-        }
+    def desktop_sync_accessible_refs(self, user, roots, policy):
+        root_refs = {item["projectRef"] for item in roots}
+        if user["role"] == "admin":
+            return root_refs
+        user_id = str(user["id"] or "")
+        if (
+            user_id not in set(policy.get("allowedUserIds") or [])
+            or policy.get("projectSelectionMode") != "admin_assigned"
+        ):
+            return set()
+        return root_refs & set(policy.get("allowedProjectRefs") or [])
 
     def desktop_sync_projects(self, conn):
         user = self.require_user(conn)
@@ -4119,7 +4115,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         roots = list_sync_project_roots(conn, policy)
-        accessible_refs = self.desktop_sync_accessible_refs(conn, user, roots)
+        accessible_refs = self.desktop_sync_accessible_refs(user, roots, policy)
         self.respond(200, {
             "success": True,
             "data": [
@@ -4142,14 +4138,24 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         roots = list_sync_project_roots(conn, policy)
-        accessible_refs = self.desktop_sync_accessible_refs(conn, user, roots)
+        accessible_refs = self.desktop_sync_accessible_refs(user, roots, policy)
         requested_refs = {
             item.strip()
             for value in params.get("projectRefs", [])
             for item in value.split(",")
             if item.strip()
         }
-        project_refs = sorted(requested_refs & accessible_refs)
+        revoked_refs = sorted(requested_refs - accessible_refs)
+        if revoked_refs:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_scope_changed",
+                "error": "同步项目授权已变化，请刷新项目范围后重试",
+                "revokedProjectRefs": revoked_refs,
+                "policyVersion": policy["policyVersion"],
+            })
+            return
+        project_refs = sorted(requested_refs)
         try:
             result = list_sync_manifest(
                 conn,
@@ -4181,13 +4187,10 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         source = find_sync_source(conn, policy, source_type, source_id)
-        if (
-            source is None
-            or not self.source_project_allowed(
-                conn,
-                user,
-                source["canonicalProjectId"],
-            )
+        if source is None or source["projectRef"] not in self.desktop_sync_accessible_refs(
+            user,
+            [source],
+            policy,
         ):
             self.respond(403, {
                 "success": False,
