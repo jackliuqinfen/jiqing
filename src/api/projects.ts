@@ -179,7 +179,7 @@ export function fetchProjectFiles(params?: { projectId?: string; keyword?: strin
   return request(`/project-files${query.toString() ? `?${query.toString()}` : ''}`)
 }
 
-export function updateProjectDocumentCategory(categoryKey: string, data: { required: boolean }): Promise<ProjectMeta['categories'][number]> {
+export function updateProjectDocumentCategory(categoryKey: string, data: { required: boolean; requiredFromStage?: string }): Promise<ProjectMeta['categories'][number]> {
   return request(`/project-document-categories/${encodeURIComponent(categoryKey)}`, { method: 'PUT', body: JSON.stringify(data) })
 }
 

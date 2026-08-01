@@ -445,6 +445,7 @@ export interface ProjectDocumentCategory {
   categoryName: string
   description: string
   required: boolean
+  requiredFromStage: string
   sortOrder: number
   enabled: boolean
 }

@@ -24,11 +24,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from server.lifecycle import (
+    STAGE_ORDER,
     audit_start_failures,
     contract_gate_failures,
     next_stage as lifecycle_next_stage,
     stage_label as lifecycle_stage_label,
     validate_adjacent_transition,
+)
+from server.document_requirements import (
+    applicable_required_categories,
+    normalize_required_from_stage,
 )
 from server.lifecycle_repository import (
     LifecycleBlockedError,
@@ -68,14 +73,14 @@ STAGES = [
     ("archived", "办结归档", "#8E95A3"),
 ]
 PROJECT_DOCUMENT_CATEGORIES = [
-    ("contract", "合同文件", "合同、补充协议、合同清单等", 1),
-    ("drawing", "图纸资料", "施工图、竣工图、设计变更图纸等", 1),
-    ("settlement_book", "竣工结算书", "施工单位报送的结算书和汇总表", 1),
-    ("visa_change", "变更签证", "现场签证、工程变更、联系单等", 1),
-    ("first_audit", "一审资料", "一审过程材料、审核意见和确认资料", 1),
-    ("second_audit", "二审资料", "二审复核材料、复核意见和确认资料", 1),
-    ("payment", "付款资料", "付款申请、付款凭证、付款节点资料", 0),
-    ("other", "其他资料", "项目相关补充资料", 0),
+    ("contract", "合同文件", "合同、补充协议、合同清单等", 1, "contract_signed"),
+    ("drawing", "图纸资料", "施工图、竣工图、设计变更图纸等", 1, "under_construction"),
+    ("settlement_book", "竣工结算书", "施工单位报送的结算书和汇总表", 1, "pending_submission"),
+    ("visa_change", "变更签证", "现场签证、工程变更、联系单等", 1, "pending_submission"),
+    ("first_audit", "一审资料", "一审过程材料、审核意见和确认资料", 1, "first_audit"),
+    ("second_audit", "二审资料", "二审复核材料、复核意见和确认资料", 1, "second_audit"),
+    ("payment", "付款资料", "付款申请、付款凭证、付款节点资料", 0, "conclusion"),
+    ("other", "其他资料", "项目相关补充资料", 0, "archived"),
 ]
 PROJECT_STATUSES = {
     "awarded": "已中标",
@@ -689,6 +694,9 @@ def category_payload(row):
         "categoryName": row["category_name"],
         "description": row["description"],
         "required": bool(row["required"]),
+        "requiredFromStage": normalize_required_from_stage(
+            row["category_key"], row_get(row, "required_from_stage")
+        ),
         "sortOrder": row["sort_order"],
         "enabled": bool(row["enabled"]),
     }
@@ -854,8 +862,9 @@ def project_record_payload(conn, row, include_detail=False):
         (row["id"],),
     ).fetchall()
     required_categories = conn.execute(
-        "SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1"
+        "SELECT * FROM project_document_categories WHERE enabled = 1 AND required = 1"
     ).fetchall()
+    required_categories = applicable_required_categories(required_categories, row["project_status"])
     current_categories = {f["category_key"] for f in files if f["is_current"]}
     missing_count = sum(1 for category in required_categories if category["category_key"] not in current_categories)
     total_required = max(len(required_categories), 1)
@@ -1223,7 +1232,14 @@ def query_work_items(conn, limit=80):
 
 
 def refresh_project_rollups(conn, project_id):
-    cats = conn.execute("SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
+    project = conn.execute(
+        "SELECT project_status FROM project_records WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    if not project:
+        return
+    cats = conn.execute("SELECT * FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
+    cats = applicable_required_categories(cats, project["project_status"])
     current = conn.execute(
         "SELECT DISTINCT category_key FROM project_files WHERE project_id = ? AND is_current = 1 AND COALESCE(is_deleted, 0) = 0",
         (project_id,),
@@ -1248,6 +1264,14 @@ def refresh_project_rollups(conn, project_id):
         """,
         (completion, missing, variation["c"], variation["amount"], paid["paid"], now_iso(), project_id),
     )
+
+
+def refresh_all_project_rollups(conn):
+    project_ids = conn.execute(
+        "SELECT id FROM project_records WHERE COALESCE(is_deleted, 0) = 0"
+    ).fetchall()
+    for project in project_ids:
+        refresh_project_rollups(conn, project["id"])
 
 
 def log_action(conn, project_id, action, operator="", note="", before=None, after=None):
@@ -1290,6 +1314,7 @@ def bootstrap():
         ensure_stage_field_defaults(conn)
         purge_seed_projects(conn)
         backfill_project_records(conn)
+        refresh_all_project_rollups(conn)
         conn.commit()
 
 
@@ -1736,14 +1761,14 @@ def seed_options(conn):
 
 def seed_project_document_categories(conn):
     ts = now_iso()
-    for index, (key, name, desc, required) in enumerate(PROJECT_DOCUMENT_CATEGORIES):
+    for index, (key, name, desc, required, required_from_stage) in enumerate(PROJECT_DOCUMENT_CATEGORIES):
         conn.execute(
             """
             INSERT OR IGNORE INTO project_document_categories
-            (id, category_key, category_name, description, required, sort_order, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            (id, category_key, category_name, description, required, required_from_stage, sort_order, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
-            (new_id(), key, name, desc, int(required), index * 10, ts, ts),
+            (new_id(), key, name, desc, int(required), required_from_stage, index * 10, ts, ts),
         )
 
 
@@ -2471,14 +2496,20 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             self.not_found()
             return
-        required = 1 if bool(data.get("required")) else 0
+        required = int(bool(data["required"])) if "required" in data else int(bool(row["required"]))
+        required_from_stage = str(
+            data.get("requiredFromStage") or row_get(row, "required_from_stage") or ""
+        ).strip()
+        if required_from_stage not in STAGE_ORDER:
+            self.respond(400, {"success": False, "error": "资料生效阶段无效"})
+            return
         conn.execute(
             """
             UPDATE project_document_categories
-            SET required = ?, updated_at = ?
+            SET required = ?, required_from_stage = ?, updated_at = ?
             WHERE category_key = ?
             """,
-            (required, now_iso(), category_key),
+            (required, required_from_stage, now_iso(), category_key),
         )
         project_ids = [item["id"] for item in conn.execute("SELECT id FROM project_records WHERE COALESCE(is_deleted, 0) = 0").fetchall()]
         for project_id in project_ids:
@@ -2489,7 +2520,7 @@ class Handler(BaseHTTPRequestHandler):
             user,
             "project_document_category",
             category_key,
-            detail={"required": bool(required)},
+            detail={"required": bool(required), "requiredFromStage": required_from_stage},
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM project_document_categories WHERE category_key = ?", (category_key,)).fetchone()

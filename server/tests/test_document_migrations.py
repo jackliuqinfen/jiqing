@@ -15,6 +15,7 @@ from server.migrations import (
     DOCUMENT_EVIDENCE_MIGRATION,
     LIFECYCLE_RUNTIME_MIGRATION,
     MigrationChecksumMismatchError,
+    PROJECT_DOCUMENT_STAGE_MIGRATION,
     apply_pending_migrations,
 )
 
@@ -130,8 +131,91 @@ class DocumentMigrationTests(unittest.TestCase):
                 (CONTRACT_FALLBACK_MIGRATION, 1),
                 (CONTRACT_FALLBACK_PROVENANCE_MIGRATION, 1),
                 (DESKTOP_SYNC_HASH_CACHE_MIGRATION, 1),
+                (PROJECT_DOCUMENT_STAGE_MIGRATION, 1),
             ],
         )
+
+    def test_project_document_stage_migration_backfills_existing_categories(self):
+        self.conn.execute(
+            """
+            CREATE TABLE project_document_categories (
+              id TEXT PRIMARY KEY,
+              category_key TEXT UNIQUE NOT NULL,
+              category_name TEXT NOT NULL,
+              description TEXT DEFAULT '',
+              required INTEGER DEFAULT 1,
+              sort_order INTEGER DEFAULT 0,
+              enabled INTEGER DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.executemany(
+            """
+            INSERT INTO project_document_categories
+            (id, category_key, category_name, created_at, updated_at)
+            VALUES (?, ?, ?, '2026-08-01', '2026-08-01')
+            """,
+            [
+                ("category-contract", "contract", "合同文件"),
+                ("category-drawing", "drawing", "图纸资料"),
+                ("category-settlement", "settlement_book", "竣工结算书"),
+                ("category-first", "first_audit", "一审资料"),
+                ("category-second", "second_audit", "二审资料"),
+            ],
+        )
+        self.conn.commit()
+
+        apply_pending_migrations(self.conn)
+
+        columns = {
+            row["name"]
+            for row in self.conn.execute(
+                "PRAGMA table_info(project_document_categories)"
+            )
+        }
+        stages = {
+            row["category_key"]: row["required_from_stage"]
+            for row in self.conn.execute(
+                """
+                SELECT category_key, required_from_stage
+                FROM project_document_categories
+                """
+            )
+        }
+        self.assertIn("required_from_stage", columns)
+        self.assertEqual(stages["contract"], "contract_signed")
+        self.assertEqual(stages["drawing"], "under_construction")
+        self.assertEqual(stages["settlement_book"], "pending_submission")
+        self.assertEqual(stages["first_audit"], "first_audit")
+        self.assertEqual(stages["second_audit"], "second_audit")
+
+    def test_cold_start_seeds_document_category_stage_defaults(self):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            apply_pending_migrations(conn)
+            schema = (
+                Path(__file__).resolve().parents[1] / "schema.sql"
+            ).read_text(encoding="utf-8")
+            conn.executescript(schema)
+
+            audit_api.seed_project_document_categories(conn)
+
+            stages = {
+                row["category_key"]: row["required_from_stage"]
+                for row in conn.execute(
+                    "SELECT category_key, required_from_stage FROM project_document_categories"
+                )
+            }
+            self.assertEqual(stages["contract"], "contract_signed")
+            self.assertEqual(stages["drawing"], "under_construction")
+            self.assertEqual(stages["settlement_book"], "pending_submission")
+            self.assertEqual(stages["first_audit"], "first_audit")
+            self.assertEqual(stages["second_audit"], "second_audit")
+        finally:
+            conn.close()
 
     def test_desktop_sync_hash_cache_migration_is_additive(self):
         apply_pending_migrations(self.conn)

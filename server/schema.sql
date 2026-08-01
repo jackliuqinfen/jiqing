@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS project_document_categories (
   category_name TEXT NOT NULL,
   description TEXT DEFAULT '',
   required INTEGER DEFAULT 1,
+  required_from_stage TEXT NOT NULL DEFAULT 'awarded',
   sort_order INTEGER DEFAULT 0,
   enabled INTEGER DEFAULT 1,
   created_at TEXT NOT NULL,

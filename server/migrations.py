@@ -12,6 +12,7 @@ DOCUMENT_CONFIRMATION_GUARDS_MIGRATION = "2026071401_document_confirmation_guard
 CONTRACT_FALLBACK_MIGRATION = "2026071501_contract_fallback"
 CONTRACT_FALLBACK_PROVENANCE_MIGRATION = "2026071502_contract_fallback_provenance"
 DESKTOP_SYNC_HASH_CACHE_MIGRATION = "2026072701_desktop_sync_hash_cache"
+PROJECT_DOCUMENT_STAGE_MIGRATION = "2026080101_project_document_stage_requirements"
 
 
 class MigrationChecksumMismatchError(RuntimeError):
@@ -30,6 +31,35 @@ class MigrationChecksumMismatchError(RuntimeError):
 _LIFECYCLE_VERSION_ALTER_SQL = """
 ALTER TABLE project_records ADD COLUMN lifecycle_version INTEGER NOT NULL DEFAULT 0
 """
+
+_PROJECT_DOCUMENT_STAGE_ALTER_SQL = """
+ALTER TABLE project_document_categories
+ADD COLUMN required_from_stage TEXT NOT NULL DEFAULT 'awarded'
+"""
+
+_PROJECT_DOCUMENT_STAGE_BACKFILL_SQL = """
+UPDATE project_document_categories
+SET required_from_stage = CASE category_key
+  WHEN 'contract' THEN 'contract_signed'
+  WHEN 'drawing' THEN 'under_construction'
+  WHEN 'settlement_book' THEN 'pending_submission'
+  WHEN 'visa_change' THEN 'pending_submission'
+  WHEN 'first_audit' THEN 'first_audit'
+  WHEN 'second_audit' THEN 'second_audit'
+  WHEN 'payment' THEN 'conclusion'
+  WHEN 'other' THEN 'archived'
+  ELSE 'awarded'
+END
+"""
+
+PROJECT_DOCUMENT_STAGE_CHECKSUM = hashlib.sha256(
+    "\n".join(
+        (
+            _PROJECT_DOCUMENT_STAGE_ALTER_SQL.strip(),
+            _PROJECT_DOCUMENT_STAGE_BACKFILL_SQL.strip(),
+        )
+    ).encode("utf-8")
+).hexdigest()
 
 _STAGE_FORM_SNAPSHOT_ALTER_SQL = """
 ALTER TABLE project_lifecycle_events ADD COLUMN stage_form_snapshot_id TEXT
@@ -598,6 +628,13 @@ def apply_pending_migrations(conn):
         checksum=DESKTOP_SYNC_HASH_CACHE_CHECKSUM,
         statements=_DESKTOP_SYNC_HASH_CACHE_STATEMENTS,
     )
+    _apply_migration(
+        conn,
+        version=PROJECT_DOCUMENT_STAGE_MIGRATION,
+        checksum=PROJECT_DOCUMENT_STAGE_CHECKSUM,
+        statements=(),
+        prepare=_prepare_project_document_stage,
+    )
 
 
 def _apply_migration(conn, *, version, checksum, statements, prepare=None):
@@ -697,6 +734,18 @@ def _prepare_contract_fallback_provenance(conn):
         conn.execute(_RECOGNITION_FALLBACK_REASON_ALTER_SQL)
     if not _column_exists(conn, "recognition_jobs", "fallback_note"):
         conn.execute(_RECOGNITION_FALLBACK_NOTE_ALTER_SQL)
+
+
+def _prepare_project_document_stage(conn):
+    if not _table_exists(conn, "project_document_categories"):
+        return
+    if not _column_exists(
+        conn,
+        "project_document_categories",
+        "required_from_stage",
+    ):
+        conn.execute(_PROJECT_DOCUMENT_STAGE_ALTER_SQL)
+        conn.execute(_PROJECT_DOCUMENT_STAGE_BACKFILL_SQL)
 
 
 def _ensure_schema_migrations_table(conn):
