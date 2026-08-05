@@ -184,6 +184,87 @@ CREATE TABLE IF NOT EXISTS settlement_payment_nodes (
   FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS settlement_payment_applications (
+  id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  node_id TEXT,
+  application_no TEXT DEFAULT '',
+  application_name TEXT NOT NULL,
+  applied_amount REAL NOT NULL DEFAULT 0,
+  submitted_date TEXT DEFAULT '',
+  approval_status TEXT NOT NULL DEFAULT 'DRAFT',
+  approved_amount REAL NOT NULL DEFAULT 0,
+  approval_date TEXT DEFAULT '',
+  payer_unit TEXT DEFAULT '',
+  attachment_file_id TEXT,
+  remark TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (settlement_id) REFERENCES project_settlements(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_id) REFERENCES settlement_payment_nodes(id) ON DELETE SET NULL,
+  FOREIGN KEY (attachment_file_id) REFERENCES project_files(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS settlement_receipts (
+  id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  receipt_type TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  received_date TEXT DEFAULT '',
+  payer_name TEXT DEFAULT '',
+  receiving_entity TEXT DEFAULT '',
+  receiving_account TEXT DEFAULT '',
+  attachment_file_id TEXT,
+  is_draft INTEGER DEFAULT 0,
+  acceptance_status TEXT DEFAULT '',
+  acceptance_number TEXT DEFAULT '',
+  acceptor_name TEXT DEFAULT '',
+  issuer_name TEXT DEFAULT '',
+  issue_date TEXT DEFAULT '',
+  due_date TEXT DEFAULT '',
+  draft_medium TEXT DEFAULT '',
+  holder_name TEXT DEFAULT '',
+  actual_bank_amount REAL DEFAULT 0,
+  discount_fee REAL DEFAULT 0,
+  disposed_date TEXT DEFAULT '',
+  remark TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  updated_by TEXT DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT DEFAULT '',
+  is_deleted INTEGER DEFAULT 0,
+  FOREIGN KEY (settlement_id) REFERENCES project_settlements(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES project_records(id) ON DELETE CASCADE,
+  FOREIGN KEY (attachment_file_id) REFERENCES project_files(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS settlement_receipt_allocations (
+  id TEXT PRIMARY KEY,
+  receipt_id TEXT NOT NULL,
+  application_id TEXT NOT NULL,
+  allocation_amount REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (receipt_id) REFERENCES settlement_receipts(id) ON DELETE CASCADE,
+  FOREIGN KEY (application_id) REFERENCES settlement_payment_applications(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_settlement_applications_settlement
+ON settlement_payment_applications(settlement_id, approval_status, submitted_date);
+
+CREATE INDEX IF NOT EXISTS idx_settlement_receipts_settlement
+ON settlement_receipts(settlement_id, receipt_type, acceptance_status, received_date);
+
+CREATE INDEX IF NOT EXISTS idx_settlement_receipt_allocations_receipt
+ON settlement_receipt_allocations(receipt_id, application_id);
+
 CREATE TABLE IF NOT EXISTS project_variations (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
