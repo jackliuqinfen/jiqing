@@ -25,6 +25,9 @@ export interface SettlementBossDashboard {
   auditedTotalAmount?: number
   invoiceTotalAmount?: number
   receivedTotalAmount?: number
+  ownerPaidTotalAmount?: number
+  bankReceivedTotalAmount?: number
+  outstandingAcceptanceAmount?: number
   receivableAmount?: number
   overdueReceivableAmount?: number
   retentionAmount?: number
@@ -99,6 +102,8 @@ export interface SettlementProjectLedgerItem {
   hasReceived?: boolean
   hasPayment?: boolean
   historicalPaidAmount?: number
+  historicalBankReceivedAmount?: number
+  historicalAcceptanceAmount?: number
   hasRetention?: boolean
   retentionRatio?: number
   warrantyStartDate?: string
@@ -109,6 +114,19 @@ export interface SettlementProjectLedgerItem {
   exceptionNote?: string
   isDraft?: boolean
   paymentNodes?: SettlementPaymentNode[]
+  paymentSummary?: SettlementPaymentSummary
+}
+
+export interface SettlementPaymentSummary {
+  pendingApprovalAmount?: number
+  approvedAmount?: number
+  ownerPaidAmount?: number
+  approvedUnreceivedAmount?: number
+  bankReceivedAmount?: number
+  outstandingAcceptanceAmount?: number
+  dueConfirmationAmount?: number
+  refusedAmount?: number
+  collectionStatus?: string
 }
 
 export interface SettlementPaymentNode {
@@ -164,6 +182,85 @@ export interface SettlementPaymentRecord {
   remark?: string
 }
 
+export type SettlementApprovalStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'
+export type SettlementReceiptType = 'BANK_TRANSFER' | 'BANK_ACCEPTANCE' | 'COMMERCIAL_ACCEPTANCE'
+export type SettlementAcceptanceStatus = 'OUTSTANDING' | 'DUE_PENDING' | 'REDEEMED' | 'DISCOUNTED' | 'ENDORSED' | 'REFUSED_RETURNED'
+
+export interface SettlementPaymentApplication {
+  id: string
+  settlementId: string
+  projectId: string
+  projectName?: string
+  projectCode?: string
+  contractName?: string
+  nodeId?: string
+  nodeName?: string
+  applicationNo?: string
+  applicationName?: string
+  appliedAmount?: number
+  submittedDate?: string
+  approvalStatus?: SettlementApprovalStatus
+  approvedAmount?: number
+  approvalDate?: string
+  payerUnit?: string
+  attachmentFileId?: string
+  attachmentName?: string
+  remark?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SettlementReceiptAllocation {
+  id?: string
+  applicationId: string
+  applicationName?: string
+  allocationAmount: number
+}
+
+export interface SettlementReceipt {
+  id: string
+  settlementId: string
+  projectId: string
+  projectName?: string
+  projectCode?: string
+  contractName?: string
+  receiptType: SettlementReceiptType
+  amount?: number
+  receivedDate?: string
+  payerName?: string
+  receivingEntity?: string
+  receivingAccount?: string
+  attachmentFileId?: string
+  attachmentName?: string
+  isDraft?: boolean
+  acceptanceStatus?: SettlementAcceptanceStatus
+  acceptanceNumber?: string
+  acceptorName?: string
+  issuerName?: string
+  issueDate?: string
+  dueDate?: string
+  draftMedium?: string
+  holderName?: string
+  actualBankAmount?: number
+  discountFee?: number
+  disposedDate?: string
+  remark?: string
+  allocations?: SettlementReceiptAllocation[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type SettlementPaymentApplicationPayload = Partial<SettlementPaymentApplication> & {
+  settlementId: string
+  applicationName: string
+}
+
+export type SettlementReceiptPayload = Partial<SettlementReceipt> & {
+  settlementId: string
+  receiptType: SettlementReceiptType
+  allocations: SettlementReceiptAllocation[]
+}
+
 export interface SettlementRetentionRecord {
   id: string
   projectName?: string
@@ -199,6 +296,38 @@ export function fetchSettlementInvoices(): Promise<SettlementInvoiceRecord[]> {
 
 export function fetchSettlementPaymentRecords(): Promise<SettlementPaymentRecord[]> {
   return request('/settlement/payment-records')
+}
+
+export function fetchSettlementPaymentApplications(): Promise<SettlementPaymentApplication[]> {
+  return request('/settlement/payment-applications')
+}
+
+export function createSettlementPaymentApplication(
+  data: SettlementPaymentApplicationPayload,
+): Promise<SettlementPaymentApplication> {
+  return request('/settlement/payment-applications', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function updateSettlementPaymentApplicationStatus(
+  id: string,
+  data: { approvalStatus: Extract<SettlementApprovalStatus, 'APPROVED' | 'REJECTED'>; approvedAmount?: number; approvalDate: string; remark?: string },
+): Promise<SettlementPaymentApplication> {
+  return request(`/settlement/payment-applications/${id}/status`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export function fetchSettlementReceipts(): Promise<SettlementReceipt[]> {
+  return request('/settlement/receipts')
+}
+
+export function createSettlementReceipt(data: SettlementReceiptPayload): Promise<SettlementReceipt> {
+  return request('/settlement/receipts', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function updateSettlementAcceptanceStatus(
+  id: string,
+  data: { acceptanceStatus: SettlementAcceptanceStatus; actualBankAmount?: number; discountFee?: number; disposedDate?: string; remark?: string },
+): Promise<{ id: string; acceptanceStatus: SettlementAcceptanceStatus }> {
+  return request(`/settlement/receipts/${id}/status`, { method: 'PUT', body: JSON.stringify(data) })
 }
 
 export function fetchSettlementRetentions(): Promise<SettlementRetentionRecord[]> {

@@ -119,7 +119,7 @@
           </span>
           <span>
             <small>开票：{{ formatNullableMoney(item.invoicedAmount ?? item.invoiceAmount) }}</small>
-            <small>收款：{{ formatNullableMoney(item.receivedAmount) }}</small>
+            <small>甲方已付：{{ formatNullableMoney(item.paymentSummary?.ownerPaidAmount ?? item.receivedAmount) }}</small>
           </span>
           <span>
             <em class="status-pill">{{ item.settlementStatus || item.collectionStatus || '状态待补充' }}</em>
@@ -159,29 +159,7 @@
     </section>
 
     <section v-else-if="activeView === 'payment'" class="view-panel">
-      <div class="panel-title">
-        <div>
-          <h2>收付款管理</h2>
-          <span>收款、付款、银行回单和经办人从收付款记录接口读取。</span>
-        </div>
-      </div>
-      <DataTable :columns="['类型', '项目/合同', '付款节点', '金额', '日期', '对方/经办人']">
-        <article v-for="item in paymentRecords" :key="item.id" class="table-row table-row--six">
-          <span><em class="status-pill">{{ item.recordType || '-' }}</em></span>
-          <span>
-            <strong>{{ item.projectName || '-' }}</strong>
-            <small>{{ item.contractName || '-' }}</small>
-          </span>
-          <span>{{ item.paymentNodeName || '-' }}</span>
-          <MoneyCell :amount="item.amount" />
-          <span>{{ item.paymentDate || '-' }}</span>
-          <span>
-            <strong>{{ item.counterparty || '-' }}</strong>
-            <small>{{ item.operatorName || '-' }}</small>
-          </span>
-        </article>
-        <div v-if="paymentRecords.length === 0" class="empty-row">暂无真实收付款记录</div>
-      </DataTable>
+      <SettlementPaymentFlowPanel :settlements="settlementProjects" :can-manage="canManageSettlementFinance" @saved="refresh" />
     </section>
 
     <section v-else-if="activeView === 'documents'" class="view-panel">
@@ -543,19 +521,18 @@
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SettlementManagementWizard from '@/components/SettlementManagementWizard.vue'
+import SettlementPaymentFlowPanel from '@/components/SettlementPaymentFlowPanel.vue'
 import { fetchProjectRecords, saveProjectSettlement } from '@/api/projects'
 import {
   createSettlementProject,
   fetchSettlementBossDashboard,
   fetchSettlementFinanceWorkbench,
   fetchSettlementInvoices,
-  fetchSettlementPaymentRecords,
   fetchSettlementProjects,
   fetchSettlementRetentions,
   type SettlementProjectPayload,
   type SettlementBossDashboard,
   type SettlementInvoiceRecord,
-  type SettlementPaymentRecord,
   type SettlementProjectLedgerItem,
   type SettlementRetentionRecord,
   type SettlementWorkbenchItem,
@@ -572,7 +549,7 @@ const views: { key: ViewKey; label: string }[] = [
   { key: 'workbench', label: '财务工作台' },
   { key: 'ledger', label: '项目结算台账' },
   { key: 'invoice', label: '发票管理' },
-  { key: 'payment', label: '收付款管理' },
+  { key: 'payment', label: '付款申请与到账' },
   { key: 'documents', label: '结算资料管理' },
   { key: 'retention', label: '质保金管理' },
 ]
@@ -586,7 +563,6 @@ const bossDashboard = ref<SettlementBossDashboard | null>(null)
 const workbenchItems = ref<SettlementWorkbenchItem[]>([])
 const settlementProjects = ref<SettlementProjectLedgerItem[]>([])
 const invoices = ref<SettlementInvoiceRecord[]>([])
-const paymentRecords = ref<SettlementPaymentRecord[]>([])
 const retentions = ref<SettlementRetentionRecord[]>([])
 const existingProjects = ref<ProjectRecord[]>([])
 const unavailableEndpoints = ref<string[]>([])
@@ -687,7 +663,6 @@ const sourceStatusItems = computed(() => [
   sourceStatus('财务工作台', workbenchItems.value.length > 0, workbenchItems.value.length ? `已读取 ${workbenchItems.value.length} 条待办` : '接口可用但暂无待办'),
   sourceStatus('项目结算台账', settlementProjects.value.length > 0, settlementProjects.value.length ? `已读取 ${settlementProjects.value.length} 个结算项目` : '接口可用但暂无结算项目'),
   sourceStatus('发票记录', invoices.value.length > 0, invoices.value.length ? `已读取 ${invoices.value.length} 条发票` : '接口可用但暂无发票'),
-  sourceStatus('收付款记录', paymentRecords.value.length > 0, paymentRecords.value.length ? `已读取 ${paymentRecords.value.length} 条记录` : '接口可用但暂无记录'),
   sourceStatus('质保金记录', retentions.value.length > 0, retentions.value.length ? `已读取 ${retentions.value.length} 条记录` : '接口可用但暂无记录'),
 ])
 
@@ -997,12 +972,11 @@ async function handleNewSettlementWizardConfirm() {
 
 async function refresh() {
   unavailableEndpoints.value = []
-  const [boss, workbench, projects, invoiceList, paymentList, retentionList, projectList] = await Promise.all([
+  const [boss, workbench, projects, invoiceList, retentionList, projectList] = await Promise.all([
     readEndpoint('老板财务看板', fetchSettlementBossDashboard, null),
     readEndpoint('财务工作台', fetchSettlementFinanceWorkbench, []),
     readEndpoint('项目结算台账', fetchSettlementProjects, []),
     readEndpoint('发票管理', fetchSettlementInvoices, []),
-    readEndpoint('收付款管理', fetchSettlementPaymentRecords, []),
     readEndpoint('质保金管理', fetchSettlementRetentions, []),
     readEndpoint('已有项目列表', () => fetchProjectRecords({ page: 1, pageSize: 200 }).then((res) => res.data), []),
   ])
@@ -1010,7 +984,6 @@ async function refresh() {
   workbenchItems.value = workbench
   settlementProjects.value = projects
   invoices.value = invoiceList
-  paymentRecords.value = paymentList
   retentions.value = retentionList
   existingProjects.value = projectList
 }

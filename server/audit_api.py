@@ -699,7 +699,7 @@ def settlement_payload(row):
     }
 
 
-def settlement_finance_payload(row, payment_nodes=None):
+def settlement_finance_payload(row, payment_nodes=None, payment_summary=None):
     return {
         **settlement_payload(row),
         "ownerUnit": row_get(row, "owner_unit"),
@@ -731,8 +731,10 @@ def settlement_finance_payload(row, payment_nodes=None):
         "invoicedAmount": row_get(row, "invoiced_amount", 0),
         "hasReceived": bool(row_get(row, "has_received", 0)),
         "receivedAmount": row_get(row, "received_amount", 0),
+        "historicalBankReceivedAmount": row_get(row, "received_amount", 0),
         "hasPayment": bool(row_get(row, "has_payment", 0)),
         "historicalPaidAmount": row_get(row, "historical_paid_amount", 0),
+        "historicalAcceptanceAmount": row_get(row, "historical_paid_amount", 0),
         "hasRetention": bool(row_get(row, "has_retention", 0)),
         "retentionRatio": row_get(row, "retention_ratio", 0),
         "retentionAmount": row_get(row, "retention_amount", 0),
@@ -743,6 +745,7 @@ def settlement_finance_payload(row, payment_nodes=None):
         "documentNote": row_get(row, "document_note"),
         "isDraft": bool(row_get(row, "is_draft", 0)),
         "paymentNodes": payment_nodes or [],
+        "paymentSummary": payment_summary or {},
     }
 
 
@@ -766,6 +769,76 @@ def settlement_payment_node_payload(row):
         "dueDays": row["due_days"],
         "reminderEnabled": bool(row["reminder_enabled"]),
         "nodeStatus": row["node_status"],
+    }
+
+
+def settlement_payment_application_payload(row):
+    return {
+        "id": row["id"],
+        "settlementId": row["settlement_id"],
+        "projectId": row["project_id"],
+        "projectName": row_get(row, "project_name"),
+        "projectCode": row_get(row, "project_code"),
+        "contractName": row_get(row, "contract_name"),
+        "nodeId": row_get(row, "node_id"),
+        "nodeName": row_get(row, "node_name"),
+        "applicationNo": row_get(row, "application_no"),
+        "applicationName": row_get(row, "application_name"),
+        "appliedAmount": row_get(row, "applied_amount", 0),
+        "submittedDate": row_get(row, "submitted_date"),
+        "approvalStatus": row_get(row, "approval_status"),
+        "approvedAmount": row_get(row, "approved_amount", 0),
+        "approvalDate": row_get(row, "approval_date"),
+        "payerUnit": row_get(row, "payer_unit"),
+        "attachmentFileId": row_get(row, "attachment_file_id"),
+        "attachmentName": row_get(row, "attachment_name"),
+        "remark": row_get(row, "remark"),
+        "createdBy": row_get(row, "created_by"),
+        "createdAt": row_get(row, "created_at"),
+        "updatedAt": row_get(row, "updated_at"),
+    }
+
+
+def settlement_receipt_payload(row, allocations=None):
+    receipt_type = row_get(row, "receipt_type")
+    acceptance_status = row_get(row, "acceptance_status")
+    is_acceptance = receipt_type in {"BANK_ACCEPTANCE", "COMMERCIAL_ACCEPTANCE"}
+    if is_acceptance and acceptance_status == "OUTSTANDING" and row_get(row, "due_date") and row_get(row, "due_date") <= date.today().isoformat():
+        acceptance_status = "DUE_PENDING"
+    return {
+        "id": row["id"],
+        "settlementId": row["settlement_id"],
+        "projectId": row["project_id"],
+        "projectName": row_get(row, "project_name"),
+        "projectCode": row_get(row, "project_code"),
+        "contractName": row_get(row, "contract_name"),
+        "receiptType": receipt_type,
+        "amount": row_get(row, "amount", 0),
+        "receivedDate": row_get(row, "received_date"),
+        "payerName": row_get(row, "payer_name"),
+        "receivingEntity": row_get(row, "receiving_entity"),
+        "receivingAccount": row_get(row, "receiving_account"),
+        "attachmentFileId": row_get(row, "attachment_file_id"),
+        "attachmentName": row_get(row, "attachment_name"),
+        "isDraft": bool(row_get(row, "is_draft", 0)),
+        "acceptanceStatus": acceptance_status,
+        "acceptanceNumber": row_get(row, "acceptance_number"),
+        "acceptorName": row_get(row, "acceptor_name"),
+        "issuerName": row_get(row, "issuer_name"),
+        "issueDate": row_get(row, "issue_date"),
+        "dueDate": row_get(row, "due_date"),
+        "draftMedium": row_get(row, "draft_medium"),
+        "holderName": row_get(row, "holder_name"),
+        "actualBankAmount": row_get(row, "actual_bank_amount", 0),
+        "discountFee": row_get(row, "discount_fee", 0),
+        "disposedDate": row_get(row, "disposed_date"),
+        "remark": row_get(row, "remark"),
+        "riskLevel": "warning" if receipt_type == "COMMERCIAL_ACCEPTANCE" and acceptance_status in {"OUTSTANDING", "DUE_PENDING"} else "normal",
+        "fundsStatus": acceptance_status if is_acceptance else "BANK_RECEIVED",
+        "allocations": allocations or [],
+        "createdBy": row_get(row, "created_by"),
+        "createdAt": row_get(row, "created_at"),
+        "updatedAt": row_get(row, "updated_at"),
     }
 
 
@@ -3228,13 +3301,564 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
         ]
 
+    def settlement_payment_summary(self, conn, settlement_id):
+        settlement = conn.execute(
+            "SELECT received_amount, historical_paid_amount FROM project_settlements WHERE id = ?",
+            (settlement_id,),
+        ).fetchone()
+        if not settlement:
+            return {}
+        application_totals = conn.execute(
+            """
+            SELECT
+              COALESCE(SUM(CASE WHEN approval_status = 'SUBMITTED' THEN applied_amount ELSE 0 END), 0) AS pending_amount,
+              COALESCE(SUM(CASE WHEN approval_status = 'APPROVED' THEN approved_amount ELSE 0 END), 0) AS approved_amount
+            FROM settlement_payment_applications
+            WHERE settlement_id = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (settlement_id,),
+        ).fetchone()
+        receipt_totals = conn.execute(
+            """
+            SELECT
+              COALESCE(SUM(CASE
+                WHEN is_draft = 0 AND (receipt_type = 'BANK_TRANSFER' OR acceptance_status != 'REFUSED_RETURNED')
+                THEN amount ELSE 0 END), 0) AS owner_paid_amount,
+              COALESCE(SUM(CASE
+                WHEN is_draft = 0 AND receipt_type = 'BANK_TRANSFER' THEN amount
+                WHEN is_draft = 0 AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                     AND acceptance_status = 'REDEEMED' THEN amount
+                WHEN is_draft = 0 AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                     AND acceptance_status = 'DISCOUNTED' THEN actual_bank_amount
+                ELSE 0 END), 0) AS bank_received_amount,
+              COALESCE(SUM(CASE
+                WHEN is_draft = 0 AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                     AND acceptance_status IN ('OUTSTANDING', 'DUE_PENDING') THEN amount ELSE 0 END), 0) AS outstanding_acceptance_amount,
+              COALESCE(SUM(CASE
+                WHEN is_draft = 0 AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                     AND acceptance_status IN ('OUTSTANDING', 'DUE_PENDING') AND due_date != '' AND due_date <= ?
+                THEN amount ELSE 0 END), 0) AS due_confirmation_amount,
+              COALESCE(SUM(CASE
+                WHEN is_draft = 0 AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                     AND acceptance_status = 'REFUSED_RETURNED' THEN amount ELSE 0 END), 0) AS refused_amount
+            FROM settlement_receipts
+            WHERE settlement_id = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (date.today().isoformat(), settlement_id),
+        ).fetchone()
+        historical_bank = float(row_get(settlement, "received_amount", 0) or 0)
+        historical_acceptance = float(row_get(settlement, "historical_paid_amount", 0) or 0)
+        approved = float(row_get(application_totals, "approved_amount", 0) or 0)
+        owner_paid = historical_bank + historical_acceptance + float(row_get(receipt_totals, "owner_paid_amount", 0) or 0)
+        bank_received = historical_bank + float(row_get(receipt_totals, "bank_received_amount", 0) or 0)
+        outstanding = historical_acceptance + float(row_get(receipt_totals, "outstanding_acceptance_amount", 0) or 0)
+        refused = float(row_get(receipt_totals, "refused_amount", 0) or 0)
+        if refused > 0:
+            collection_status = "存在拒付/退票异常"
+        elif approved > 0 and owner_paid >= approved and outstanding > 0:
+            collection_status = "已全部收到，承兑汇票待兑付"
+        elif approved > 0 and owner_paid >= approved:
+            collection_status = "已全部收到"
+        elif owner_paid > 0:
+            collection_status = "部分收到"
+        else:
+            collection_status = "尚未收到"
+        return {
+            "pendingApprovalAmount": float(row_get(application_totals, "pending_amount", 0) or 0),
+            "approvedAmount": approved,
+            "ownerPaidAmount": owner_paid,
+            "approvedUnreceivedAmount": max(approved - owner_paid, 0),
+            "bankReceivedAmount": bank_received,
+            "outstandingAcceptanceAmount": outstanding,
+            "dueConfirmationAmount": float(row_get(receipt_totals, "due_confirmation_amount", 0) or 0),
+            "refusedAmount": refused,
+            "collectionStatus": collection_status,
+        }
+
+    def recalculate_settlement_paid_amount(self, conn, settlement_id):
+        summary = self.settlement_payment_summary(conn, settlement_id)
+        conn.execute(
+            "UPDATE project_settlements SET paid_amount = ?, has_received = ?, updated_at = ? WHERE id = ?",
+            (
+                summary.get("ownerPaidAmount", 0),
+                1 if summary.get("ownerPaidAmount", 0) > 0 else 0,
+                now_iso(),
+                settlement_id,
+            ),
+        )
+        return summary
+
+    def settlement_application_rows(self, conn):
+        return conn.execute(
+            """
+            SELECT a.*, p.project_name, p.project_code, s.contract_name, n.node_name,
+                   f.display_name AS attachment_name
+            FROM settlement_payment_applications a
+            JOIN project_settlements s ON s.id = a.settlement_id
+            JOIN project_records p ON p.id = a.project_id
+            LEFT JOIN settlement_payment_nodes n ON n.id = a.node_id
+            LEFT JOIN project_files f ON f.id = a.attachment_file_id AND COALESCE(f.is_deleted, 0) = 0
+            WHERE COALESCE(a.is_deleted, 0) = 0 AND COALESCE(s.is_deleted, 0) = 0
+            ORDER BY a.updated_at DESC
+            """
+        ).fetchall()
+
+    def list_settlement_payment_applications(self, conn):
+        if not self.require_user(conn):
+            return
+        self.respond(200, {
+            "success": True,
+            "data": [settlement_payment_application_payload(row) for row in self.settlement_application_rows(conn)],
+        })
+
+    def settlement_receipt_allocations(self, conn, receipt_id):
+        return [
+            {
+                "id": row["id"],
+                "applicationId": row["application_id"],
+                "applicationName": row_get(row, "application_name"),
+                "allocationAmount": row["allocation_amount"],
+            }
+            for row in conn.execute(
+                """
+                SELECT ra.*, a.application_name
+                FROM settlement_receipt_allocations ra
+                JOIN settlement_payment_applications a ON a.id = ra.application_id
+                WHERE ra.receipt_id = ?
+                ORDER BY ra.created_at, ra.id
+                """,
+                (receipt_id,),
+            ).fetchall()
+        ]
+
+    def settlement_receipt_rows(self, conn):
+        return conn.execute(
+            """
+            SELECT r.*, p.project_name, p.project_code, s.contract_name,
+                   f.display_name AS attachment_name
+            FROM settlement_receipts r
+            JOIN project_settlements s ON s.id = r.settlement_id
+            JOIN project_records p ON p.id = r.project_id
+            LEFT JOIN project_files f ON f.id = r.attachment_file_id AND COALESCE(f.is_deleted, 0) = 0
+            WHERE COALESCE(r.is_deleted, 0) = 0 AND COALESCE(s.is_deleted, 0) = 0
+            ORDER BY r.updated_at DESC
+            """
+        ).fetchall()
+
+    def list_settlement_receipts(self, conn):
+        if not self.require_user(conn):
+            return
+        self.respond(200, {
+            "success": True,
+            "data": [
+                settlement_receipt_payload(row, self.settlement_receipt_allocations(conn, row["id"]))
+                for row in self.settlement_receipt_rows(conn)
+            ],
+        })
+
+    def validate_settlement_attachment(self, conn, project_id, attachment_file_id):
+        if not attachment_file_id:
+            return None
+        return conn.execute(
+            """
+            SELECT * FROM project_files
+            WHERE id = ? AND project_id = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (attachment_file_id, project_id),
+        ).fetchone()
+
+    def create_settlement_payment_application(self, conn, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        settlement_id = str(data.get("settlementId") or "").strip()
+        settlement = conn.execute(
+            """
+            SELECT s.*, p.project_name, p.owner_unit
+            FROM project_settlements s JOIN project_records p ON p.id = s.project_id
+            WHERE s.id = ? AND COALESCE(s.is_deleted, 0) = 0 AND COALESCE(s.is_draft, 0) = 0
+            """,
+            (settlement_id,),
+        ).fetchone()
+        if not settlement:
+            self.respond(400, {"success": False, "error": "请选择已正式纳入结算管理的项目"})
+            return
+        application_name = str(data.get("applicationName") or "").strip()
+        applied_amount = float(data.get("appliedAmount") or 0)
+        approval_status = str(data.get("approvalStatus") or "DRAFT").strip().upper()
+        approved_amount = float(data.get("approvedAmount") or 0)
+        submitted_date = str(data.get("submittedDate") or "").strip()
+        approval_date = str(data.get("approvalDate") or "").strip()
+        node_id = str(data.get("nodeId") or "").strip()
+        attachment_file_id = str(data.get("attachmentFileId") or "").strip()
+        if not application_name:
+            self.respond(400, {"success": False, "error": "请填写付款申请名称"})
+            return
+        if approval_status not in {"DRAFT", "SUBMITTED", "APPROVED", "REJECTED"}:
+            self.respond(400, {"success": False, "error": "甲方审批结果无效"})
+            return
+        if approval_status != "DRAFT" and (applied_amount <= 0 or not submitted_date):
+            self.respond(400, {"success": False, "error": "正式付款申请必须填写申请金额和提交日期"})
+            return
+        if approval_status == "APPROVED" and (approved_amount <= 0 or not approval_date):
+            self.respond(400, {"success": False, "error": "甲方审批通过后必须填写审批通过金额和审批日期"})
+            return
+        if approval_status == "APPROVED" and approved_amount > applied_amount:
+            self.respond(400, {"success": False, "error": "审批通过金额不能大于申请金额"})
+            return
+        if node_id and not conn.execute(
+            "SELECT id FROM settlement_payment_nodes WHERE id = ? AND settlement_id = ?",
+            (node_id, settlement_id),
+        ).fetchone():
+            self.respond(400, {"success": False, "error": "所选付款节点不属于当前结算项目"})
+            return
+        if attachment_file_id and not self.validate_settlement_attachment(conn, settlement["project_id"], attachment_file_id):
+            self.respond(400, {"success": False, "error": "付款申请凭证不存在或不属于当前项目"})
+            return
+        ts = now_iso()
+        application_id = new_id()
+        conn.execute(
+            """
+            INSERT INTO settlement_payment_applications
+            (id, settlement_id, project_id, node_id, application_no, application_name,
+             applied_amount, submitted_date, approval_status, approved_amount, approval_date,
+             payer_unit, attachment_file_id, remark, created_by, updated_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                application_id, settlement_id, settlement["project_id"], node_id or None,
+                str(data.get("applicationNo") or "").strip(), application_name, applied_amount,
+                submitted_date, approval_status, approved_amount if approval_status == "APPROVED" else 0,
+                approval_date if approval_status == "APPROVED" else "",
+                str(data.get("payerUnit") or settlement["owner_unit"] or "").strip(), attachment_file_id or None,
+                str(data.get("remark") or "").strip(), user["username"], user["username"], ts, ts,
+            ),
+        )
+        project_log(
+            conn, settlement["project_id"], "settlement.payment_application.create",
+            f"登记付款申请：{application_name}", user,
+            after={"applicationId": application_id, "approvalStatus": approval_status, "appliedAmount": applied_amount},
+        )
+        self.write_operation_log(conn, "settlement.payment_application.create", user, "settlement_payment_application", application_id)
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT a.*, p.project_name, p.project_code, s.contract_name, n.node_name,
+                   f.display_name AS attachment_name
+            FROM settlement_payment_applications a
+            JOIN project_settlements s ON s.id = a.settlement_id
+            JOIN project_records p ON p.id = a.project_id
+            LEFT JOIN settlement_payment_nodes n ON n.id = a.node_id
+            LEFT JOIN project_files f ON f.id = a.attachment_file_id
+            WHERE a.id = ?
+            """,
+            (application_id,),
+        ).fetchone()
+        self.respond(201, {"success": True, "data": settlement_payment_application_payload(row)})
+
+    def update_settlement_payment_application_status(self, conn, application_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        application = conn.execute(
+            """
+            SELECT * FROM settlement_payment_applications
+            WHERE id = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (application_id,),
+        ).fetchone()
+        if not application:
+            self.not_found()
+            return
+        approval_status = str(data.get("approvalStatus") or "").strip().upper()
+        if approval_status not in {"APPROVED", "REJECTED"}:
+            self.respond(400, {"success": False, "error": "请选择甲方审批通过或甲方未通过"})
+            return
+        approved_amount = float(data.get("approvedAmount") or 0)
+        approval_date = str(data.get("approvalDate") or "").strip()
+        if approval_status == "APPROVED":
+            if approved_amount <= 0 or not approval_date:
+                self.respond(400, {"success": False, "error": "甲方审批通过后必须填写审批通过金额和审批日期"})
+                return
+            if approved_amount > float(application["applied_amount"] or 0) + 0.005:
+                self.respond(400, {"success": False, "error": "审批通过金额不能大于申请金额"})
+                return
+        else:
+            approved_amount = 0
+            approval_date = approval_date or date.today().isoformat()
+        before_status = application["approval_status"]
+        conn.execute(
+            """
+            UPDATE settlement_payment_applications
+            SET approval_status = ?, approved_amount = ?, approval_date = ?, remark = ?,
+                updated_by = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                approval_status,
+                approved_amount,
+                approval_date,
+                str(data.get("remark") or application["remark"] or "").strip(),
+                user["username"],
+                now_iso(),
+                application_id,
+            ),
+        )
+        project_log(
+            conn,
+            application["project_id"],
+            "settlement.payment_application.approval",
+            "登记甲方付款审批结果",
+            user,
+            before={"approvalStatus": before_status},
+            after={"approvalStatus": approval_status, "approvedAmount": approved_amount},
+        )
+        self.write_operation_log(
+            conn,
+            "settlement.payment_application.approval",
+            user,
+            "settlement_payment_application",
+            application_id,
+        )
+        conn.commit()
+        row = next((row for row in self.settlement_application_rows(conn) if row["id"] == application_id), None)
+        self.respond(200, {"success": True, "data": settlement_payment_application_payload(row)})
+
+    def create_settlement_receipt(self, conn, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        settlement_id = str(data.get("settlementId") or "").strip()
+        settlement = conn.execute(
+            """
+            SELECT s.*, p.project_name
+            FROM project_settlements s JOIN project_records p ON p.id = s.project_id
+            WHERE s.id = ? AND COALESCE(s.is_deleted, 0) = 0 AND COALESCE(s.is_draft, 0) = 0
+            """,
+            (settlement_id,),
+        ).fetchone()
+        if not settlement:
+            self.respond(400, {"success": False, "error": "请选择已正式纳入结算管理的项目"})
+            return
+        is_draft = bool(data.get("isDraft"))
+        receipt_type = str(data.get("receiptType") or "").strip().upper()
+        amount = float(data.get("amount") or 0)
+        attachment_file_id = str(data.get("attachmentFileId") or "").strip()
+        received_date = str(data.get("receivedDate") or "").strip()
+        if receipt_type not in {"BANK_TRANSFER", "BANK_ACCEPTANCE", "COMMERCIAL_ACCEPTANCE"}:
+            self.respond(400, {"success": False, "error": "请选择银行转账、银行承兑汇票或商业承兑汇票"})
+            return
+        if not is_draft and amount <= 0:
+            self.respond(400, {"success": False, "error": "正式到账登记的金额必须大于 0"})
+            return
+        if not is_draft and not self.validate_settlement_attachment(conn, settlement["project_id"], attachment_file_id):
+            self.respond(400, {"success": False, "error": "正式到账登记必须上传到账凭证：银行回单、汇票截图/PDF或纸票扫描件"})
+            return
+        is_acceptance = receipt_type in {"BANK_ACCEPTANCE", "COMMERCIAL_ACCEPTANCE"}
+        if not is_draft and not received_date:
+            self.respond(400, {"success": False, "error": "请填写款项或承兑汇票实际收到日期"})
+            return
+        if not is_draft and receipt_type == "BANK_TRANSFER":
+            required = [data.get("payerName"), data.get("receivingEntity"), data.get("receivingAccount")]
+            if any(not str(value or "").strip() for value in required):
+                self.respond(400, {"success": False, "error": "银行到账必须填写付款方、收款主体和收款账户"})
+                return
+        acceptance_fields = {
+            "acceptanceNumber": "汇票号码",
+            "acceptorName": "承兑人",
+            "issuerName": "出票人",
+            "issueDate": "出票日期",
+            "dueDate": "到期日期",
+            "draftMedium": "电子或纸质类型",
+            "holderName": "持票主体",
+        }
+        if not is_draft and is_acceptance:
+            missing = [label for key, label in acceptance_fields.items() if not str(data.get(key) or "").strip()]
+            if missing:
+                self.respond(400, {"success": False, "error": f"承兑汇票信息不完整，请补充：{'、'.join(missing)}"})
+                return
+            duplicate = conn.execute(
+                """
+                SELECT id FROM settlement_receipts
+                WHERE receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+                  AND acceptance_number = ? AND COALESCE(is_deleted, 0) = 0 AND is_draft = 0
+                """,
+                (str(data.get("acceptanceNumber") or "").strip(),),
+            ).fetchone()
+            if duplicate:
+                self.respond(409, {"success": False, "error": "该承兑汇票号码已登记，不能重复入账"})
+                return
+        allocations = data.get("allocations") or []
+        if not is_draft and not allocations:
+            self.respond(400, {"success": False, "error": "正式到账必须关联至少一笔已审批付款申请"})
+            return
+        normalized_allocations = []
+        request_allocated_by_application = {}
+        allocation_total = 0.0
+        for allocation in allocations:
+            application_id = str(allocation.get("applicationId") or "").strip()
+            allocation_amount = float(allocation.get("allocationAmount") or 0)
+            application = conn.execute(
+                """
+                SELECT * FROM settlement_payment_applications
+                WHERE id = ? AND settlement_id = ? AND approval_status = 'APPROVED'
+                  AND COALESCE(is_deleted, 0) = 0
+                """,
+                (application_id, settlement_id),
+            ).fetchone()
+            if not application or allocation_amount <= 0:
+                self.respond(400, {"success": False, "error": "到账只能分配给当前项目中已由甲方审批通过的付款申请"})
+                return
+            used = conn.execute(
+                """
+                SELECT COALESCE(SUM(ra.allocation_amount), 0) AS total
+                FROM settlement_receipt_allocations ra
+                JOIN settlement_receipts r ON r.id = ra.receipt_id
+                WHERE ra.application_id = ? AND COALESCE(r.is_deleted, 0) = 0 AND r.is_draft = 0
+                  AND (r.receipt_type = 'BANK_TRANSFER' OR r.acceptance_status != 'REFUSED_RETURNED')
+                """,
+                (application_id,),
+            ).fetchone()["total"]
+            request_allocated = float(request_allocated_by_application.get(application_id, 0) or 0)
+            if float(used or 0) + request_allocated + allocation_amount > float(application["approved_amount"] or 0) + 0.005:
+                self.respond(400, {"success": False, "error": f"到账分配金额超过付款申请“{application['application_name']}”的剩余审批金额"})
+                return
+            request_allocated_by_application[application_id] = request_allocated + allocation_amount
+            allocation_total += allocation_amount
+            normalized_allocations.append((application_id, allocation_amount))
+        if not is_draft and abs(allocation_total - amount) > 0.005:
+            self.respond(400, {"success": False, "error": "到账金额必须全部分配到付款申请，不能留有未关联余额"})
+            return
+        ts = now_iso()
+        receipt_id = new_id()
+        acceptance_status = "OUTSTANDING" if is_acceptance else ""
+        conn.execute(
+            """
+            INSERT INTO settlement_receipts
+            (id, settlement_id, project_id, receipt_type, amount, received_date, payer_name,
+             receiving_entity, receiving_account, attachment_file_id, is_draft, acceptance_status,
+             acceptance_number, acceptor_name, issuer_name, issue_date, due_date, draft_medium,
+             holder_name, actual_bank_amount, discount_fee, disposed_date, remark,
+             created_by, updated_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', ?, ?, ?, ?, ?)
+            """,
+            (
+                receipt_id, settlement_id, settlement["project_id"], receipt_type, amount, received_date,
+                str(data.get("payerName") or "").strip(), str(data.get("receivingEntity") or "").strip(),
+                str(data.get("receivingAccount") or "").strip(), attachment_file_id, 1 if is_draft else 0,
+                acceptance_status, str(data.get("acceptanceNumber") or "").strip(),
+                str(data.get("acceptorName") or "").strip(), str(data.get("issuerName") or "").strip(),
+                str(data.get("issueDate") or "").strip(), str(data.get("dueDate") or "").strip(),
+                str(data.get("draftMedium") or "").strip(), str(data.get("holderName") or "").strip(),
+                str(data.get("remark") or "").strip(), user["username"], user["username"], ts, ts,
+            ),
+        )
+        for application_id, allocation_amount in normalized_allocations:
+            conn.execute(
+                """
+                INSERT INTO settlement_receipt_allocations
+                (id, receipt_id, application_id, allocation_amount, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (new_id(), receipt_id, application_id, allocation_amount, ts),
+            )
+        self.recalculate_settlement_paid_amount(conn, settlement_id)
+        refresh_project_rollups(conn, settlement["project_id"])
+        action_name = "登记承兑汇票" if is_acceptance else "登记银行到账"
+        project_log(
+            conn, settlement["project_id"], "settlement.receipt.create", action_name, user,
+            after={"receiptId": receipt_id, "receiptType": receipt_type, "amount": amount, "isDraft": is_draft},
+        )
+        self.write_operation_log(conn, "settlement.receipt.create", user, "settlement_receipt", receipt_id)
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT r.*, p.project_name, p.project_code, s.contract_name,
+                   f.display_name AS attachment_name
+            FROM settlement_receipts r
+            JOIN project_settlements s ON s.id = r.settlement_id
+            JOIN project_records p ON p.id = r.project_id
+            LEFT JOIN project_files f ON f.id = r.attachment_file_id
+            WHERE r.id = ?
+            """,
+            (receipt_id,),
+        ).fetchone()
+        self.respond(201, {
+            "success": True,
+            "data": settlement_receipt_payload(row, self.settlement_receipt_allocations(conn, receipt_id)),
+        })
+
+    def update_settlement_acceptance_status(self, conn, receipt_id, data):
+        user = self.require_role(conn, {"admin", "editor"})
+        if not user:
+            return
+        receipt = conn.execute(
+            """
+            SELECT * FROM settlement_receipts
+            WHERE id = ? AND receipt_type IN ('BANK_ACCEPTANCE', 'COMMERCIAL_ACCEPTANCE')
+              AND COALESCE(is_deleted, 0) = 0 AND is_draft = 0
+            """,
+            (receipt_id,),
+        ).fetchone()
+        if not receipt:
+            self.not_found()
+            return
+        status = str(data.get("acceptanceStatus") or "").strip().upper()
+        if status not in {"DUE_PENDING", "REDEEMED", "DISCOUNTED", "ENDORSED", "REFUSED_RETURNED"}:
+            self.respond(400, {"success": False, "error": "请选择有效的承兑汇票处理结果"})
+            return
+        actual_bank_amount = float(data.get("actualBankAmount") or 0)
+        discount_fee = float(data.get("discountFee") or 0)
+        disposed_date = str(data.get("disposedDate") or "").strip()
+        if status in {"REDEEMED", "DISCOUNTED", "ENDORSED", "REFUSED_RETURNED"} and not disposed_date:
+            self.respond(400, {"success": False, "error": "请填写承兑汇票处理日期"})
+            return
+        if status == "REDEEMED":
+            actual_bank_amount = float(receipt["amount"] or 0)
+            discount_fee = 0
+        elif status == "DISCOUNTED" and actual_bank_amount <= 0:
+            self.respond(400, {"success": False, "error": "贴现完成后必须填写实际银行到账金额"})
+            return
+        elif status not in {"REDEEMED", "DISCOUNTED"}:
+            actual_bank_amount = 0
+            discount_fee = 0
+        conn.execute(
+            """
+            UPDATE settlement_receipts
+            SET acceptance_status = ?, actual_bank_amount = ?, discount_fee = ?, disposed_date = ?,
+                remark = ?, updated_by = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                status, actual_bank_amount, discount_fee, disposed_date,
+                str(data.get("remark") or receipt["remark"] or "").strip(), user["username"], now_iso(), receipt_id,
+            ),
+        )
+        self.recalculate_settlement_paid_amount(conn, receipt["settlement_id"])
+        refresh_project_rollups(conn, receipt["project_id"])
+        project_log(
+            conn, receipt["project_id"], "settlement.acceptance.update",
+            f"更新承兑汇票状态：{status}", user,
+            before={"acceptanceStatus": receipt["acceptance_status"]}, after={"acceptanceStatus": status},
+        )
+        self.write_operation_log(conn, "settlement.acceptance.update", user, "settlement_receipt", receipt_id)
+        conn.commit()
+        self.respond(200, {"success": True, "data": {"id": receipt_id, "acceptanceStatus": status}})
+
     def list_settlement_finance_projects(self, conn):
         if not self.require_user(conn):
             return
         rows = self.settlement_finance_rows(conn)
         self.respond(200, {
             "success": True,
-            "data": [settlement_finance_payload(row, self.settlement_nodes(conn, row["id"])) for row in rows],
+            "data": [
+                settlement_finance_payload(
+                    row,
+                    self.settlement_nodes(conn, row["id"]),
+                    self.settlement_payment_summary(conn, row["id"]),
+                )
+                for row in rows
+            ],
         })
 
     def settlement_boss_dashboard(self, conn):
@@ -3244,7 +3868,12 @@ class Handler(BaseHTTPRequestHandler):
         contract_total = sum(float(row_get(row, "contract_amount", 0) or 0) for row in rows)
         audited_total = sum(float(row_get(row, "final_audit_amount", 0) or row_get(row, "approved_amount", 0) or 0) for row in rows)
         invoice_total = sum(float(row_get(row, "invoiced_amount", 0) or 0) for row in rows)
-        received_total = sum(float(row_get(row, "received_amount", 0) or 0) for row in rows)
+        summaries = [self.settlement_payment_summary(conn, row["id"]) for row in rows]
+        owner_paid_total = sum(float(summary.get("ownerPaidAmount", 0) or 0) for summary in summaries)
+        bank_received_total = sum(float(summary.get("bankReceivedAmount", 0) or 0) for summary in summaries)
+        outstanding_acceptance_total = sum(
+            float(summary.get("outstandingAcceptanceAmount", 0) or 0) for summary in summaries
+        )
         retention_total = sum(float(row_get(row, "retention_amount", 0) or 0) for row in rows)
         collectible = conn.execute(
             """
@@ -3259,8 +3888,11 @@ class Handler(BaseHTTPRequestHandler):
             "contractTotalAmount": contract_total,
             "auditedTotalAmount": audited_total,
             "invoiceTotalAmount": invoice_total,
-            "receivedTotalAmount": received_total,
-            "receivableAmount": max((audited_total or contract_total) - received_total, 0),
+            "receivedTotalAmount": owner_paid_total,
+            "ownerPaidTotalAmount": owner_paid_total,
+            "bankReceivedTotalAmount": bank_received_total,
+            "outstandingAcceptanceAmount": outstanding_acceptance_total,
+            "receivableAmount": max((audited_total or contract_total) - owner_paid_total, 0),
             "overdueReceivableAmount": None,
             "retentionAmount": retention_total,
             "collectibleAmount": collectible,
@@ -3276,6 +3908,7 @@ class Handler(BaseHTTPRequestHandler):
             if row_get(row, "is_draft", 0):
                 continue
             nodes = self.settlement_nodes(conn, row["id"])
+            payment_summary = self.settlement_payment_summary(conn, row["id"])
             pending = next((node for node in nodes if node["nodeStatus"] != "已完成"), None)
             if not pending and not row_get(row, "documents_missing", 0):
                 continue
@@ -3287,8 +3920,14 @@ class Handler(BaseHTTPRequestHandler):
                 "ownerUnit": row_get(row, "owner_unit"),
                 "currentNode": pending["nodeName"] if pending else "结算资料",
                 "amount": pending["calculatedAmount"] if pending else 0,
-                "paidAmount": row_get(row, "received_amount", 0),
-                "remainingAmount": max((pending["calculatedAmount"] if pending else 0) - float(row_get(row, "received_amount", 0) or 0), 0),
+                "paidAmount": payment_summary.get("ownerPaidAmount", 0),
+                "bankReceivedAmount": payment_summary.get("bankReceivedAmount", 0),
+                "outstandingAcceptanceAmount": payment_summary.get("outstandingAcceptanceAmount", 0),
+                "remainingAmount": max(
+                    (pending["calculatedAmount"] if pending else 0)
+                    - float(payment_summary.get("ownerPaidAmount", 0) or 0),
+                    0,
+                ),
                 "invoiceStatus": "已开票" if row_get(row, "has_invoice", 0) else "未开票",
                 "documentStatus": "资料缺失" if row_get(row, "documents_missing", 0) else "资料已确认",
                 "dueDate": "",
@@ -3313,7 +3952,7 @@ class Handler(BaseHTTPRequestHandler):
                 "invoiceAmount": amount,
                 "taxRate": row_get(row, "tax_rate", 0),
                 "invoiceStatus": "已开票",
-                "collectionStatus": "已收款" if float(row_get(row, "received_amount", 0) or 0) >= amount else "待收款",
+                "collectionStatus": self.settlement_payment_summary(conn, row["id"]).get("collectionStatus", "尚未收到"),
                 "remark": "历史累计开票金额",
             })
         self.respond(200, {"success": True, "data": data})
@@ -3321,20 +3960,11 @@ class Handler(BaseHTTPRequestHandler):
     def settlement_payment_records(self, conn):
         if not self.require_user(conn):
             return
-        data = []
-        for row in self.settlement_finance_rows(conn):
-            for record_type, amount_key in (("收款", "received_amount"), ("付款", "historical_paid_amount")):
-                amount = float(row_get(row, amount_key, 0) or 0)
-                if amount <= 0:
-                    continue
-                data.append({
-                    "id": f"{row['id']}-{amount_key}",
-                    "projectName": row_get(row, "project_name"),
-                    "contractName": row_get(row, "contract_name"),
-                    "recordType": record_type,
-                    "amount": amount,
-                    "remark": "纳入结算管理时录入的历史累计数据",
-                })
+        data = [
+            settlement_receipt_payload(row, self.settlement_receipt_allocations(conn, row["id"]))
+            for row in self.settlement_receipt_rows(conn)
+            if not row_get(row, "is_draft", 0)
+        ]
         self.respond(200, {"success": True, "data": data})
 
     def settlement_retention_records(self, conn):
@@ -3470,15 +4100,20 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(400, {"success": False, "error": "最终定案时必须填写最终审定金额和定案日期"})
             return
         invoiced = float(data.get("invoicedAmount") or 0)
-        received = float(data.get("receivedAmount") or 0)
-        historical_paid = float(data.get("historicalPaidAmount") or 0)
+        historical_bank_received = float(
+            data.get("historicalBankReceivedAmount", data.get("receivedAmount")) or 0
+        )
+        historical_acceptance = float(
+            data.get("historicalAcceptanceAmount", data.get("historicalPaidAmount")) or 0
+        )
+        historical_owner_paid = historical_bank_received + historical_acceptance
         retention_amount = float(data.get("retentionAmount") or 0)
         audit_cap = float(final_audit_amount or contract_amount or 0)
-        if invoiced > audit_cap or historical_paid > contract_amount or retention_amount > contract_amount:
-            self.respond(400, {"success": False, "error": "历史开票、付款或质保金金额超过允许上限，请核对后再提交"})
+        if invoiced > audit_cap or historical_owner_paid > contract_amount or retention_amount > contract_amount:
+            self.respond(400, {"success": False, "error": "历史开票、甲方累计已付或质保金金额超过允许上限，请核对后再提交"})
             return
-        if received > invoiced and not str(data.get("exceptionNote") or "").strip():
-            self.respond(400, {"success": False, "error": "已收款金额大于已开票金额时必须填写特殊情况说明"})
+        if historical_owner_paid > invoiced and not str(data.get("exceptionNote") or "").strip():
+            self.respond(400, {"success": False, "error": "甲方累计已付金额大于已开票金额时必须填写特殊情况说明"})
             return
         payment_nodes = data.get("paymentNodes") or []
         if not is_draft and not payment_nodes:
@@ -3501,7 +4136,7 @@ class Handler(BaseHTTPRequestHandler):
             "settlement_status": settlement_status,
             "apply_amount": submitted_amount,
             "approved_amount": float(final_audit_amount or second_audit_amount or first_audit_amount or 0),
-            "paid_amount": received,
+            "paid_amount": historical_owner_paid,
             "apply_date": acceptance_date,
             "expected_pay_date": "",
             "paid_date": "",
@@ -3529,10 +4164,10 @@ class Handler(BaseHTTPRequestHandler):
             "final_audit_date": final_audit_date,
             "has_invoice": 1 if data.get("hasInvoice") else 0,
             "invoiced_amount": invoiced,
-            "has_received": 1 if data.get("hasReceived") else 0,
-            "received_amount": received,
-            "has_payment": 1 if data.get("hasPayment") else 0,
-            "historical_paid_amount": historical_paid,
+            "has_received": 1 if historical_owner_paid > 0 else 0,
+            "received_amount": historical_bank_received,
+            "has_payment": 1 if historical_acceptance > 0 else 0,
+            "historical_paid_amount": historical_acceptance,
             "has_retention": 1 if data.get("hasRetention") else 0,
             "retention_ratio": retention_ratio,
             "retention_amount": retention_amount,
@@ -3557,7 +4192,7 @@ class Handler(BaseHTTPRequestHandler):
         conn.execute("DELETE FROM settlement_payment_nodes WHERE settlement_id = ?", (settlement_id,))
         cumulative_amount = 0.0
         invoice_remaining = invoiced
-        received_remaining = received
+        received_remaining = historical_owner_paid
         trigger_rank = {
             "not_submitted": 0, "submitted": 1, "first_in_progress": 2, "first_completed": 3,
             "second_in_progress": 4, "second_completed": 5, "government_audit": 6, "final": 7,
@@ -4203,6 +4838,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.settlement_invoice_records(conn)
                 elif path == "/api/settlement/payment-records":
                     self.settlement_payment_records(conn)
+                elif path == "/api/settlement/payment-applications":
+                    self.list_settlement_payment_applications(conn)
+                elif path == "/api/settlement/receipts":
+                    self.list_settlement_receipts(conn)
                 elif path == "/api/settlement/retentions":
                     self.settlement_retention_records(conn)
                 elif path == "/api/project-variations":
@@ -4330,6 +4969,10 @@ class Handler(BaseHTTPRequestHandler):
                     self.create_project_record(conn, data)
                 elif path == "/api/settlement/projects":
                     self.create_settlement_finance_project(conn, data)
+                elif path == "/api/settlement/payment-applications":
+                    self.create_settlement_payment_application(conn, data)
+                elif path == "/api/settlement/receipts":
+                    self.create_settlement_receipt(conn, data)
                 elif path == "/api/projects/dictionary-options":
                     self.create_project_dictionary_option(conn, data)
                 elif re.match(r"^/api/projects/([^/]+)/lifecycle/validate$", path):
@@ -4384,6 +5027,18 @@ class Handler(BaseHTTPRequestHandler):
                     self.upsert_project_settlement(conn, data, re.match(r"^/api/project-settlements/([^/]+)$", path).group(1))
                 elif re.match(r"^/api/project-variations/([^/]+)$", path):
                     self.upsert_project_variation(conn, data, re.match(r"^/api/project-variations/([^/]+)$", path).group(1))
+                elif re.match(r"^/api/settlement/receipts/([^/]+)/status$", path):
+                    self.update_settlement_acceptance_status(
+                        conn,
+                        re.match(r"^/api/settlement/receipts/([^/]+)/status$", path).group(1),
+                        data,
+                    )
+                elif re.match(r"^/api/settlement/payment-applications/([^/]+)/status$", path):
+                    self.update_settlement_payment_application_status(
+                        conn,
+                        re.match(r"^/api/settlement/payment-applications/([^/]+)/status$", path).group(1),
+                        data,
+                    )
                 elif match:
                     if not self.require_role(conn, {"admin", "editor"}):
                         return

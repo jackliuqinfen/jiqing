@@ -108,11 +108,11 @@
           </header>
           <div class="history-grid">
             <HistoryQuestion label="是否已有开票" hint="发票累计金额" :active="form.hasInvoice" amount-label="已开票金额（元）" :amount="form.invoicedAmount" @toggle="form.hasInvoice = $event" @amount="form.invoicedAmount = $event" />
-            <HistoryQuestion label="是否已有收款" hint="银行到账累计金额" :active="form.hasReceived" amount-label="已收款金额（元）" :amount="form.receivedAmount" @toggle="form.hasReceived = $event" @amount="form.receivedAmount = $event" />
-            <HistoryQuestion label="是否已有付款" hint="项目主档案显示的已付款需再次确认" :active="form.hasPayment" amount-label="已付款金额（元）" :amount="form.historicalPaidAmount" @toggle="form.hasPayment = $event" @amount="form.historicalPaidAmount = $event" />
+            <HistoryQuestion label="是否已有银行到账" hint="仅填写公司银行账户已实际收到的累计金额" :active="form.hasReceived" amount-label="历史银行到账金额（元）" :amount="form.receivedAmount" @toggle="form.hasReceived = $event" @amount="form.receivedAmount = $event" />
+            <HistoryQuestion label="是否已收到承兑汇票" hint="填写仍需兑付或处置的银行/商业承兑汇票累计金额" :active="form.hasPayment" amount-label="历史已收承兑汇票金额（元）" :amount="form.historicalPaidAmount" @toggle="form.hasPayment = $event" @amount="form.historicalPaidAmount = $event" />
             <HistoryQuestion label="是否已有质保金扣留" hint="已实际扣留的质保金" :active="form.hasRetention" amount-label="已扣质保金（元）" :amount="form.retentionAmount" @toggle="form.hasRetention = $event" @amount="form.retentionAmount = $event" />
           </div>
-          <AFormItem v-if="needsExceptionNote" field="exceptionNote" label="特殊情况说明" required><ATextarea v-model="form.exceptionNote" :auto-size="{ minRows: 2, maxRows: 4 }" placeholder="已收款大于已开票时必须说明真实原因" /></AFormItem>
+          <AFormItem v-if="needsExceptionNote" field="exceptionNote" label="特殊情况说明" required><ATextarea v-model="form.exceptionNote" :auto-size="{ minRows: 2, maxRows: 4 }" placeholder="甲方累计已付大于已开票时，请说明真实原因" /></AFormItem>
         </section>
 
         <section v-else-if="stepKey === 'nodes'" class="wizard-pane">
@@ -257,10 +257,11 @@ const generatedStatus = computed(() => {
   const map: Record<string, string> = { not_submitted: '资料准备中', submitted: '已送审', first_in_progress: '一审中', first_completed: '一审完成', second_in_progress: '二审中', second_completed: '二审完成', government_audit: '政府审计中', final: '最终定案' }
   return map[form.auditStatus] || '资料准备中'
 })
-const needsExceptionNote = computed(() => Boolean(form.hasReceived && Number(form.receivedAmount || 0) > Number(form.invoicedAmount || 0)))
+const historicalOwnerPaid = computed(() => Number(form.receivedAmount || 0) + Number(form.historicalPaidAmount || 0))
+const needsExceptionNote = computed(() => historicalOwnerPaid.value > Number(form.invoicedAmount || 0))
 const calculatedNodes = computed(() => {
   let cumulative = 0
-  let receivedRemaining = Number(form.receivedAmount || 0)
+  let receivedRemaining = historicalOwnerPaid.value
   return form.paymentNodes.map((item, index) => {
     const bases: Record<string, number> = { CONTRACT_PAYMENT_BASE: paymentBaseAmount.value, FIRST_AUDIT_AMOUNT: Number(form.firstAuditAmount || 0), SECOND_AUDIT_AMOUNT: Number(form.secondAuditAmount || 0), FINAL_AUDIT_AMOUNT: Number(form.finalAuditAmount || 0) }
     const baseAmount = bases[item.baseType] ?? paymentBaseAmount.value
@@ -277,7 +278,8 @@ const reviewItems = computed(() => [
   { label: '建设单位', value: selectedProject.value?.ownerUnit || '-' }, { label: '施工单位', value: selectedProject.value?.constructionUnit || '-' },
   { label: '合同金额', value: moneyTriplet(Number(form.contractAmount || 0)) }, { label: '付款基数', value: moneyTriplet(paymentBaseAmount.value) },
   { label: '结算状态', value: generatedStatus.value }, { label: '已开票金额', value: money(Number(form.invoicedAmount || 0)) },
-  { label: '已收款金额', value: money(Number(form.receivedAmount || 0)) }, { label: '资料状态', value: form.documentsMissing ? `缺失：${form.documentNote || '待补充说明'}` : '未标记缺失' },
+  { label: '历史银行到账', value: money(Number(form.receivedAmount || 0)) }, { label: '历史已收承兑汇票', value: money(Number(form.historicalPaidAmount || 0)) },
+  { label: '甲方累计已付', value: money(historicalOwnerPaid.value) }, { label: '资料状态', value: form.documentsMissing ? `缺失：${form.documentNote || '待补充说明'}` : '未标记缺失' },
 ])
 
 function emptyForm(): WizardForm {
@@ -323,8 +325,10 @@ function hydrateProject() {
   form.contractDate = project.contractDate || ''
   form.paymentTerms = project.paymentTerms || ''
   form.submittedAmount = project.submittedAmount || undefined
-  form.hasPayment = Number(project.paidAmount || 0) > 0
-  form.historicalPaidAmount = Number(project.paidAmount || 0)
+  form.hasReceived = Number(project.paidAmount || 0) > 0
+  form.receivedAmount = Number(project.paidAmount || 0)
+  form.hasPayment = false
+  form.historicalPaidAmount = 0
   const stage = project.auditStage || project.projectStatus
   const auditMap: Record<string, string> = { submitted: 'submitted', pending_submission: 'not_submitted', first_audit: 'first_in_progress', second_audit: 'second_in_progress', conclusion: 'final', archived: 'final' }
   form.auditStatus = auditMap[stage] || 'not_submitted'
@@ -358,8 +362,8 @@ function validateCurrentStep() {
   }
   if (stepKey.value === 'history') {
     if (Number(form.invoicedAmount || 0) > Number(form.finalAuditAmount || form.contractAmount || 0)) return showError('已开票金额不能超过最终审定金额或合同金额。'), false
-    if (Number(form.historicalPaidAmount || 0) > Number(form.contractAmount || 0)) return showError('已付款金额不能超过合同金额。'), false
-    if (needsExceptionNote.value && !String(form.exceptionNote || '').trim()) return showError('已收款大于已开票金额时必须填写特殊情况说明。'), false
+    if (historicalOwnerPaid.value > Number(form.contractAmount || 0)) return showError('历史银行到账与已收承兑汇票合计不能超过合同金额。'), false
+    if (needsExceptionNote.value && !String(form.exceptionNote || '').trim()) return showError('甲方累计已付大于已开票金额时必须填写特殊情况说明。'), false
   }
   if (stepKey.value === 'nodes' && (!form.paymentTemplateId || !form.paymentNodes.length || form.paymentNodes.some((item) => !item.nodeName || item.paymentRatio <= 0))) return showError('请选择模板并完善付款节点名称和比例。'), false
   message.value = ''
@@ -371,10 +375,10 @@ function addNode() { form.paymentNodes.push(node('', 'ACCEPTANCE_COMPLETED', 'CO
 function removeNode(index: number) { form.paymentNodes.splice(index, 1); form.paymentNodes.forEach((item, itemIndex) => { item.nodeOrder = itemIndex + 1 }) }
 function updateRatio(item: SettlementPaymentNode, value: number | undefined) { item.paymentRatio = Number(value || 0) / 100 }
 function triggerSatisfied(trigger: string) { if (trigger === 'ACCEPTANCE_COMPLETED') return form.acceptanceStatus === 'accepted'; if (trigger === 'WARRANTY_EXPIRED') return Boolean(form.warrantyEndDate && form.warrantyEndDate <= new Date().toISOString().slice(0, 10)); const required: Record<string, number> = { FIRST_AUDIT_COMPLETED: 3, SECOND_AUDIT_COMPLETED: 5, FINAL_AUDIT_COMPLETED: 7 }; return auditRank.value >= (required[trigger] ?? 99) }
-function previewNodeStatus(trigger: string, amount: number) { if (!triggerSatisfied(trigger)) return '未满足'; if (form.documentsMissing) return '待补资料'; if (Number(form.invoicedAmount || 0) < amount) return '待开票'; if (Number(form.receivedAmount || 0) <= 0) return '待收款'; if (Number(form.receivedAmount || 0) < amount) return '部分收款'; return '已完成' }
+function previewNodeStatus(trigger: string, amount: number) { if (!triggerSatisfied(trigger)) return '未满足'; if (form.documentsMissing) return '待补资料'; if (Number(form.invoicedAmount || 0) < amount) return '待开票'; if (historicalOwnerPaid.value <= 0) return '待收款'; if (historicalOwnerPaid.value < amount) return '部分收款'; return '已完成' }
 function buildPayload(isDraft: boolean): SettlementProjectPayload {
   const auditFields = canEnterAudit.value ? {} : { auditStatus: 'not_submitted', submittedAmount: 0, firstAuditAmount: 0, firstAuditDate: '', secondAuditAmount: 0, secondAuditDate: '', finalAuditAmount: 0, finalAuditDate: '', warrantyStartDate: '', warrantyEndDate: '' }
-  return { ...form, ...auditFields, isDraft, settlementStatus: isDraft ? '草稿' : generatedStatus.value, settlementName: `${selectedProject.value?.projectName || ''}结算管理`, paymentBaseAmount: paymentBaseAmount.value, paymentNodes: calculatedNodes.value.map((item) => ({ ...item })) }
+  return { ...form, ...auditFields, historicalBankReceivedAmount: Number(form.receivedAmount || 0), historicalAcceptanceAmount: Number(form.historicalPaidAmount || 0), isDraft, settlementStatus: isDraft ? '草稿' : generatedStatus.value, settlementName: `${selectedProject.value?.projectName || ''}结算管理`, paymentBaseAmount: paymentBaseAmount.value, paymentNodes: calculatedNodes.value.map((item) => ({ ...item })) }
 }
 async function saveDraft() { if (!form.projectId) return showError('请先选择项目。'); await submit(true) }
 async function confirm() { stepIndex.value = steps.length - 1; if (!validateAll()) return; await submit(false) }

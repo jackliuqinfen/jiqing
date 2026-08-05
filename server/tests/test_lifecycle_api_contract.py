@@ -111,6 +111,54 @@ class LifecycleApiContractTests(unittest.TestCase):
             )
             conn.commit()
 
+    def insert_payment_file(self, project_id, name="银行回单.pdf"):
+        file_id = f"file-{uuid.uuid4().hex}"
+        with audit_api.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO project_files
+                (id, project_id, category_key, display_name, original_name, stored_name,
+                 relative_path, uploaded_at)
+                VALUES (?, ?, 'payment', ?, ?, 'payment.pdf', 'files/payment.pdf', ?)
+                """,
+                (file_id, project_id, name, name, audit_api.now_iso()),
+            )
+            conn.commit()
+        return file_id
+
+    def create_formal_settlement(self, project_id, contract_amount=1000000):
+        status, payload = self.request(
+            "POST",
+            "/api/settlement/projects",
+            {
+                "projectId": project_id,
+                "contractName": "施工合同",
+                "contractAmount": contract_amount,
+                "paymentTerms": "竣工验收合格后累计支付至合同付款基数的60%",
+                "acceptanceStatus": "accepted",
+                "acceptanceDate": "2026-07-12",
+                "auditStatus": "not_submitted",
+                "paymentTemplateId": "TEST",
+                "paymentNodes": [
+                    {
+                        "nodeName": "竣工验收后付款",
+                        "nodeOrder": 1,
+                        "triggerCondition": "ACCEPTANCE_COMPLETED",
+                        "baseType": "CONTRACT_PAYMENT_BASE",
+                        "paymentRatio": 0.6,
+                        "isCumulative": True,
+                        "deductExisting": True,
+                        "requiredDocuments": ["合同", "竣工验收证明", "付款申请单"],
+                        "dueDays": 30,
+                        "reminderEnabled": True,
+                    }
+                ],
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, payload)
+        return payload["data"]
+
     def insert_audit_project(self, project_id, stage="submitted"):
         audit_id = f"audit-{uuid.uuid4().hex}"
         now = audit_api.now_iso()
@@ -574,6 +622,187 @@ class LifecycleApiContractTests(unittest.TestCase):
 
         self.assertEqual(status, 422)
         self.assertEqual(payload["code"], "settlement_stage_conflict")
+
+    def test_settlement_bank_receipt_requires_evidence_and_updates_real_totals(self):
+        project_id = self.insert_project(project_status="completed_acceptance", contract_amount=1000000)
+        settlement = self.create_formal_settlement(project_id)
+        status, application_payload = self.request(
+            "POST",
+            "/api/settlement/payment-applications",
+            {
+                "settlementId": settlement["id"],
+                "applicationName": "竣工验收后第一次付款申请",
+                "appliedAmount": 600000,
+                "submittedDate": "2026-07-13",
+                "approvalStatus": "APPROVED",
+                "approvedAmount": 500000,
+                "approvalDate": "2026-07-15",
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, application_payload)
+        application_id = application_payload["data"]["id"]
+
+        status, missing_evidence = self.request(
+            "POST",
+            "/api/settlement/receipts",
+            {
+                "settlementId": settlement["id"],
+                "receiptType": "BANK_TRANSFER",
+                "amount": 200000,
+                "receivedDate": "2026-07-16",
+                "payerName": "建设单位",
+                "receivingEntity": "施工单位",
+                "receivingAccount": "测试账户",
+                "allocations": [{"applicationId": application_id, "allocationAmount": 200000}],
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("凭证", missing_evidence["error"])
+
+        payment_file_id = self.insert_payment_file(project_id)
+        status, duplicate_allocation = self.request(
+            "POST",
+            "/api/settlement/receipts",
+            {
+                "settlementId": settlement["id"],
+                "receiptType": "BANK_TRANSFER",
+                "amount": 600000,
+                "receivedDate": "2026-07-16",
+                "payerName": "建设单位",
+                "receivingEntity": "施工单位",
+                "receivingAccount": "测试账户",
+                "attachmentFileId": payment_file_id,
+                "allocations": [
+                    {"applicationId": application_id, "allocationAmount": 300000},
+                    {"applicationId": application_id, "allocationAmount": 300000},
+                ],
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("剩余审批金额", duplicate_allocation["error"])
+
+        status, receipt_payload = self.request(
+            "POST",
+            "/api/settlement/receipts",
+            {
+                "settlementId": settlement["id"],
+                "receiptType": "BANK_TRANSFER",
+                "amount": 200000,
+                "receivedDate": "2026-07-16",
+                "payerName": "建设单位",
+                "receivingEntity": "施工单位",
+                "receivingAccount": "测试账户",
+                "attachmentFileId": payment_file_id,
+                "allocations": [{"applicationId": application_id, "allocationAmount": 200000}],
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, receipt_payload)
+
+        status, projects_payload = self.request("GET", "/api/settlement/projects", user_id="admin-user")
+        self.assertEqual(status, 200)
+        current = next(item for item in projects_payload["data"] if item["id"] == settlement["id"])
+        self.assertEqual(current["paymentSummary"]["ownerPaidAmount"], 200000)
+        self.assertEqual(current["paymentSummary"]["bankReceivedAmount"], 200000)
+        self.assertEqual(current["paymentSummary"]["approvedUnreceivedAmount"], 300000)
+
+    def test_payment_application_can_record_owner_approval_result(self):
+        project_id = self.insert_project(project_status="completed_acceptance", contract_amount=1000000)
+        settlement = self.create_formal_settlement(project_id)
+        status, application_payload = self.request(
+            "POST",
+            "/api/settlement/payment-applications",
+            {
+                "settlementId": settlement["id"],
+                "applicationName": "竣工验收付款申请",
+                "appliedAmount": 600000,
+                "submittedDate": "2026-07-13",
+                "approvalStatus": "SUBMITTED",
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, application_payload)
+        status, update_payload = self.request(
+            "PUT",
+            f"/api/settlement/payment-applications/{application_payload['data']['id']}/status",
+            {
+                "approvalStatus": "APPROVED",
+                "approvedAmount": 500000,
+                "approvalDate": "2026-07-15",
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 200, update_payload)
+        self.assertEqual(update_payload["data"]["approvalStatus"], "APPROVED")
+        self.assertEqual(update_payload["data"]["approvedAmount"], 500000)
+
+    def test_acceptance_counts_as_owner_paid_but_not_bank_received(self):
+        project_id = self.insert_project(project_status="completed_acceptance", contract_amount=1000000)
+        settlement = self.create_formal_settlement(project_id)
+        status, application_payload = self.request(
+            "POST",
+            "/api/settlement/payment-applications",
+            {
+                "settlementId": settlement["id"],
+                "applicationName": "竣工验收付款申请",
+                "appliedAmount": 300000,
+                "submittedDate": "2026-07-13",
+                "approvalStatus": "APPROVED",
+                "approvedAmount": 300000,
+                "approvalDate": "2026-07-15",
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, application_payload)
+        payment_file_id = self.insert_payment_file(project_id, "电子承兑汇票.pdf")
+        status, receipt_payload = self.request(
+            "POST",
+            "/api/settlement/receipts",
+            {
+                "settlementId": settlement["id"],
+                "receiptType": "BANK_ACCEPTANCE",
+                "amount": 300000,
+                "receivedDate": "2026-07-16",
+                "payerName": "建设单位",
+                "attachmentFileId": payment_file_id,
+                "acceptanceNumber": f"AC-{uuid.uuid4().hex[:10]}",
+                "acceptorName": "测试银行",
+                "issuerName": "建设单位",
+                "issueDate": "2026-07-16",
+                "dueDate": "2026-12-16",
+                "draftMedium": "电子",
+                "holderName": "施工单位",
+                "allocations": [{"applicationId": application_payload["data"]["id"], "allocationAmount": 300000}],
+            },
+            "admin-user",
+        )
+        self.assertEqual(status, 201, receipt_payload)
+        self.assertEqual(receipt_payload["data"]["acceptanceStatus"], "OUTSTANDING")
+
+        status, projects_payload = self.request("GET", "/api/settlement/projects", user_id="admin-user")
+        self.assertEqual(status, 200)
+        current = next(item for item in projects_payload["data"] if item["id"] == settlement["id"])
+        self.assertEqual(current["paymentSummary"]["ownerPaidAmount"], 300000)
+        self.assertEqual(current["paymentSummary"]["bankReceivedAmount"], 0)
+        self.assertEqual(current["paymentSummary"]["outstandingAcceptanceAmount"], 300000)
+        self.assertEqual(current["paymentSummary"]["collectionStatus"], "已全部收到，承兑汇票待兑付")
+
+        status, update_payload = self.request(
+            "PUT",
+            f"/api/settlement/receipts/{receipt_payload['data']['id']}/status",
+            {"acceptanceStatus": "REFUSED_RETURNED", "disposedDate": "2026-12-17", "remark": "承兑汇票退回"},
+            "admin-user",
+        )
+        self.assertEqual(status, 200, update_payload)
+        status, projects_payload = self.request("GET", "/api/settlement/projects", user_id="admin-user")
+        current = next(item for item in projects_payload["data"] if item["id"] == settlement["id"])
+        self.assertEqual(current["paymentSummary"]["ownerPaidAmount"], 0)
+        self.assertEqual(current["paymentSummary"]["outstandingAcceptanceAmount"], 0)
+        self.assertEqual(current["paymentSummary"]["refusedAmount"], 300000)
+        self.assertEqual(current["paymentSummary"]["approvedUnreceivedAmount"], 300000)
 
     def test_backfill_only_copies_direct_semantically_matching_facts(self):
         audit_id = f"audit-{uuid.uuid4().hex}"
