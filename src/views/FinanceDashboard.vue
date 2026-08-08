@@ -545,18 +545,20 @@ type ViewKey = 'boss' | 'workbench' | 'ledger' | 'invoice' | 'payment' | 'docume
 type SettlementWizardStepKey = 'project' | 'contract' | 'stage' | 'template' | 'review'
 
 const views: { key: ViewKey; label: string }[] = [
-  { key: 'boss', label: '老板财务看板' },
-  { key: 'workbench', label: '财务工作台' },
   { key: 'ledger', label: '项目结算台账' },
-  { key: 'invoice', label: '发票管理' },
   { key: 'payment', label: '付款申请与到账' },
+  { key: 'workbench', label: '财务待办' },
+  { key: 'invoice', label: '发票管理' },
   { key: 'documents', label: '结算资料管理' },
   { key: 'retention', label: '质保金管理' },
+  { key: 'boss', label: '管理概览' },
 ]
 
 const route = useRoute()
 const router = useRouter()
-const activeView = ref<ViewKey>('boss')
+// The ledger is the operational entry point: it exposes the real empty state and
+// gives finance a direct path to include an existing project in settlement management.
+const activeView = ref<ViewKey>('ledger')
 const authStore = useAuthStore()
 const canManageSettlementFinance = computed(() => authStore.isEditor)
 const bossDashboard = ref<SettlementBossDashboard | null>(null)
