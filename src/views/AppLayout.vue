@@ -284,7 +284,7 @@ const sideNavMap: Record<string, NavItem[]> = {
     { key: 'bidding-price', path: '/bidding', query: { view: 'price' }, label: '报价预测', icon: 'list', description: '基于真实开标记录预测报价区间' },
   ],
   '/finance': [
-    { key: 'finance-dashboard', path: '/finance', query: { view: 'boss' }, label: '老板财务看板', icon: 'dashboard', description: '查看结算财务核心指标' },
+    { key: 'finance-dashboard', path: '/finance', query: { view: 'overview' }, label: '结算管理概览', icon: 'dashboard', description: '查看结算财务核心指标' },
     { key: 'finance-workbench', path: '/finance', query: { view: 'workbench' }, label: '财务工作台', icon: 'list', description: '处理发票、收付款和风险待办' },
     { key: 'finance-ledger', path: '/finance', query: { view: 'ledger' }, label: '项目结算台账', icon: 'file-paste', description: '按项目查看结算状态和金额' },
     { key: 'finance-invoice', path: '/finance', query: { view: 'invoice' }, label: '发票管理', icon: 'file-paste', description: '管理每个项目的发票开具状态' },
