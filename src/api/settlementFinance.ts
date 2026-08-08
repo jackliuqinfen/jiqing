@@ -20,7 +20,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.data
 }
 
-export interface SettlementBossDashboard {
+export interface SettlementOverviewDashboard {
   contractTotalAmount?: number
   auditedTotalAmount?: number
   invoiceTotalAmount?: number
@@ -274,7 +274,7 @@ export interface SettlementRetentionRecord {
   refundDate?: string
 }
 
-export function fetchSettlementBossDashboard(): Promise<SettlementBossDashboard> {
+export function fetchSettlementOverviewDashboard(): Promise<SettlementOverviewDashboard> {
   return request('/settlement/dashboard/boss')
 }
 

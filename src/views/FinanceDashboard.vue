@@ -34,15 +34,15 @@
       </div>
     </section>
 
-    <section v-if="activeView === 'boss'" class="view-panel">
+    <section v-if="activeView === 'overview'" class="view-panel">
       <div class="panel-title">
         <div>
-          <h2>老板财务看板</h2>
+          <h2>结算管理概览</h2>
           <span>只展示结算财务接口返回的汇总数据，未接入字段显示为“未接入”。</span>
         </div>
       </div>
       <div class="metric-grid metric-grid--wide">
-        <article v-for="item in bossMetrics" :key="item.label" class="metric-card">
+        <article v-for="item in overviewMetrics" :key="item.label" class="metric-card">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
           <em>{{ item.hint }}</em>
@@ -525,13 +525,13 @@ import SettlementPaymentFlowPanel from '@/components/SettlementPaymentFlowPanel.
 import { fetchProjectRecords, saveProjectSettlement } from '@/api/projects'
 import {
   createSettlementProject,
-  fetchSettlementBossDashboard,
+  fetchSettlementOverviewDashboard,
   fetchSettlementFinanceWorkbench,
   fetchSettlementInvoices,
   fetchSettlementProjects,
   fetchSettlementRetentions,
   type SettlementProjectPayload,
-  type SettlementBossDashboard,
+  type SettlementOverviewDashboard,
   type SettlementInvoiceRecord,
   type SettlementProjectLedgerItem,
   type SettlementRetentionRecord,
@@ -541,7 +541,7 @@ import { useAuthStore } from '@/store/auth'
 import type { ProjectRecord, ProjectSettlement } from '@/types'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 
-type ViewKey = 'boss' | 'workbench' | 'ledger' | 'invoice' | 'payment' | 'documents' | 'retention'
+type ViewKey = 'overview' | 'workbench' | 'ledger' | 'invoice' | 'payment' | 'documents' | 'retention'
 type SettlementWizardStepKey = 'project' | 'contract' | 'stage' | 'template' | 'review'
 
 const views: { key: ViewKey; label: string }[] = [
@@ -551,7 +551,7 @@ const views: { key: ViewKey; label: string }[] = [
   { key: 'invoice', label: '发票管理' },
   { key: 'documents', label: '结算资料管理' },
   { key: 'retention', label: '质保金管理' },
-  { key: 'boss', label: '管理概览' },
+  { key: 'overview', label: '结算管理概览' },
 ]
 
 const route = useRoute()
@@ -561,7 +561,7 @@ const router = useRouter()
 const activeView = ref<ViewKey>('ledger')
 const authStore = useAuthStore()
 const canManageSettlementFinance = computed(() => authStore.isEditor)
-const bossDashboard = ref<SettlementBossDashboard | null>(null)
+const overviewDashboard = ref<SettlementOverviewDashboard | null>(null)
 const workbenchItems = ref<SettlementWorkbenchItem[]>([])
 const settlementProjects = ref<SettlementProjectLedgerItem[]>([])
 const invoices = ref<SettlementInvoiceRecord[]>([])
@@ -661,22 +661,22 @@ const loadMessage = computed(() => {
   return `以下结算财务接口暂未接入或无权限访问：${unavailableEndpoints.value.join('、')}`
 })
 const sourceStatusItems = computed(() => [
-  sourceStatus('老板财务看板', Boolean(bossDashboard.value), bossDashboard.value ? '已读取汇总接口' : '接口未返回汇总数据'),
+  sourceStatus('结算管理概览', Boolean(overviewDashboard.value), overviewDashboard.value ? '已读取汇总接口' : '接口未返回汇总数据'),
   sourceStatus('财务工作台', workbenchItems.value.length > 0, workbenchItems.value.length ? `已读取 ${workbenchItems.value.length} 条待办` : '接口可用但暂无待办'),
   sourceStatus('项目结算台账', settlementProjects.value.length > 0, settlementProjects.value.length ? `已读取 ${settlementProjects.value.length} 个结算项目` : '接口可用但暂无结算项目'),
   sourceStatus('发票记录', invoices.value.length > 0, invoices.value.length ? `已读取 ${invoices.value.length} 条发票` : '接口可用但暂无发票'),
   sourceStatus('质保金记录', retentions.value.length > 0, retentions.value.length ? `已读取 ${retentions.value.length} 条记录` : '接口可用但暂无记录'),
 ])
 
-const bossMetrics = computed(() => [
-  metric('合同总金额', bossDashboard.value?.contractTotalAmount),
-  metric('审定总金额', bossDashboard.value?.auditedTotalAmount),
-  metric('已开票金额', bossDashboard.value?.invoiceTotalAmount),
-  metric('已收款金额', bossDashboard.value?.receivedTotalAmount),
-  metric('待收款金额', bossDashboard.value?.receivableAmount),
-  metric('逾期未收款', bossDashboard.value?.overdueReceivableAmount),
-  metric('质保金余额', bossDashboard.value?.retentionAmount),
-  metric('可申请收款金额', bossDashboard.value?.collectibleAmount),
+const overviewMetrics = computed(() => [
+  metric('合同总金额', overviewDashboard.value?.contractTotalAmount),
+  metric('审定总金额', overviewDashboard.value?.auditedTotalAmount),
+  metric('已开票金额', overviewDashboard.value?.invoiceTotalAmount),
+  metric('已收款金额', overviewDashboard.value?.receivedTotalAmount),
+  metric('待收款金额', overviewDashboard.value?.receivableAmount),
+  metric('逾期未收款', overviewDashboard.value?.overdueReceivableAmount),
+  metric('质保金余额', overviewDashboard.value?.retentionAmount),
+  metric('可申请收款金额', overviewDashboard.value?.collectibleAmount),
 ])
 
 const settlementStatusStats = computed(() => {
@@ -974,15 +974,15 @@ async function handleNewSettlementWizardConfirm() {
 
 async function refresh() {
   unavailableEndpoints.value = []
-  const [boss, workbench, projects, invoiceList, retentionList, projectList] = await Promise.all([
-    readEndpoint('老板财务看板', fetchSettlementBossDashboard, null),
+  const [overview, workbench, projects, invoiceList, retentionList, projectList] = await Promise.all([
+    readEndpoint('结算管理概览', fetchSettlementOverviewDashboard, null),
     readEndpoint('财务工作台', fetchSettlementFinanceWorkbench, []),
     readEndpoint('项目结算台账', fetchSettlementProjects, []),
     readEndpoint('发票管理', fetchSettlementInvoices, []),
     readEndpoint('质保金管理', fetchSettlementRetentions, []),
     readEndpoint('已有项目列表', () => fetchProjectRecords({ page: 1, pageSize: 200 }).then((res) => res.data), []),
   ])
-  bossDashboard.value = boss
+  overviewDashboard.value = overview
   workbenchItems.value = workbench
   settlementProjects.value = projects
   invoices.value = invoiceList

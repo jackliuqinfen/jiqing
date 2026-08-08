@@ -76,7 +76,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/FinanceDashboard.vue'),
         meta: {
           title: '结算财务中心',
-          subtitle: '老板看板 · 财务工作台 · 结算台账 · 发票收付款',
+          subtitle: '结算管理概览 · 财务工作台 · 结算台账 · 发票收付款',
           icon: 'list',
           description: '结算财务中心围绕项目、合同付款节点、发票、收付款、结算资料和质保金进行真实业务管理。',
         },
