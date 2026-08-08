@@ -1,25 +1,25 @@
 <template>
   <section class="entry-mode">
     <header>
-      <span>选择录入方式</span>
-      <h4>合同可以由系统识别，也可以使用可靠的备用方式</h4>
-      <p>三种方式最终都进入同一人工复核工作台，确认前不会创建正式项目。</p>
+      <span>手工创建项目</span>
+      <h4>目前请手工填写合同与项目信息</h4>
+      <p>填写内容可以保存为草稿，关联合同原件并人工确认后才会创建正式项目。</p>
     </header>
     <div class="entry-mode__grid">
-      <button type="button" @click="$emit('select', 'system')">
+      <button v-if="projectIntakeFeatures.systemRecognition" type="button" @click="$emit('select', 'system')">
         <small>推荐</small>
         <strong>系统 AI 识别</strong>
         <span>上传合同后自动解析并预填字段</span>
       </button>
-      <button type="button" @click="$emit('select', 'external')">
+      <button v-if="projectIntakeFeatures.externalAiImport" type="button" @click="$emit('select', 'external')">
         <small>无需 API</small>
         <strong>粘贴外部 AI 结果</strong>
         <span>复制提示词到豆包或 ChatGPT，再粘贴结果</span>
       </button>
       <button type="button" @click="$emit('select', 'manual')">
-        <small>应急备用</small>
-        <strong>完全手工录入</strong>
-        <span>没有文件时保存草稿，有文件时进入复核</span>
+        <small>当前录入方式</small>
+        <strong>手工录入项目</strong>
+        <span>可以先填写并保存草稿，上传合同原件后进入复核</span>
       </button>
     </div>
     <section v-if="drafts.length || loading" class="draft-list">
@@ -45,6 +45,7 @@
 
 <script setup lang="ts">
 import type { ProjectIntakeDraft } from '@/types/documentReview'
+import { projectIntakeFeatures } from '@/config/projectIntakeFeatures'
 
 defineProps<{ drafts: ProjectIntakeDraft[]; loading: boolean }>()
 defineEmits<{
@@ -71,6 +72,7 @@ function formatTime(value: string) {
 .entry-mode h4 { margin: 8px 0; font-size: 20px; }
 .entry-mode p { margin: 0; color: var(--text-secondary); }
 .entry-mode__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.entry-mode__grid:has(> button:only-child) { width: min(440px, 100%); grid-template-columns: 1fr; margin-inline: auto; }
 .entry-mode__grid button { min-height: 156px; display: grid; align-content: center; gap: 9px; padding: 24px; text-align: left; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 8px); color: var(--text-primary); background: rgba(255,255,255,.88); cursor: pointer; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
 .entry-mode__grid button:hover { border-color: rgba(22,93,255,.45); box-shadow: 0 10px 28px rgba(50,82,130,.10); transform: translateY(-2px); }
 .entry-mode__grid small { color: var(--primary-color); font-weight: 700; }

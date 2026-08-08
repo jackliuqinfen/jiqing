@@ -8,7 +8,7 @@
     modal-class="contract-entry-modal"
     @cancel="requestClose"
   >
-    <template #title>合同驱动创建项目</template>
+    <template #title>手工创建项目</template>
 
     <DocumentReviewWorkspace
       v-if="phase === 'review' && reviewId"
@@ -18,9 +18,9 @@
 
     <section v-else class="contract-entry">
       <header class="contract-entry__head">
-        <span>合同驱动建档</span>
-        <h3>先取得合同信息，再由人工确认创建项目</h3>
-        <p>系统 AI、外部 AI 和手工录入共用同一复核流程。确认前不会写入项目主档案。</p>
+        <span>手工建档</span>
+        <h3>填写合同与项目信息，再由人工确认创建项目</h3>
+        <p>可以先保存录入草稿；确认前不会写入项目主档案。</p>
       </header>
 
       <ContractEntryMode
@@ -89,7 +89,7 @@
         <p>{{ resultMessage }}</p>
         <div class="recovery-options">
           <AButton v-if="job" variant="outline" @click="retryCurrentJob">重新识别</AButton>
-          <AButton variant="outline" @click="selectMode('external')">粘贴外部 AI 结果</AButton>
+          <AButton v-if="projectIntakeFeatures.externalAiImport" variant="outline" @click="selectMode('external')">粘贴外部 AI 结果</AButton>
           <AButton theme="primary" @click="selectMode('manual')">转为手工录入</AButton>
         </div>
         <AButton variant="text" @click="reset">重新选择合同</AButton>
@@ -120,6 +120,7 @@ import {
 } from '@/api/documentReview'
 import { MessagePlugin } from '@/ui/message'
 import { friendlyErrorMessage } from '@/utils/errors'
+import { projectIntakeFeatures } from '@/config/projectIntakeFeatures'
 import type { ContractDraftValues, ProjectIntakeDraft, RecognitionJob } from '@/types/documentReview'
 
 type EntryMode = 'system' | 'external' | 'manual'
