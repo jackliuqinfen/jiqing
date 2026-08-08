@@ -18,7 +18,7 @@
         </AButton>
         <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">
           <template #icon><AIcon name="add" /></template>
-          上传合同创建项目
+          手工创建项目
         </AButton>
       </template>
     </PageHeader>
@@ -59,7 +59,7 @@
         <h3>项目库还没有项目</h3>
         <p>先建立项目主档案，再到资料中心补充资料，并按需从项目主档案发起审计流程。</p>
       </div>
-      <AButton v-if="authStore.isEditor" type="primary" @click="openProjectForm()">上传合同创建第一个项目</AButton>
+      <AButton v-if="authStore.isEditor" type="primary" @click="openProjectForm()">手工创建第一个项目</AButton>
     </section>
 
     <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
@@ -98,7 +98,7 @@
     >
       <template #actions>
         <AButton variant="outline" @click="resetFilters">清除筛选</AButton>
-        <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">上传合同创建项目</AButton>
+        <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">手工创建项目</AButton>
       </template>
     </StatePanel>
 
@@ -654,11 +654,6 @@
         @refresh="refreshLifecycleDetail"
       />
     </section>
-
-    <DocumentDrivenEntry
-      v-model:visible="contractCreationVisible"
-      @created="handleContractProjectCreated"
-    />
 
     <AModal
       :visible="projectDialog.visible"
@@ -1233,7 +1228,6 @@ import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
-import DocumentDrivenEntry from '@/components/document-review/DocumentDrivenEntry.vue'
 import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
@@ -1284,7 +1278,6 @@ import {
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const contractCreationVisible = ref(false)
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
@@ -2893,11 +2886,6 @@ function changePage(nextPage: number) {
 
 function openProjectForm(record?: ProjectRecord | null) {
   if (!requireEditorAccess(record ? '编辑项目' : '创建项目')) return
-  if (!record) {
-    detailDialogVisible.value = false
-    contractCreationVisible.value = true
-    return
-  }
   projectDialog.mode = record ? 'edit' : 'create'
   projectDialog.saving = false
   resetProjectFormErrors()
@@ -2911,13 +2899,6 @@ function openProjectForm(record?: ProjectRecord | null) {
   if (record) resetProjectCreationFlow()
   projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
-}
-
-async function handleContractProjectCreated(projectId: string) {
-  contractCreationVisible.value = false
-  await loadAll()
-  const created = records.value.find((record) => record.id === projectId)
-  if (created) await selectProject(created)
 }
 
 function closeProjectDialog(force = false) {
