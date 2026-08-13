@@ -7,7 +7,10 @@ import {
   clampPage,
   clampScale,
   createRenderTokenGuard,
+  disposePdfPreviewResources,
   neighborPages,
+  normalizePreviewMetrics,
+  previewMetricsRequireRender,
 } from '../src/utils/contractPdfPreview.ts'
 
 const readWorkspaceFile = (relativePath: string) =>
@@ -48,6 +51,77 @@ test('render token guard rejects stale asynchronous publishes', () => {
   assert.equal(tokens.isCurrent(secondRender), false)
 })
 
+test('disposal waits for canceled rendering and still destroys and clears after cleanup failures', async () => {
+  const order: string[] = []
+  let rejectRender!: (error: Error) => void
+  const renderPromise = new Promise<void>((_resolve, reject) => {
+    rejectRender = (error) => {
+      order.push('render-settled')
+      reject(error)
+    }
+  })
+
+  const disposal = disposePdfPreviewResources({
+    renderTask: {
+      cancel() {
+        order.push('cancel')
+      },
+      promise: renderPromise,
+    },
+    pdfDocument: {
+      async cleanup() {
+        order.push('cleanup')
+        throw new Error('startCleanup: page is currently rendering')
+      },
+    },
+    loadingTask: {
+      async destroy() {
+        order.push('destroy')
+        throw new Error('worker already stopped')
+      },
+    },
+    clearReferences() {
+      order.push('clear')
+    },
+  })
+
+  await Promise.resolve()
+  assert.deepEqual(order, ['cancel'])
+
+  rejectRender(new Error('Rendering cancelled'))
+  await disposal
+
+  assert.deepEqual(order, ['cancel', 'render-settled', 'cleanup', 'destroy', 'clear'])
+})
+
+test('preview metrics normalize viewport state and invalidate rendering on size or DPR changes', () => {
+  const initial = normalizePreviewMetrics({
+    containerWidth: 620.5,
+    containerHeight: 700,
+    viewportWidth: 900,
+    viewportHeight: 800,
+    devicePixelRatio: 1,
+  })
+  const resized = normalizePreviewMetrics({
+    containerWidth: 640,
+    containerHeight: 700,
+    viewportWidth: 920,
+    viewportHeight: 800,
+    devicePixelRatio: 1,
+  })
+  const movedToRetina = normalizePreviewMetrics({
+    ...resized,
+    devicePixelRatio: 2,
+  })
+
+  assert.equal(initial.drawerWidth, 720)
+  assert.equal(normalizePreviewMetrics({ ...initial, viewportWidth: 500 }).drawerWidth, 480)
+  assert.equal(normalizePreviewMetrics({ ...initial, devicePixelRatio: 0 }).devicePixelRatio, 1)
+  assert.equal(previewMetricsRequireRender(initial, resized), true)
+  assert.equal(previewMetricsRequireRender(resized, movedToRetina), true)
+  assert.equal(previewMetricsRequireRender(resized, { ...resized }), false)
+})
+
 test('PDF.js stays exactly pinned and is split before the generic vendor chunk', () => {
   const packageJson = JSON.parse(readWorkspaceFile('package.json')) as {
     dependencies: Record<string, string>
@@ -79,9 +153,18 @@ test('preview replacement, download, idle prefetch, cleanup and drawer behavior 
   assert.match(source, /downloadOriginalPdf\(props\.document\.versionId\)/)
   assert.match(source, /requestIdleCallback/)
   assert.match(source, /renderTask[^\n]*\?\.cancel\(\)/)
-  assert.match(source, /loadingTask[^\n]*\?\.destroy\(\)/)
-  assert.match(source, /pdfDocument[^\n]*\?\.cleanup\(\)/)
   assert.match(source, /resizeObserver[^\n]*\?\.disconnect\(\)/)
   assert.match(source, /查看合同原文/)
   assert.match(source, /<ADrawer/)
+})
+
+test('preview observes its real container and names every symbol-only zoom action', () => {
+  const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+
+  assert.match(source, /resizeObserver\.observe\(previewContainerRef\.value\)/)
+  assert.match(source, /watch\(previewMetrics/)
+  assert.match(source, /devicePixelRatio\.value/)
+  assert.match(source, /viewportWidth\.value/)
+  assert.equal(source.match(/aria-label="缩小合同 PDF"/g)?.length, 2)
+  assert.equal(source.match(/aria-label="放大合同 PDF"/g)?.length, 2)
 })

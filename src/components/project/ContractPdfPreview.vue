@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" class="contract-pdf-preview" :class="{ 'contract-pdf-preview--narrow': isNarrow }">
+  <div class="contract-pdf-preview" :class="{ 'contract-pdf-preview--narrow': isNarrow }">
     <button v-if="isNarrow" class="contract-pdf-preview__compact" type="button" @click="openDrawer">
       查看合同原文
       <span v-if="document" class="contract-pdf-preview__compact-name">{{ document.name }}</span>
@@ -32,7 +32,7 @@
         </div>
       </header>
 
-      <div class="contract-pdf-preview__surface">
+      <div ref="previewContainerRef" class="contract-pdf-preview__surface">
         <div v-if="!document" class="contract-pdf-preview__empty">
           <strong>请先上传施工合同 PDF</strong>
           <span>文件会按需加载，不会在后台生成整本页面图片。</span>
@@ -69,9 +69,9 @@
         </label>
         <button type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">下一页</button>
         <span class="contract-pdf-preview__toolbar-spacer" />
-        <button type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
+        <button aria-label="缩小合同 PDF" type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
         <span>{{ Math.round(scale * 100) }}%</span>
-        <button type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
+        <button aria-label="放大合同 PDF" type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
       </footer>
     </section>
 
@@ -103,7 +103,7 @@
           </div>
         </header>
 
-        <div class="contract-pdf-preview__surface contract-pdf-preview__surface--drawer">
+        <div ref="previewContainerRef" class="contract-pdf-preview__surface contract-pdf-preview__surface--drawer">
           <div v-if="!document" class="contract-pdf-preview__empty">
             <strong>请先上传施工合同 PDF</strong>
             <span>仅支持 PDF，上传失败不会替换当前合同。</span>
@@ -139,9 +139,9 @@
           </label>
           <button type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">下一页</button>
           <span class="contract-pdf-preview__toolbar-spacer" />
-          <button type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
+          <button aria-label="缩小合同 PDF" type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
           <span>{{ Math.round(scale * 100) }}%</span>
-          <button type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
+          <button aria-label="放大合同 PDF" type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
         </footer>
       </div>
     </ADrawer>
@@ -162,7 +162,16 @@ import {
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { downloadOriginalPdf, originalPdfRequest, uploadDocument } from '@/api/documentReview'
-import { clampPage, clampScale, createRenderTokenGuard, neighborPages } from '@/utils/contractPdfPreview'
+import {
+  clampPage,
+  clampScale,
+  createRenderTokenGuard,
+  disposePdfPreviewResources,
+  neighborPages,
+  normalizePreviewMetrics,
+  previewMetricsRequireRender,
+  type PreviewMetrics,
+} from '@/utils/contractPdfPreview'
 import { friendlyErrorMessage } from '@/utils/errors'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -192,7 +201,7 @@ const emit = defineEmits<{
   error: [message: string]
 }>()
 
-const rootRef = ref<HTMLElement | null>(null)
+const previewContainerRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasScrollerRef = ref<HTMLElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -204,14 +213,22 @@ const localError = ref('')
 const uploading = ref(false)
 const downloading = ref(false)
 const uploadProgress = ref(0)
-const isNarrow = ref(false)
 const drawerVisible = ref(false)
 const renderTokens = createRenderTokenGuard()
 const prefetchedPages = new Set<number>()
+const previewMetrics = ref<PreviewMetrics>(normalizePreviewMetrics({
+  containerWidth: 0,
+  containerHeight: 0,
+  viewportWidth: window.innerWidth,
+  viewportHeight: window.innerHeight,
+  devicePixelRatio: window.devicePixelRatio,
+}))
 
 let loadingTask: PDFDocumentLoadingTask | null = null
 let renderTask: RenderTask | null = null
 let resizeObserver: ResizeObserver | null = null
+let dprMediaQuery: MediaQueryList | null = null
+let disposalPromise: Promise<void> | null = null
 let documentGeneration = 0
 let idleHandle: number | null = null
 let idleHandleKind: 'idle' | 'timeout' | null = null
@@ -223,7 +240,10 @@ const busyLabel = computed(() => {
   if (localLoading.value) return '正在按需加载合同原文'
   return '正在渲染当前页'
 })
-const drawerWidth = computed(() => Math.min(Math.max(window.innerWidth - 20, 320), 720))
+const viewportWidth = computed(() => previewMetrics.value.viewportWidth)
+const devicePixelRatio = computed(() => previewMetrics.value.devicePixelRatio)
+const drawerWidth = computed(() => previewMetrics.value.drawerWidth)
+const isNarrow = computed(() => viewportWidth.value < 960)
 
 watch(
   () => props.document?.versionId || '',
@@ -241,35 +261,81 @@ watch(
   },
 )
 
-watch(isNarrow, async () => {
-  await nextTick()
-  if (pdfDocument.value && (!isNarrow.value || drawerVisible.value)) void renderCurrentPage()
+watch(isNarrow, (narrow) => {
+  if (!narrow) drawerVisible.value = false
 })
 
+watch(previewMetrics, async (next, previous) => {
+  if (!previewMetricsRequireRender(previous, next)) return
+  await nextTick()
+  if (pdfDocument.value && previewIsVisible()) void renderCurrentPage()
+})
+
+watch(previewContainerRef, (current, previous) => {
+  if (previous) resizeObserver?.unobserve(previous)
+  if (!current) return
+  resizeObserver?.observe(current)
+  updatePreviewMetrics(current.getBoundingClientRect())
+}, { flush: 'post' })
+
+function handleObservedResize(entries: ResizeObserverEntry[]) {
+  const current = previewContainerRef.value
+  const entry = entries.find((candidate) => candidate.target === current)
+  updatePreviewMetrics(entry?.contentRect)
+}
+
+function handleViewportChange() {
+  updatePreviewMetrics()
+}
+
+function handleDprChange() {
+  updatePreviewMetrics()
+}
+
 onMounted(() => {
-  updateResponsiveMode()
-  resizeObserver = new ResizeObserver(updateResponsiveMode)
-  resizeObserver.observe(document.documentElement)
+  resizeObserver = new ResizeObserver(handleObservedResize)
+  if (previewContainerRef.value) resizeObserver.observe(previewContainerRef.value)
+  window.addEventListener('resize', handleViewportChange)
+  bindDprMediaQuery()
+  updatePreviewMetrics()
 })
 
 onBeforeUnmount(() => {
   documentGeneration += 1
   cancelIdlePrefetch()
   renderTokens.invalidate()
-  renderTask?.cancel()
-  renderTask = null
-  void pdfDocument.value?.cleanup()
-  pdfDocument.value = null
-  void loadingTask?.destroy()
-  loadingTask = null
+  void disposePdfDocument()
   resizeObserver?.disconnect()
   resizeObserver = null
+  window.removeEventListener('resize', handleViewportChange)
+  dprMediaQuery?.removeEventListener('change', handleDprChange)
+  dprMediaQuery = null
   clearCanvas()
 })
 
-function updateResponsiveMode() {
-  isNarrow.value = window.innerWidth < 960
-  if (!isNarrow.value) drawerVisible.value = false
+function updatePreviewMetrics(size?: Pick<DOMRectReadOnly, 'width' | 'height'>) {
+  const measured = size || previewContainerRef.value?.getBoundingClientRect()
+  const previous = previewMetrics.value
+  const next = normalizePreviewMetrics({
+    containerWidth: measured?.width || 0,
+    containerHeight: measured?.height || 0,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio,
+  })
+  if (!previewMetricsRequireRender(previous, next)) return
+  previewMetrics.value = next
+  if (previous.devicePixelRatio !== next.devicePixelRatio) bindDprMediaQuery()
+}
+
+function bindDprMediaQuery() {
+  dprMediaQuery?.removeEventListener('change', handleDprChange)
+  dprMediaQuery = window.matchMedia(`(resolution: ${devicePixelRatio.value}dppx)`)
+  dprMediaQuery.addEventListener('change', handleDprChange)
+}
+
+function previewIsVisible() {
+  return isNarrow.value ? drawerVisible.value : !props.collapsed
 }
 
 function openDrawer() {
@@ -400,7 +466,11 @@ async function loadDocument() {
     const loaded = await task.promise
     if (generation !== documentGeneration) {
       if (loadingTask === task) loadingTask = null
-      await task.destroy()
+      try {
+        await task.destroy()
+      } catch {
+        // A concurrent replacement may already have destroyed this worker.
+      }
       return
     }
     pdfDocument.value = loaded
@@ -413,7 +483,11 @@ async function loadDocument() {
   } catch (error) {
     if (loadingTask === task) {
       loadingTask = null
-      await task.destroy()
+      try {
+        await task.destroy()
+      } catch {
+        // Preserve the original load failure and allow a later replacement.
+      }
     }
     if (generation !== documentGeneration || isCancellation(error)) return
     publishError(friendlyErrorMessage(error, '合同原文加载失败，请检查登录状态或稍后重试。'))
@@ -423,20 +497,32 @@ async function loadDocument() {
 }
 
 async function disposePdfDocument() {
+  if (disposalPromise) return disposalPromise
   cancelIdlePrefetch()
   renderTokens.invalidate()
-  renderTask?.cancel()
-  renderTask = null
-  localRendering.value = false
+  const activeRenderTask = renderTask
+  const activePdfDocument = pdfDocument.value
   const activeLoadingTask = loadingTask
-  loadingTask = null
-  await pdfDocument.value?.cleanup()
-  pdfDocument.value = null
-  if (activeLoadingTask) await activeLoadingTask.destroy()
-  prefetchedPages.clear()
+  const run = disposePdfPreviewResources({
+    renderTask: activeRenderTask,
+    pdfDocument: activePdfDocument,
+    loadingTask: activeLoadingTask,
+    clearReferences() {
+      if (renderTask === activeRenderTask) renderTask = null
+      if (pdfDocument.value === activePdfDocument) pdfDocument.value = null
+      if (loadingTask === activeLoadingTask) loadingTask = null
+      localRendering.value = false
+      prefetchedPages.clear()
+    },
+  })
+  disposalPromise = run.finally(() => {
+    disposalPromise = null
+  })
+  return disposalPromise
 }
 
 async function renderCurrentPage(explicitPage?: number) {
+  if (disposalPromise) return
   const loaded = pdfDocument.value
   const visibleCanvas = canvasRef.value
   if (!loaded || !visibleCanvas) return
@@ -454,7 +540,7 @@ async function renderCurrentPage(explicitPage?: number) {
     const pageProxy = await loaded.getPage(currentPage)
     if (!renderTokens.isCurrent(token) || loaded !== pdfDocument.value) return
     const viewport = pageProxy.getViewport({ scale: currentScale })
-    const outputScale = Math.max(1, window.devicePixelRatio || 1)
+    const outputScale = Math.max(1, devicePixelRatio.value)
     const stagingCanvas = window.document.createElement('canvas')
     stagingCanvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
     stagingCanvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
