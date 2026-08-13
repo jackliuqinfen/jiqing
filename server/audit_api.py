@@ -3329,11 +3329,18 @@ class Handler(BaseHTTPRequestHandler):
         ).fetchone()
 
     def preview_project_file(self, conn, file_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.project_file_row(conn, file_id)
         if not row:
             self.not_found()
+            return
+        if not self.source_project_allowed(conn, user, row["project_id"]):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限预览该项目资料",
+            })
             return
         original_name = repair_mojibake_filename(row["original_name"])
         mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
