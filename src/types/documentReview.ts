@@ -126,6 +126,51 @@ export interface RetryRecognitionRequest {
 export type ContractDraftValue = string | number | string[] | null
 export type ContractDraftValues = Record<string, ContractDraftValue>
 
+export interface ManualProjectIntakeForm {
+  projectName: string
+  ownerUnit: string
+  constructionUnit: string
+  contractAmount: number | string
+  contractDate: string
+  managerName: string
+  plannedStartDate: string
+  plannedEndDate: string
+  paymentTerms: string
+  contractorName: string
+  contractorContact: string
+  companyRole: string
+  settlementStatus: string
+  submittedAmount: number | string
+  paidAmount: number | string
+  description: string
+  [key: string]: unknown
+}
+
+export interface ManualProjectCreationFlow {
+  projectType?: string
+  projectLocation?: string
+}
+
+export interface ManualProjectValues {
+  contractorName?: string
+  contractorContact?: string
+  companyRole?: string
+  settlementStatus?: string
+  submittedAmount?: number
+  paidAmount?: number
+  paymentTerms?: string
+  plannedStartDate?: string
+  plannedEndDate?: string
+  description?: string
+}
+
+export interface ManualProjectIntakeUiState {
+  wizardStep: number
+  pdfPage: number
+  pdfScale: number
+  previewCollapsed: boolean
+}
+
 export interface ManualReviewRequest {
   idempotencyKey: string
   fallbackReason: string
@@ -148,6 +193,9 @@ export interface ProjectIntakeDraft {
   documentVersionId: string
   schemaVersion: 'contract.v1'
   values: ContractDraftValues
+  projectValues: ManualProjectValues
+  uiState: ManualProjectIntakeUiState
+  revision: number
   fallbackReason: string
   fallbackNote: string
   completedProjectId: string
@@ -157,6 +205,8 @@ export interface ProjectIntakeDraft {
 
 export interface CreateProjectIntakeDraftRequest {
   values: ContractDraftValues
+  projectValues?: ManualProjectValues
+  uiState?: Partial<ManualProjectIntakeUiState>
   fallbackReason: string
   fallbackNote?: string
   documentId?: string
@@ -164,7 +214,66 @@ export interface CreateProjectIntakeDraftRequest {
 }
 
 export interface SaveProjectIntakeDraftRequest extends Partial<CreateProjectIntakeDraftRequest> {
+  expectedRevision: number
   completedProjectId?: string
+}
+
+export interface DocumentVersionMetadata {
+  id: string
+  documentId: string
+  name: string
+  mimeType: string
+  fileSize: number
+  uploadedAt: string
+  documentType: DocumentType
+  alreadyConfirmedProjectId: string | null
+}
+
+export interface OriginalPdfRequest {
+  url: string
+  httpHeaders: Record<string, string>
+}
+
+export interface ManualProjectConfirmationRequest {
+  idempotencyKey: string
+  formTemplateVersion: 'manual-project-wizard.v1'
+  draftId: string
+  expectedDraftRevision: number
+  contractValues: ContractDraftValues
+  projectValues: ManualProjectValues
+}
+
+export interface ManualProjectConfirmationProject {
+  id: string
+  projectCode: string
+  projectName: string
+  contractDate: string
+  constructionUnit: string
+  contractorName: string
+  contractorContact: string
+  ownerUnit: string
+  companyRole: string
+  managerName: string
+  projectStatus: string
+  settlementStatus: string
+  auditStage: string
+  contractAmount: number
+  submittedAmount: number
+  paidAmount: number
+  paymentTerms: string
+  plannedStartDate: string
+  plannedEndDate: string
+  description: string
+  documentCompletion: number
+  missingRequiredCount: number
+  settlementBookStatus: string
+  firstAuditMaterialStatus: string
+  secondAuditMaterialStatus: string
+  variationCount: number
+  variationAmount: number
+  auditProjectId: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface OcrBlock {
@@ -287,6 +396,10 @@ export interface ConfirmDocumentReviewResponse {
   projectId: string | null
   snapshotId: string | null
   fact: ConfirmationFact | null
+}
+
+export interface ManualProjectConfirmationResponse extends ConfirmDocumentReviewResponse {
+  project: ManualProjectConfirmationProject
 }
 
 export interface DocumentReviewErrorPayload {

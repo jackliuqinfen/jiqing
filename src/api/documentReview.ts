@@ -8,7 +8,11 @@ import type {
   DocumentUploadRequest,
   DocumentUploadResponse,
   ExternalImportRequest,
+  ManualProjectConfirmationRequest,
+  ManualProjectConfirmationResponse,
   ManualReviewRequest,
+  DocumentVersionMetadata,
+  OriginalPdfRequest,
   ProjectIntakeDraft,
   RecognitionJob,
   RetryRecognitionRequest,
@@ -22,6 +26,10 @@ const API_BASE = import.meta.env?.VITE_AUDIT_API_BASE || '/api'
 type ApiSuccess<T> = { success: true; data: T; error?: never }
 type ApiFailure = DocumentReviewErrorPayload & { success: false; data?: never }
 type ApiResult<T> = ApiSuccess<T> | ApiFailure
+type LegacySaveProjectIntakeDraftRequest = Omit<
+  SaveProjectIntakeDraftRequest,
+  'expectedRevision'
+> & { expectedRevision?: never }
 
 export class DocumentReviewApiError extends Error {
   readonly status: number
@@ -219,17 +227,96 @@ export function listProjectIntakeDrafts(): Promise<ProjectIntakeDraft[]> {
 export function saveProjectIntakeDraft(
   draftId: string,
   data: SaveProjectIntakeDraftRequest,
+): Promise<ProjectIntakeDraft>
+export function saveProjectIntakeDraft(
+  draftId: string,
+  data: LegacySaveProjectIntakeDraftRequest,
+): Promise<ProjectIntakeDraft>
+export async function saveProjectIntakeDraft(
+  draftId: string,
+  data: SaveProjectIntakeDraftRequest | LegacySaveProjectIntakeDraftRequest,
 ): Promise<ProjectIntakeDraft> {
+  const expectedRevision = await resolveDraftRevision(draftId, data.expectedRevision)
   return request(`/project-intake-drafts/${encodeURIComponent(draftId)}`, {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, expectedRevision }),
   })
 }
 
-export function abandonProjectIntakeDraft(draftId: string): Promise<ProjectIntakeDraft> {
+export function abandonProjectIntakeDraft(
+  draftId: string,
+  expectedRevision: number,
+): Promise<ProjectIntakeDraft>
+export function abandonProjectIntakeDraft(draftId: string): Promise<ProjectIntakeDraft>
+export async function abandonProjectIntakeDraft(
+  draftId: string,
+  expectedRevision?: number,
+): Promise<ProjectIntakeDraft> {
+  const resolvedRevision = await resolveDraftRevision(draftId, expectedRevision)
   return request(`/project-intake-drafts/${encodeURIComponent(draftId)}/abandon`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ expectedRevision: resolvedRevision }),
+  })
+}
+
+async function resolveDraftRevision(draftId: string, revision: number | undefined): Promise<number> {
+  if (revision !== undefined) {
+    if (Number.isInteger(revision) && revision >= 0) return revision
+    throw new DocumentReviewApiError(422, {
+      code: 'invalid_expected_revision',
+      error: 'expectedRevision 必须是非负整数。',
+      field: 'expectedRevision',
+    })
+  }
+  const draft = (await listProjectIntakeDrafts()).find((item) => item.id === draftId)
+  if (!draft) {
+    throw new DocumentReviewApiError(404, {
+      code: 'draft_not_found',
+      error: '未找到项目录入草稿。',
+    })
+  }
+  return draft.revision
+}
+
+export function fetchDocumentVersion(versionId: string): Promise<DocumentVersionMetadata> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}`)
+}
+
+export function originalPdfRequest(versionId: string): OriginalPdfRequest {
+  const token = getAuthToken()
+  return {
+    url: `${API_BASE}/document-versions/${encodeURIComponent(versionId)}/original`,
+    httpHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+  }
+}
+
+export async function downloadOriginalPdf(versionId: string): Promise<Blob> {
+  const source = originalPdfRequest(versionId)
+  let response: Response
+  try {
+    response = await fetch(source.url, { headers: source.httpHeaders })
+  } catch {
+    throw networkError()
+  }
+  if (!response.ok) {
+    let payload: DocumentReviewErrorPayload = fallbackError(response.status)
+    try {
+      payload = errorPayload(parsePayload<never>(await response.json(), response.status), response.status)
+    } catch {
+      // Preserve the HTTP status when an upstream proxy returns a non-JSON body.
+    }
+    throw new DocumentReviewApiError(response.status, payload)
+  }
+  return response.blob()
+}
+
+export function confirmManualProjectIntake(
+  versionId: string,
+  data: ManualProjectConfirmationRequest,
+): Promise<ManualProjectConfirmationResponse> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}/manual-project-confirmation`, {
+    method: 'POST',
+    body: JSON.stringify(data),
   })
 }
 
