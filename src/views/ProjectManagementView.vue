@@ -1682,6 +1682,19 @@ const manualPdfUploading = ref(false)
 const manualProjectIdempotencyKey = ref('')
 const restoringManualDraft = ref(false)
 const manualDocumentMetadataLoader = createManualDocumentMetadataLoader()
+let manualIntakeRouteGeneration = 0
+
+function beginManualIntakeRoute(versionId: string) {
+  const token = ++manualIntakeRouteGeneration
+  return {
+    isCurrent: () => (
+      token === manualIntakeRouteGeneration
+      && String(route.query.intakeDocumentVersionId || '').trim() === versionId
+      && projectDialog.visible
+      && projectDialog.mode === 'create'
+    ),
+  }
+}
 
 const {
   drafts: manualDrafts,
@@ -2197,19 +2210,28 @@ function manualDraftTitle(draft: ProjectIntakeDraft) {
   return String(draft.values['project.name'] || '').trim() || '未命名项目草稿'
 }
 
-async function resumeManualDraft(draft: ProjectIntakeDraft) {
-  const switched = await resumeDraft(draft)
-  if (!switched) return false
+async function resumeManualDraft(
+  draft: ProjectIntakeDraft,
+  isCurrent: () => boolean = () => true,
+) {
+  if (!isCurrent()) return false
+  const switched = await resumeDraft(draft, isCurrent)
+  if (!switched || !isCurrent()) return false
   manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
   if (draft.documentVersionId) {
     const draftId = draft.id
     const versionId = draft.documentVersionId
-    await loadManualDocumentMetadata(
+    const published = await loadManualDocumentMetadata(
       versionId,
-      () => activeDraft.value?.id === draftId && activeDraft.value.documentVersionId === versionId,
+      () => (
+        isCurrent()
+        && activeDraft.value?.id === draftId
+        && activeDraft.value.documentVersionId === versionId
+      ),
     )
+    if (!published || !isCurrent()) return false
   }
-  return true
+  return isCurrent()
 }
 
 function resetManualProjectIntake() {
@@ -3243,30 +3265,28 @@ async function openProjectForm(record?: ProjectRecord | null) {
 
 async function openManualIntakeFromRoute() {
   const versionId = String(route.query.intakeDocumentVersionId || '').trim()
+  const routeRequest = beginManualIntakeRoute(versionId)
   if (!versionId || !authStore.isEditor) return false
   if (!projectDialog.visible || projectDialog.mode !== 'create') await openProjectForm()
+  if (!routeRequest.isCurrent()) return false
   const matchingDraft = manualDrafts.value.find((draft) => draft.documentVersionId === versionId)
   if (matchingDraft) {
-    return resumeManualDraft(matchingDraft)
+    return resumeManualDraft(matchingDraft, routeRequest.isCurrent)
   }
-  const routeVersionId = versionId
   let routeMetadata: DocumentVersionMetadata | null = null
   const published = await loadManualDocumentMetadata(
     versionId,
-    () => (
-      String(route.query.intakeDocumentVersionId || '').trim() === routeVersionId
-      && projectDialog.visible
-      && projectDialog.mode === 'create'
-    ),
+    routeRequest.isCurrent,
     (metadata) => {
       routeMetadata = metadata
     },
   )
-  if (!published || !routeMetadata) return false
-  if (String(route.query.intakeDocumentVersionId || '').trim() !== routeVersionId) return false
+  if (!published || !routeMetadata || !routeRequest.isCurrent()) return false
   const metadata: DocumentVersionMetadata = routeMetadata
   manualContractDocument.value = manualDocumentRef(metadata)
-  if (!await attachDocument(metadata.documentId, metadata.id)) {
+  const attached = await attachDocument(metadata.documentId, metadata.id)
+  if (!routeRequest.isCurrent()) return false
+  if (!attached) {
     manualContractDocument.value = null
     return false
   }
@@ -3907,7 +3927,7 @@ watch(
 watch(
   () => route.query.intakeDocumentVersionId,
   async (versionId, previousVersionId) => {
-    if (!versionId || versionId === previousVersionId) return
+    if (versionId === previousVersionId) return
     try {
       await openManualIntakeFromRoute()
     } catch (error) {

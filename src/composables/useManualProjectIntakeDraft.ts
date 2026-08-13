@@ -117,21 +117,27 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
     }
   }
 
-  async function resumeDraft(draft: ProjectIntakeDraft) {
+  async function resumeDraft(
+    draft: ProjectIntakeDraft,
+    isCurrent: () => boolean = () => true,
+  ) {
     const switchToken = ++switchGeneration
     const previousId = activeDraft.value?.id || ''
-    if (autosaveStopped) return false
-    if (previousId === draft.id) return true
+    if (autosaveStopped || !isCurrent()) return false
+    if (previousId === draft.id) return isCurrent()
     if (previousId) {
+      if (!isCurrent()) return false
       const saved = await flushSave()
-      if (!saved || autosaveStopped || switchToken !== switchGeneration) return false
+      if (!saved || autosaveStopped || switchToken !== switchGeneration || !isCurrent()) return false
       if ((activeDraft.value?.id || '') !== previousId) return false
     }
+    if (!isCurrent()) return false
     clearScheduledSave()
     activeGeneration += 1
     activeDraft.value = draft
+    if (!isCurrent()) return false
     options.restore(draftSnapshot(draft))
-    return true
+    return isCurrent()
   }
 
   async function persistSnapshot(): Promise<boolean> {

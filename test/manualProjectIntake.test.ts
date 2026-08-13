@@ -566,6 +566,86 @@ test('metadata loader rejects late draft and route responses before publishing',
   assert.deepEqual(published, ['version-B', 'route-B'])
 })
 
+test('obsolete matching route cannot restore its draft or invalidate newer route metadata', async () => {
+  installAuthToken()
+  const draftA = draftFixture('A')
+  const draftB = draftFixture('B')
+  let snapshot = draftSnapshot('项目 B', draftB)
+  const restored = []
+  let resolveSaveStarted
+  const saveStarted = new Promise((resolve) => { resolveSaveStarted = resolve })
+  let resolveDelayedSave
+  globalThis.fetch = async (_input, init = {}) => {
+    const body = JSON.parse(init.body)
+    resolveSaveStarted()
+    return new Promise((resolve) => {
+      resolveDelayedSave = () => resolve(new Response(JSON.stringify({
+        success: true,
+        data: { ...draftB, values: body.values, revision: 2 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+  }
+
+  const scope = effectScope()
+  const intake = scope.run(() => useManualProjectIntakeDraft({
+    snapshot: () => snapshot,
+    restore: (value) => {
+      restored.push(value)
+      snapshot = value
+    },
+    onError: () => {},
+  }))
+  await intake.resumeDraft(draftB)
+  snapshot = draftSnapshot('项目 B 已修改', draftB)
+
+  let routeGeneration = 0
+  let routeVersionId = 'version-A'
+  const metadataPending = new Map()
+  const published = []
+  const metadataLoader = createManualDocumentMetadataLoader(
+    (versionId) => new Promise((resolve) => metadataPending.set(versionId, resolve)),
+  )
+  const beginRoute = (versionId) => {
+    const token = ++routeGeneration
+    return {
+      isCurrent: () => token === routeGeneration && routeVersionId === versionId,
+      versionId,
+    }
+  }
+  const openMatchingRoute = async (draft, request) => {
+    const switched = await intake.resumeDraft(draft, request.isCurrent)
+    if (!switched || !request.isCurrent()) return false
+    return metadataLoader.load(
+      request.versionId,
+      request.isCurrent,
+      (metadata) => published.push(metadata.id),
+    )
+  }
+
+  const routeA = beginRoute('version-A')
+  const openingA = openMatchingRoute(draftA, routeA)
+  await saveStarted
+
+  routeVersionId = 'version-C'
+  const routeC = beginRoute('version-C')
+  const openingC = metadataLoader.load(
+    routeC.versionId,
+    routeC.isCurrent,
+    (metadata) => published.push(metadata.id),
+  )
+
+  resolveDelayedSave()
+  assert.equal(await openingA, false)
+  assert.equal(intake.activeDraft.value.id, 'B')
+  assert.equal(restored.at(-1).values['project.name'], '项目 B')
+  assert.equal(metadataPending.has('version-A'), false)
+
+  metadataPending.get('version-C')({ id: 'version-C' })
+  assert.equal(await openingC, true)
+  assert.deepEqual(published, ['version-C'])
+  scope.stop()
+})
+
 test('manual wizard persists preview state and uses one stable key for confirmation retries', () => {
   const source = readFileSync(
     new URL('../src/views/ProjectManagementView.vue', import.meta.url),
@@ -574,6 +654,8 @@ test('manual wizard persists preview state and uses one stable key for confirmat
 
   assert.match(source, /intakeDocumentVersionId/)
   assert.match(source, /createManualDocumentMetadataLoader\s*\(/)
+  assert.match(source, /beginManualIntakeRoute\s*\(/)
+  assert.match(source, /resumeManualDraft\s*\(matchingDraft,\s*routeRequest\.isCurrent\)/)
   assert.match(source, /scheduleSave\s*\(/)
   assert.match(source, /expectedDraftRevision:\s*activeDraft\.value\.revision/)
   assert.match(source, /idempotencyKey:\s*manualProjectIdempotencyKey\.value/)
