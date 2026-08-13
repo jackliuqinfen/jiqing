@@ -32,6 +32,19 @@ CONTRACT_FIELDS = {
     "contract.payment_terms": ["竣工验收后支付60%"],
 }
 
+MANUAL_PROJECT_VALUES = {
+    "contractorName": "徐华",
+    "contractorContact": "13800000000",
+    "companyRole": "施工单位",
+    "settlementStatus": "not_started",
+    "submittedAmount": 0,
+    "paidAmount": 0,
+    "paymentTerms": "竣工验收后支付60%",
+    "plannedStartDate": "2026-07-01",
+    "plannedEndDate": "2026-08-01",
+    "description": "API 人工建档契约测试",
+}
+
 
 class DocumentApiContractTests(unittest.TestCase):
     @classmethod
@@ -214,6 +227,38 @@ class DocumentApiContractTests(unittest.TestCase):
             )
         return created
 
+    def create_manual_intake(self, *, content=None, contract_values=None, project_values=None):
+        content = content or f"%PDF-1.7\nmanual-{uuid.uuid4().hex}".encode("ascii")
+        status, _headers, uploaded = self.upload(content=content)
+        self.assertIn(status, {200, 201}, uploaded)
+        version = uploaded["data"]["version"]
+        document = uploaded["data"]["document"]
+        status, _headers, draft = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": contract_values or CONTRACT_FIELDS,
+                "projectValues": project_values or MANUAL_PROJECT_VALUES,
+                "fallbackReason": "manual_selected",
+                "documentId": document["id"],
+                "documentVersionId": version["id"],
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 201, draft)
+        return document, version, draft["data"]
+
+    @staticmethod
+    def manual_confirmation_payload(draft, *, contract_values=None, project_values=None, key=None):
+        return {
+            "idempotencyKey": key or f"manual-project:{uuid.uuid4().hex}",
+            "formTemplateVersion": "manual-project-wizard.v1",
+            "draftId": draft["id"],
+            "expectedDraftRevision": draft["revision"],
+            "contractValues": contract_values or CONTRACT_FIELDS,
+            "projectValues": project_values or MANUAL_PROJECT_VALUES,
+        }
+
     def add_page(self, created, content=b"0123456789"):
         relative_path = f"documents/pages/{uuid.uuid4().hex}.png"
         path = Path(os.environ["UPLOAD_ROOT"]) / relative_path
@@ -334,6 +379,8 @@ class DocumentApiContractTests(unittest.TestCase):
             ("POST", "/api/documents/uploads"),
             ("GET", "/api/documents/document-id"),
             ("GET", "/api/document-versions/version-id/pages/1/image"),
+            ("GET", "/api/document-versions/version-id"),
+            ("GET", "/api/document-versions/version-id/original"),
             ("POST", "/api/document-recognition-jobs"),
             ("GET", "/api/document-recognition-jobs/job-id"),
             ("POST", "/api/document-recognition-jobs/job-id/retry"),
@@ -342,6 +389,7 @@ class DocumentApiContractTests(unittest.TestCase):
             ("POST", "/api/document-reviews/review-id/confirm"),
             ("POST", "/api/document-versions/version-id/manual-review"),
             ("POST", "/api/document-versions/version-id/external-import"),
+            ("POST", "/api/document-versions/version-id/manual-project-confirmation"),
             ("POST", "/api/document-recognition-jobs/job-id/manual-review"),
             ("POST", "/api/document-recognition-jobs/job-id/external-import"),
             ("GET", "/api/project-intake-drafts"),
@@ -356,6 +404,173 @@ class DocumentApiContractTests(unittest.TestCase):
                 status, _headers, payload = self.request(method, path)
                 self.assertEqual(status, 401)
                 self.assertFalse(payload["success"])
+
+    def test_version_metadata_is_safe_and_unbound_access_is_owner_or_admin_only(self):
+        original = b"%PDF-1.7\nmetadata-original"
+        created = self.create_document(project_id=None, content=original)
+        version_id = created["version"]["id"]
+        path = f"/api/document-versions/{version_id}"
+
+        status, _headers, payload = self.request("GET", path, user_id="editor-user")
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(
+            payload["data"],
+            {
+                "id": version_id,
+                "documentId": created["document"]["id"],
+                "name": "施工合同.pdf",
+                "mimeType": "application/pdf",
+                "fileSize": len(original),
+                "uploadedAt": created["version"]["uploaded_at"],
+                "documentType": "construction_contract",
+                "alreadyConfirmedProjectId": None,
+            },
+        )
+        self.assert_no_internal_fields(payload)
+
+        admin_status, _headers, _payload = self.request("GET", path, user_id="admin-user")
+        self.assertEqual(admin_status, 200)
+        viewer_status, _headers, forbidden = self.request("GET", path, user_id="viewer-user")
+        self.assertEqual(viewer_status, 403)
+        self.assertEqual(forbidden["code"], "unbound_document_forbidden")
+
+    def test_original_pdf_supports_200_206_and_416_without_rendering(self):
+        original = b"%PDF-1.7\n0123456789"
+        created = self.create_document(content=original)
+        path = f"/api/document-versions/{created['version']['id']}/original"
+
+        with patch("server.document_api.render_document_pages") as render:
+            status, headers, body = self.request("GET", path, user_id="viewer-user")
+            self.assertEqual(status, 200)
+            self.assertEqual(body, original)
+            self.assertEqual(headers["Content-Type"], "application/pdf")
+            self.assertEqual(headers["Accept-Ranges"], "bytes")
+
+            status, headers, body = self.request(
+                "GET",
+                path,
+                headers={"Range": "bytes=2-5"},
+                user_id="viewer-user",
+            )
+            self.assertEqual(status, 206)
+            self.assertEqual(body, original[2:6])
+            self.assertEqual(headers["Content-Range"], f"bytes 2-5/{len(original)}")
+            self.assertEqual(headers["Accept-Ranges"], "bytes")
+            self.assertEqual(headers["Content-Type"], "application/pdf")
+
+            status, headers, body = self.request(
+                "GET",
+                path,
+                headers={"Range": "bytes=99-100"},
+                user_id="viewer-user",
+            )
+            self.assertEqual(status, 416)
+            self.assertEqual(body, b"")
+            self.assertEqual(headers["Content-Range"], f"bytes */{len(original)}")
+            render.assert_not_called()
+
+        with audit_api.connect() as conn:
+            conn.execute(
+                "UPDATE document_versions SET mime_type = 'image/png' WHERE id = ?",
+                (created["version"]["id"],),
+            )
+        status, _headers, payload = self.request("GET", path, user_id="viewer-user")
+        self.assertEqual(status, 422, payload)
+        self.assertEqual(payload["code"], "document_original_not_pdf")
+
+    def test_manual_confirmation_creates_once_replays_and_exposes_safe_project(self):
+        _document, version, draft = self.create_manual_intake()
+        path = f"/api/document-versions/{version['id']}/manual-project-confirmation"
+        request_payload = self.manual_confirmation_payload(draft)
+
+        with patch("server.document_api.render_document_pages") as render:
+            status, _headers, first = self.request(
+                "POST", path, payload=request_payload, user_id="editor-user"
+            )
+            replay_status, _headers, replay = self.request(
+                "POST", path, payload=request_payload, user_id="editor-user"
+            )
+            render.assert_not_called()
+
+        self.assertEqual(status, 201, first)
+        self.assertEqual(replay_status, 200, replay)
+        self.assertFalse(first["data"]["replayed"])
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(first["data"]["projectId"], replay["data"]["projectId"])
+        self.assertEqual(first["data"]["project"]["id"], first["data"]["projectId"])
+        self.assertEqual(first["data"]["project"]["constructionUnit"], CONTRACT_FIELDS["party.contractor"])
+        self.assert_no_internal_fields(first)
+
+        self.project_scopes["editor-user"].add(first["data"]["projectId"])
+        status, _headers, metadata = self.request(
+            "GET", f"/api/document-versions/{version['id']}", user_id="editor-user"
+        )
+        self.assertEqual(status, 200, metadata)
+        self.assertEqual(
+            metadata["data"]["alreadyConfirmedProjectId"], first["data"]["projectId"]
+        )
+
+    def test_manual_confirmation_maps_validation_conflict_and_authorization_errors(self):
+        _document, version, draft = self.create_manual_intake()
+        path = f"/api/document-versions/{version['id']}/manual-project-confirmation"
+        missing_owner = {**CONTRACT_FIELDS, "party.owner": ""}
+        status, _headers, invalid = self.request(
+            "POST",
+            path,
+            payload=self.manual_confirmation_payload(draft, contract_values=missing_owner),
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 422, invalid)
+        self.assertEqual(invalid["code"], "confirmed_value_required")
+        self.assertEqual(invalid["blockers"][0]["field"], "party.owner")
+
+        _document, stale_version, stale_draft = self.create_manual_intake()
+        stale_payload = self.manual_confirmation_payload(stale_draft)
+        stale_payload["expectedDraftRevision"] += 1
+        status, _headers, conflict = self.request(
+            "POST",
+            f"/api/document-versions/{stale_version['id']}/manual-project-confirmation",
+            payload=stale_payload,
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 409, conflict)
+        self.assertEqual(conflict["code"], "draft_version_conflict")
+
+        duplicate_content = f"%PDF-1.7\nduplicate-{uuid.uuid4().hex}".encode("ascii")
+        _document, first_version, first_draft = self.create_manual_intake(content=duplicate_content)
+        first_path = f"/api/document-versions/{first_version['id']}/manual-project-confirmation"
+        status, _headers, first = self.request(
+            "POST",
+            first_path,
+            payload=self.manual_confirmation_payload(first_draft),
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 201, first)
+        _document, duplicate_version, duplicate_draft = self.create_manual_intake(
+            content=duplicate_content
+        )
+        status, _headers, duplicate = self.request(
+            "POST",
+            f"/api/document-versions/{duplicate_version['id']}/manual-project-confirmation",
+            payload=self.manual_confirmation_payload(duplicate_draft),
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 409, duplicate)
+        self.assertEqual(duplicate["code"], "duplicate_contract_document")
+        self.assertTrue(duplicate["blockers"])
+
+        scoped = self.create_document(project_id="project-allowed")
+        scoped_path = f"/api/document-versions/{scoped['version']['id']}/manual-project-confirmation"
+        viewer_status, _headers, viewer = self.request(
+            "POST", scoped_path, payload={}, user_id="viewer-user"
+        )
+        self.assertEqual(viewer_status, 403, viewer)
+        self.assertEqual(viewer["code"], "document_confirm_forbidden")
+        outsider_status, _headers, outsider = self.request(
+            "POST", scoped_path, payload={}, user_id="outsider-user"
+        )
+        self.assertEqual(outsider_status, 403, outsider)
+        self.assertEqual(outsider["code"], "project_scope_forbidden")
 
     def test_unbound_documents_are_owner_scoped_and_viewer_write_routes_return_403(self):
         created, _page, job, review = self.create_review({"project.name": "缺字段合同"})
