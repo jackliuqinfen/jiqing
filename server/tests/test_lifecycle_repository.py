@@ -121,6 +121,7 @@ class LifecycleRepositoryTests(unittest.TestCase):
                 "2026071502_contract_fallback_provenance": 1,
                 "2026072701_desktop_sync_hash_cache": 1,
                 "2026080101_project_document_stage_requirements": 1,
+                "2026081301_manual_project_intake_state": 1,
             },
         )
         lifecycle_migration = next(
