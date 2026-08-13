@@ -655,11 +655,6 @@
       />
     </section>
 
-    <DocumentDrivenEntry
-      v-model:visible="contractCreationVisible"
-      @created="handleContractProjectCreated"
-    />
-
     <AModal
       :visible="projectDialog.visible"
       :title="projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目'"
@@ -667,13 +662,19 @@
       cancel-text="取消"
       :mask-closable="false"
       :esc-to-close="false"
-      :width="projectDialog.mode === 'create' ? 1040 : 920"
+      :width="projectDialog.mode === 'create' ? 'min(1480px, calc(100vw - 48px))' : 920"
       unmount-on-close
       modal-class="project-form-modal"
       @confirm="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
       @cancel="requestCloseProjectDialog"
     >
-      <div v-if="projectDialog.mode === 'create'" class="project-create-wizard">
+      <div
+        v-if="projectDialog.mode === 'create'"
+        class="project-create-shell"
+        :class="{ 'project-create-shell--preview-collapsed': manualPdfPreviewCollapsed }"
+      >
+        <section class="project-create-shell__form">
+          <div class="project-create-wizard">
         <nav class="wizard-stepper" aria-label="新建项目步骤">
           <button
             v-for="(step, index) in projectWizardSteps"
@@ -739,7 +740,13 @@
                   @change="handleProjectDictionaryChange('constructionUnit')"
                 />
               </AFormItem>
-              <AFormItem field="ownerUnit" label="建设单位">
+              <AFormItem
+                field="ownerUnit"
+                label="建设单位"
+                required
+                :validate-status="projectFormErrors.ownerUnit ? 'error' : undefined"
+                :help="projectFormErrors.ownerUnit"
+              >
                 <ASelect
                   v-model="projectForm.ownerUnit"
                   data-project-field="ownerUnit"
@@ -804,10 +811,28 @@
               <AFormItem
                 field="contractAmount"
                 label="合同金额"
+                required
                 :validate-status="projectFormErrors.contractAmount ? 'error' : undefined"
                 :help="projectFormErrors.contractAmount"
               >
                 <AInputNumber v-model="projectForm.contractAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('contractAmount')" />
+              </AFormItem>
+              <AFormItem
+                class="dialog-span-2"
+                field="paymentTerms"
+                label="付款条款"
+                required
+                :validate-status="projectFormErrors.paymentTerms ? 'error' : undefined"
+                :help="projectFormErrors.paymentTerms"
+              >
+                <ATextarea
+                  v-model="projectForm.paymentTerms"
+                  data-project-field="paymentTerms"
+                  :auto-size="{ minRows: 3, maxRows: 6 }"
+                  placeholder="请对照合同逐条填写付款节点，每行一条"
+                  allow-clear
+                  @input="clearProjectFieldError('paymentTerms')"
+                />
               </AFormItem>
               <AFormItem
                 field="paidAmount"
@@ -899,10 +924,42 @@
           </section>
         </AForm>
 
-        <div class="wizard-footer-extra">
-          <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
-          <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
-        </div>
+            <div class="wizard-footer-extra">
+              <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
+              <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="project-create-shell__preview">
+          <div v-if="manualDrafts.length && !manualPdfPreviewCollapsed" class="manual-draft-strip">
+            <span>我的未完成草稿</span>
+            <button
+              v-for="draft in manualDrafts"
+              :key="draft.id"
+              type="button"
+              :class="{ active: activeDraft?.id === draft.id }"
+              :disabled="loadingDrafts || savingDraft || projectDialog.saving"
+              @click="resumeManualDraft(draft)"
+            >
+              <strong>{{ manualDraftTitle(draft) }}</strong>
+              <small>{{ formatDate(draft.updatedAt) }}</small>
+            </button>
+          </div>
+          <ContractPdfPreview
+            :document="manualContractDocument"
+            :max-file-size-mb="uploadLimitMb"
+            :page="manualPdfPage"
+            :scale="manualPdfScale"
+            :collapsed="manualPdfPreviewCollapsed"
+            @uploaded="handleContractPdfUploaded"
+            @update:page="handleContractPdfPage"
+            @update:scale="handleContractPdfScale"
+            @update:collapsed="handleContractPdfCollapsed"
+            @uploading="manualPdfUploading = $event"
+            @error="MessagePlugin.error($event)"
+          />
+        </aside>
       </div>
 
       <AForm v-else ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
@@ -1231,16 +1288,22 @@ import type { TableData } from '@arco-design/web-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
+import ContractPdfPreview from '@/components/project/ContractPdfPreview.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
-import DocumentDrivenEntry from '@/components/document-review/DocumentDrivenEntry.vue'
 import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
 import { buildProjectMutationPayload } from '@/utils/projectMutationPayload'
+import {
+  buildManualContractValues,
+  buildManualProjectValues,
+  newManualProjectIntakeKey,
+} from '@/utils/manualProjectIntake'
 import { settleLifecycleRefresh } from '@/utils/projectLifecycleRefresh'
+import { useManualProjectIntakeDraft, type ManualProjectIntakeDraftSnapshot } from '@/composables/useManualProjectIntakeDraft'
 import {
   auditStartEligibilityMessage,
   formatAuditStartSkippedSummary,
@@ -1257,10 +1320,14 @@ import {
   variationStatusOptions as variationStatusDict,
 } from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
+import type { DocumentVersionMetadata, ProjectIntakeDraft } from '@/types/documentReview'
 import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 import {
+  confirmManualProjectIntake,
+  fetchDocumentVersion,
+} from '@/api/documentReview'
+import {
   createProjectDictionaryOption,
-  createProjectRecord,
   deleteProjectFile,
   deleteProjectRecord,
   fetchProjectFileDownloadBlob,
@@ -1284,7 +1351,6 @@ import {
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const contractCreationVisible = ref(false)
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
@@ -1595,6 +1661,39 @@ const projectFormErrors = reactive<ProjectFormErrors>({})
 const projectCreationFlow = reactive({
   projectType: '',
   projectLocation: '',
+})
+
+type ManualContractDocumentRef = {
+  documentId: string
+  versionId: string
+  name: string
+  mimeType: string
+  fileSize: number
+}
+
+const manualContractDocument = ref<ManualContractDocumentRef | null>(null)
+const manualPdfPage = ref(1)
+const manualPdfScale = ref(1)
+const manualPdfPreviewCollapsed = ref(false)
+const manualPdfUploading = ref(false)
+const manualProjectIdempotencyKey = ref('')
+const restoringManualDraft = ref(false)
+
+const {
+  drafts: manualDrafts,
+  activeDraft,
+  loadingDrafts,
+  savingDraft,
+  loadDrafts,
+  resumeDraft,
+  scheduleSave,
+  flushSave,
+  attachDocument,
+  completeAndReset,
+} = useManualProjectIntakeDraft({
+  snapshot: manualProjectDraftSnapshot,
+  restore: restoreManualProjectDraftSnapshot,
+  onError: (message) => MessagePlugin.error(message),
 })
 
 const settlementForm = reactive({
@@ -1983,6 +2082,150 @@ function resetProjectCreationFlow() {
   projectWizardStepIndex.value = 0
 }
 
+function manualProjectDraftSnapshot(): ManualProjectIntakeDraftSnapshot {
+  const paymentTerms = projectForm.paymentTerms
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const contractAmount = Number(projectForm.contractAmount || 0)
+  const submittedAmount = Number(projectForm.submittedAmount || 0)
+  const paidAmount = Number(projectForm.paidAmount || 0)
+  return {
+    values: {
+      'project.name': projectForm.projectName.trim(),
+      'party.owner': projectForm.ownerUnit.trim(),
+      'party.contractor': projectForm.constructionUnit.trim(),
+      'contract.amount': Number.isFinite(contractAmount) ? Math.round(contractAmount * 100) : 0,
+      'contract.signed_date': projectForm.contractDate,
+      'project.manager': projectForm.managerName.trim(),
+      'contract.start_date': projectForm.plannedStartDate,
+      'contract.end_date': projectForm.plannedEndDate,
+      'contract.payment_terms': paymentTerms,
+    },
+    projectValues: {
+      contractorName: projectForm.contractorName.trim(),
+      contractorContact: projectForm.contractorContact.trim(),
+      companyRole: projectForm.companyRole.trim(),
+      settlementStatus: projectForm.settlementStatus,
+      submittedAmount: Number.isFinite(submittedAmount) && submittedAmount >= 0 ? submittedAmount : 0,
+      paidAmount: Number.isFinite(paidAmount) && paidAmount >= 0 ? paidAmount : 0,
+      paymentTerms: projectForm.paymentTerms,
+      plannedStartDate: projectForm.plannedStartDate,
+      plannedEndDate: projectForm.plannedEndDate,
+      description: appendProjectCreationNotes(projectForm.description),
+    },
+    uiState: {
+      wizardStep: projectWizardStepIndex.value,
+      pdfPage: manualPdfPage.value,
+      pdfScale: manualPdfScale.value,
+      previewCollapsed: manualPdfPreviewCollapsed.value,
+    },
+    documentId: manualContractDocument.value?.documentId || '',
+    documentVersionId: manualContractDocument.value?.versionId || '',
+  }
+}
+
+function restoreManualProjectDraftSnapshot(snapshot: ManualProjectIntakeDraftSnapshot) {
+  restoringManualDraft.value = true
+  fillProjectForm(null)
+  resetProjectCreationFlow()
+  const amountFen = Number(snapshot.values['contract.amount'] || 0)
+  Object.assign(projectForm, {
+    projectName: String(snapshot.values['project.name'] || ''),
+    ownerUnit: String(snapshot.values['party.owner'] || ''),
+    constructionUnit: String(snapshot.values['party.contractor'] || ''),
+    contractAmount: Number.isFinite(amountFen) ? amountFen / 100 : 0,
+    contractDate: String(snapshot.values['contract.signed_date'] || ''),
+    managerName: String(snapshot.values['project.manager'] || ''),
+    plannedStartDate: String(snapshot.values['contract.start_date'] || snapshot.projectValues.plannedStartDate || ''),
+    plannedEndDate: String(snapshot.values['contract.end_date'] || snapshot.projectValues.plannedEndDate || ''),
+    paymentTerms: Array.isArray(snapshot.values['contract.payment_terms'])
+      ? snapshot.values['contract.payment_terms'].join('\n')
+      : String(snapshot.projectValues.paymentTerms || ''),
+    contractorName: String(snapshot.projectValues.contractorName || ''),
+    contractorContact: String(snapshot.projectValues.contractorContact || ''),
+    companyRole: String(snapshot.projectValues.companyRole || '工程咨询'),
+    settlementStatus: String(snapshot.projectValues.settlementStatus || 'not_started'),
+    submittedAmount: Number(snapshot.projectValues.submittedAmount || 0),
+    paidAmount: Number(snapshot.projectValues.paidAmount || 0),
+    description: String(snapshot.projectValues.description || ''),
+  })
+  projectWizardStepIndex.value = Math.min(
+    Math.max(0, Number(snapshot.uiState.wizardStep || 0)),
+    projectWizardSteps.value.length - 1,
+  )
+  manualPdfPage.value = Math.max(1, Number(snapshot.uiState.pdfPage || 1))
+  manualPdfScale.value = Math.min(2.5, Math.max(0.5, Number(snapshot.uiState.pdfScale || 1)))
+  manualPdfPreviewCollapsed.value = Boolean(snapshot.uiState.previewCollapsed)
+  manualContractDocument.value = null
+  void nextTick(() => {
+    restoringManualDraft.value = false
+    projectDialog.initialSnapshot = projectFormSnapshot()
+  })
+}
+
+function manualDocumentRef(metadata: DocumentVersionMetadata): ManualContractDocumentRef {
+  return {
+    documentId: metadata.documentId,
+    versionId: metadata.id,
+    name: metadata.name,
+    mimeType: metadata.mimeType,
+    fileSize: metadata.fileSize,
+  }
+}
+
+async function loadManualDocumentMetadata(versionId: string) {
+  try {
+    const metadata = await fetchDocumentVersion(versionId)
+    manualContractDocument.value = manualDocumentRef(metadata)
+    return metadata
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '合同原文信息加载失败，请稍后重试。'))
+    return null
+  }
+}
+
+function manualDraftTitle(draft: ProjectIntakeDraft) {
+  return String(draft.values['project.name'] || '').trim() || '未命名项目草稿'
+}
+
+async function resumeManualDraft(draft: ProjectIntakeDraft) {
+  resumeDraft(draft)
+  manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+  if (draft.documentVersionId) await loadManualDocumentMetadata(draft.documentVersionId)
+}
+
+function resetManualProjectIntake() {
+  completeAndReset()
+  manualContractDocument.value = null
+  manualPdfPage.value = 1
+  manualPdfScale.value = 1
+  manualPdfPreviewCollapsed.value = false
+  manualPdfUploading.value = false
+  manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+}
+
+async function handleContractPdfUploaded(document: ManualContractDocumentRef) {
+  manualContractDocument.value = document
+  manualPdfPage.value = 1
+  await attachDocument(document.documentId, document.versionId)
+}
+
+function handleContractPdfPage(page: number) {
+  manualPdfPage.value = page
+  scheduleSave()
+}
+
+function handleContractPdfScale(scale: number) {
+  manualPdfScale.value = scale
+  scheduleSave()
+}
+
+function handleContractPdfCollapsed(collapsed: boolean) {
+  manualPdfPreviewCollapsed.value = collapsed
+  scheduleSave()
+}
+
 function appendProjectCreationNotes(description: string) {
   const notes = [
     projectCreationFlow.projectType ? `项目类型：${projectCreationFlow.projectType}` : '',
@@ -2000,6 +2243,9 @@ function validateProjectWizardStep() {
     if (!projectForm.projectName.trim()) projectFormErrors.projectName = '请填写项目名称，便于后续资料、结算和审计流转。'
     if (!projectForm.contractDate) projectFormErrors.contractDate = '请选择工程合同签订日期，系统将据此生成项目编号。'
     if (!projectForm.constructionUnit.trim()) projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
+    if (!projectForm.ownerUnit.trim()) projectFormErrors.ownerUnit = '请填写建设单位。'
+    if (Number(projectForm.contractAmount || 0) <= 0) projectFormErrors.contractAmount = '合同金额必须大于零。'
+    if (!projectForm.paymentTerms.trim()) projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
     if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
       projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
     }
@@ -2037,7 +2283,55 @@ async function handleProjectWizardConfirm() {
     projectWizardStepIndex.value += 1
     return
   }
-  await saveProject()
+  await confirmManualProject()
+}
+
+async function confirmManualProject() {
+  if (!requireEditorAccess('创建项目')) return
+  if (!validateProjectForm()) {
+    MessagePlugin.error('请先完善项目表单中的提示项')
+    return
+  }
+  if (!manualContractDocument.value) {
+    MessagePlugin.error('请先上传施工合同 PDF，再生成项目。')
+    return
+  }
+  projectDialog.saving = true
+  try {
+    await flushSave()
+    if (!activeDraft.value) throw new Error('项目草稿尚未保存，请稍后重试。')
+    if (!manualProjectIdempotencyKey.value) {
+      manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+    }
+    const result = await confirmManualProjectIntake(manualContractDocument.value.versionId, {
+      idempotencyKey: manualProjectIdempotencyKey.value,
+      formTemplateVersion: 'manual-project-wizard.v1',
+      draftId: activeDraft.value.id,
+      expectedDraftRevision: activeDraft.value.revision,
+      contractValues: buildManualContractValues(projectForm),
+      projectValues: buildManualProjectValues(projectForm, projectCreationFlow),
+    })
+    completeAndReset()
+    closeProjectDialog(true)
+    await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
+    const created = records.value.find((record) => record.id === result.projectId)
+    if (created) await selectProject(created)
+    else {
+      const projectId = result.projectId || result.project.id
+      await router.push({
+        path: '/project-management',
+        query: { projectId, projectName: result.project.projectName },
+      })
+      detailDialogVisible.value = true
+      await loadCurrentProject(projectId)
+      activeTab.value = 'overview'
+    }
+    MessagePlugin.success('项目已生成')
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '项目生成失败，已保留当前表单和合同，可直接重试。'))
+  } finally {
+    projectDialog.saving = false
+  }
 }
 
 function projectGroupKey(record: ProjectRecord) {
@@ -2274,12 +2568,21 @@ function validateProjectForm() {
   if (!projectForm.constructionUnit.trim()) {
     projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
   }
+  if (!projectForm.ownerUnit.trim()) {
+    projectFormErrors.ownerUnit = '请填写建设单位。'
+  }
   if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
     projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
   }
   const contractAmount = Number(projectForm.contractAmount || 0)
   const submittedAmount = Number(projectForm.submittedAmount || 0)
   const paidAmount = Number(projectForm.paidAmount || 0)
+  if (contractAmount <= 0) {
+    projectFormErrors.contractAmount = '合同金额必须大于零。'
+  }
+  if (!projectForm.paymentTerms.trim()) {
+    projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
+  }
   if (contractAmount > 0 && submittedAmount > contractAmount) {
     projectFormErrors.submittedAmount = '送审金额不能大于合同金额，请核对金额口径。'
   }
@@ -2891,33 +3194,45 @@ function changePage(nextPage: number) {
   loadRecords()
 }
 
-function openProjectForm(record?: ProjectRecord | null) {
+async function openProjectForm(record?: ProjectRecord | null) {
   if (!requireEditorAccess(record ? '编辑项目' : '创建项目')) return
   if (!record) {
-    detailDialogVisible.value = false
-    contractCreationVisible.value = true
-    return
-  }
-  projectDialog.mode = record ? 'edit' : 'create'
-  projectDialog.saving = false
-  resetProjectFormErrors()
-  if (!record) {
+    projectDialog.mode = 'create'
+    projectDialog.saving = false
+    resetProjectFormErrors()
     resetProjectCreationFlow()
+    resetManualProjectIntake()
     detailDialogVisible.value = false
     currentProject.value = null
     activeTab.value = 'overview'
+    fillProjectForm(null)
+    projectDialog.initialSnapshot = projectFormSnapshot()
+    projectDialog.visible = true
+    await loadDrafts()
+    return
   }
-  fillProjectForm(record || null)
-  if (record) resetProjectCreationFlow()
+  projectDialog.mode = 'edit'
+  projectDialog.saving = false
+  resetProjectFormErrors()
+  fillProjectForm(record)
+  resetProjectCreationFlow()
   projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
 }
 
-async function handleContractProjectCreated(projectId: string) {
-  contractCreationVisible.value = false
-  await loadAll()
-  const created = records.value.find((record) => record.id === projectId)
-  if (created) await selectProject(created)
+async function openManualIntakeFromRoute() {
+  const versionId = String(route.query.intakeDocumentVersionId || '').trim()
+  if (!versionId || !authStore.isEditor) return false
+  if (!projectDialog.visible || projectDialog.mode !== 'create') await openProjectForm()
+  const matchingDraft = manualDrafts.value.find((draft) => draft.documentVersionId === versionId)
+  if (matchingDraft) {
+    await resumeManualDraft(matchingDraft)
+    return true
+  }
+  const metadata = await fetchDocumentVersion(versionId)
+  manualContractDocument.value = manualDocumentRef(metadata)
+  await attachDocument(metadata.documentId, metadata.id)
+  return true
 }
 
 function closeProjectDialog(force = false) {
@@ -2935,12 +3250,17 @@ function requestCloseProjectDialog() {
     return
   }
   openConfirm({
-    title: '放弃未保存的项目信息？',
-    message: '当前项目表单还有未保存内容。关闭后，本次填写的信息将不会保留。',
-    confirmText: '放弃修改',
+    title: projectDialog.mode === 'create' ? '关闭项目创建窗口？' : '放弃未保存的项目信息？',
+    message: projectDialog.mode === 'create'
+      ? '当前内容将保存为未完成草稿，下次可以继续填写。'
+      : '当前项目表单还有未保存内容。关闭后，本次填写的信息将不会保留。',
+    confirmText: projectDialog.mode === 'create' ? '保存草稿并关闭' : '放弃修改',
     cancelText: '继续编辑',
-    danger: true,
-    onConfirm: () => closeProjectDialog(true),
+    danger: projectDialog.mode === 'edit',
+    onConfirm: async () => {
+      if (projectDialog.mode === 'create') await flushSave()
+      closeProjectDialog(true)
+    },
   })
 }
 
@@ -3246,7 +3566,7 @@ function closeProjectDetail() {
 }
 
 async function saveProject() {
-  if (!requireEditorAccess(projectDialog.mode === 'edit' ? '编辑项目' : '创建项目')) return
+  if (projectDialog.mode !== 'edit' || !requireEditorAccess('编辑项目')) return
   if (!validateProjectForm()) {
     MessagePlugin.error('请先完善项目表单中的提示项')
     return
@@ -3254,15 +3574,13 @@ async function saveProject() {
   projectDialog.saving = true
   try {
     const payload = {
-      ...buildProjectMutationPayload(projectDialog.mode, projectForm),
+      ...buildProjectMutationPayload('edit', projectForm),
       contractAmount: Number(projectForm.contractAmount || 0),
       submittedAmount: Number(projectForm.submittedAmount || 0),
       paidAmount: Number(projectForm.paidAmount || 0),
-      description: projectDialog.mode === 'create' ? appendProjectCreationNotes(projectForm.description) : projectForm.description,
+      description: projectForm.description,
     }
-    const result = projectDialog.mode === 'create'
-      ? await createProjectRecord(payload)
-      : await updateProjectRecord(projectForm.id, payload)
+    const result = await updateProjectRecord(projectForm.id, payload)
     MessagePlugin.success('项目已保存')
     closeProjectDialog(true)
     await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
@@ -3521,12 +3839,18 @@ onMounted(async () => {
   window.addEventListener('keydown', handleProjectKeyboard)
   window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
   await loadAll()
+  try {
+    await openManualIntakeFromRoute()
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '合同原文无法接入项目草稿，请稍后重试。'))
+  }
   await nextTick()
   const scrollContainer = document.querySelector<HTMLElement>('.system-content')
   if (scrollContainer && restoredScrollTop > 0) scrollContainer.scrollTop = restoredScrollTop
 })
 
 onBeforeUnmount(() => {
+  if (projectDialog.visible && projectDialog.mode === 'create') void flushSave()
   saveProjectWorkspaceState()
   window.removeEventListener('keydown', handleProjectKeyboard)
   window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
@@ -3540,6 +3864,35 @@ watch(
     if (!projectId || projectId === previousProjectId) return
     await openProjectFromRoute()
   },
+)
+
+watch(
+  () => route.query.intakeDocumentVersionId,
+  async (versionId, previousVersionId) => {
+    if (!versionId || versionId === previousVersionId) return
+    try {
+      await openManualIntakeFromRoute()
+    } catch (error) {
+      MessagePlugin.error(friendlyErrorMessage(error, '合同原文无法接入项目草稿，请稍后重试。'))
+    }
+  },
+)
+
+watch(
+  () => [
+    projectDialog.visible,
+    projectDialog.mode,
+    projectFormSnapshot(),
+    manualContractDocument.value?.versionId || '',
+    manualPdfPage.value,
+    manualPdfScale.value,
+    manualPdfPreviewCollapsed.value,
+  ] as const,
+  ([visible, mode]) => {
+    if (!visible || mode !== 'create' || restoringManualDraft.value || projectDialog.saving) return
+    scheduleSave()
+  },
+  { flush: 'post' },
 )
 
 watch(detailDialogVisible, (visible) => {
@@ -4855,7 +5208,7 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .project-form-modal :deep(.arco-modal-body) {
-  max-height: min(72vh, 680px);
+  max-height: min(78vh, 820px);
   overflow: auto;
   padding: var(--space-4);
   background: var(--bg-surface);
@@ -4874,6 +5227,76 @@ watch(detailDialogVisible, (visible) => {
   display: grid;
   gap: var(--space-4);
 }
+
+.project-create-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
+  gap: var(--space-4);
+  min-height: min(70vh, 740px);
+  max-height: min(70vh, 740px);
+}
+
+.project-create-shell--preview-collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.project-create-shell__form,
+.project-create-shell__preview {
+  min-width: 0;
+  overflow: auto;
+}
+
+.project-create-shell__form {
+  padding-right: 2px;
+}
+
+.project-create-shell__preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.manual-draft-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.manual-draft-strip > span {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.manual-draft-strip button {
+  display: grid;
+  flex: 0 0 180px;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 9px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.manual-draft-strip button.active {
+  border-color: var(--color-primary);
+  background: var(--color-brand-50);
+}
+
+.manual-draft-strip strong,
+.manual-draft-strip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-draft-strip strong { font-size: var(--text-xs); }
+.manual-draft-strip small { color: var(--text-tertiary); }
 
 .wizard-stepper {
   display: grid;
@@ -5395,6 +5818,17 @@ watch(detailDialogVisible, (visible) => {
   .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
+}
+
+@media (max-width: 960px) {
+  .project-create-shell,
+  .project-create-shell--preview-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-create-shell__preview {
+    overflow: visible;
+  }
 }
 
 @media (max-width: 760px) {

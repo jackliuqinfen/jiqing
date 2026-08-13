@@ -409,3 +409,37 @@ test('draft types expose persisted project/UI state and required optimistic revi
   assert.match(save, /\bexpectedRevision:\s*number\b/)
   assert.doesNotMatch(save, /expectedRevision\?:/)
 })
+
+test('manual intake draft composable owns debounce, CAS conflicts, route attachment, and reset', () => {
+  const source = readFileSync(
+    new URL('../src/composables/useManualProjectIntakeDraft.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(source, /const\s+AUTOSAVE_DELAY_MS\s*=\s*800/)
+  assert.match(source, /listProjectIntakeDrafts\s*\(/)
+  assert.match(source, /createProjectIntakeDraft\s*\(/)
+  assert.match(source, /saveProjectIntakeDraft\s*\([\s\S]*?expectedRevision:\s*active\.revision/)
+  assert.match(source, /error\.status\s*===\s*409/)
+  assert.match(source, /草稿已在其他窗口更新，请重新载入后继续。/)
+  assert.match(source, /function\s+attachDocument\s*\(/)
+  assert.match(source, /function\s+completeAndReset\s*\(/)
+})
+
+test('manual wizard persists preview state and uses one stable key for confirmation retries', () => {
+  const source = readFileSync(
+    new URL('../src/views/ProjectManagementView.vue', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(source, /intakeDocumentVersionId/)
+  assert.match(source, /fetchDocumentVersion\s*\(/)
+  assert.match(source, /scheduleSave\s*\(/)
+  assert.match(source, /expectedDraftRevision:\s*activeDraft\.value\.revision/)
+  assert.match(source, /idempotencyKey:\s*manualProjectIdempotencyKey\.value/)
+  assert.match(source, /manualProjectIdempotencyKey\.value\s*=\s*newManualProjectIntakeKey\(\)/)
+  assert.match(source, /@uploaded="handleContractPdfUploaded"/)
+  assert.match(source, /@update:page="handleContractPdfPage"/)
+  assert.match(source, /@update:scale="handleContractPdfScale"/)
+  assert.match(source, /@update:collapsed="handleContractPdfCollapsed"/)
+})
