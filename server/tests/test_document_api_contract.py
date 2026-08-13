@@ -467,6 +467,25 @@ class DocumentApiContractTests(unittest.TestCase):
             self.assertEqual(status, 416)
             self.assertEqual(body, b"")
             self.assertEqual(headers["Content-Range"], f"bytes */{len(original)}")
+
+            huge = "9" * 5000
+            for range_value in (
+                f"bytes={huge}-",
+                f"bytes=0-{huge}",
+                f"bytes=-{huge}",
+            ):
+                with self.subTest(range_value=range_value[:16]):
+                    status, headers, body = self.request(
+                        "GET",
+                        path,
+                        headers={"Range": range_value},
+                        user_id="viewer-user",
+                    )
+                    self.assertEqual(status, 416)
+                    self.assertEqual(body, b"")
+                    self.assertEqual(
+                        headers["Content-Range"], f"bytes */{len(original)}"
+                    )
             render.assert_not_called()
 
         with audit_api.connect() as conn:
@@ -487,12 +506,13 @@ class DocumentApiContractTests(unittest.TestCase):
             status, _headers, first = self.request(
                 "POST", path, payload=request_payload, user_id="editor-user"
             )
+            self.assertEqual(status, 201, first)
+            self.project_scopes["editor-user"].add(first["data"]["projectId"])
             replay_status, _headers, replay = self.request(
                 "POST", path, payload=request_payload, user_id="editor-user"
             )
             render.assert_not_called()
 
-        self.assertEqual(status, 201, first)
         self.assertEqual(replay_status, 200, replay)
         self.assertFalse(first["data"]["replayed"])
         self.assertTrue(replay["data"]["replayed"])
@@ -501,7 +521,6 @@ class DocumentApiContractTests(unittest.TestCase):
         self.assertEqual(first["data"]["project"]["constructionUnit"], CONTRACT_FIELDS["party.contractor"])
         self.assert_no_internal_fields(first)
 
-        self.project_scopes["editor-user"].add(first["data"]["projectId"])
         status, _headers, metadata = self.request(
             "GET", f"/api/document-versions/{version['id']}", user_id="editor-user"
         )
@@ -509,6 +528,40 @@ class DocumentApiContractTests(unittest.TestCase):
         self.assertEqual(
             metadata["data"]["alreadyConfirmedProjectId"], first["data"]["projectId"]
         )
+
+    def test_manual_confirmation_replay_requires_current_scope_before_body_or_service(self):
+        _document, version, draft = self.create_manual_intake()
+        path = f"/api/document-versions/{version['id']}/manual-project-confirmation"
+        request_payload = self.manual_confirmation_payload(draft)
+
+        status, _headers, first = self.request(
+            "POST", path, payload=request_payload, user_id="editor-user"
+        )
+        self.assertEqual(status, 201, first)
+        self.assertNotIn(first["data"]["projectId"], self.project_scopes["editor-user"])
+
+        metadata_status, _headers, metadata = self.request(
+            "GET", f"/api/document-versions/{version['id']}", user_id="editor-user"
+        )
+        self.assertEqual(metadata_status, 403, metadata)
+        self.assertEqual(metadata["code"], "project_scope_forbidden")
+
+        with (
+            patch(
+                "server.audit_api.read_json",
+                side_effect=AssertionError("authorization must fail before reading body"),
+            ),
+            patch("server.document_api.confirm_manual_project_intake") as service,
+        ):
+            replay_status, _headers, replay = self.request(
+                "POST", path, payload=request_payload, user_id="editor-user"
+            )
+
+        self.assertEqual(replay_status, 403, replay)
+        self.assertEqual(replay["code"], "project_scope_forbidden")
+        self.assertNotIn("data", replay)
+        self.assertNotIn("project", replay)
+        service.assert_not_called()
 
     def test_manual_confirmation_maps_validation_conflict_and_authorization_errors(self):
         _document, version, draft = self.create_manual_intake()

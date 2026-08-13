@@ -800,18 +800,7 @@ class DocumentApi:
         source = self.read_repository.version(version_id)
         if not source:
             raise DocumentApiError(404, "document_version_not_found", "未找到文档版本。")
-        try:
-            self._require_resource_access(source)
-        except DocumentApiError as exc:
-            is_confirmed_owner_replay = (
-                exc.code == "project_scope_forbidden"
-                and str(source.get("uploaded_by") or "") == self.actor["id"]
-                and bool(source.get("already_confirmed_project_id"))
-                and str(source.get("already_confirmed_project_id"))
-                == str(source.get("project_id") or "")
-            )
-            if not is_confirmed_owner_replay:
-                raise
+        self._require_resource_access(source)
         data = self._read_json_body()
         try:
             result = confirm_manual_project_intake(
@@ -1279,16 +1268,19 @@ def _parse_range(value, size):
     start_text, end_text = match.groups()
     if not start_text and not end_text:
         return None
-    if not start_text:
-        suffix = int(end_text)
-        if suffix <= 0:
+    try:
+        if not start_text:
+            suffix = int(end_text)
+            if suffix <= 0:
+                return None
+            start = max(size - suffix, 0)
+            return start, size - 1
+        start = int(start_text)
+        if start >= size:
             return None
-        start = max(size - suffix, 0)
-        return start, size - 1
-    start = int(start_text)
-    if start >= size:
+        end = size - 1 if not end_text else min(int(end_text), size - 1)
+    except ValueError:
         return None
-    end = size - 1 if not end_text else min(int(end_text), size - 1)
     if end < start:
         return None
     return start, end
