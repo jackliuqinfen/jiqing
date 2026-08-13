@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
+import { dirname, join, normalize } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -290,10 +293,53 @@ test('manual confirmation and original download preserve structured and non-JSON
   )
 })
 
-test('legacy draft callers resolve the current revision before sending mandatory CAS payloads', async () => {
+test('draft mutation API rejects callers that omit the revision at compile time', () => {
+  const projectRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
+  const virtualFile = join(projectRoot, 'test', '__manualDraftCasContract.ts')
+  const config = ts.readConfigFile(join(projectRoot, 'tsconfig.json'), ts.sys.readFile)
+  assert.equal(config.error, undefined)
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, projectRoot)
+  const source = `
+    import {
+      abandonProjectIntakeDraft,
+      saveProjectIntakeDraft,
+    } from '../src/api/documentReview.ts'
+
+    saveProjectIntakeDraft('draft-1', { values: { 'project.name': '陈旧值' } })
+    abandonProjectIntakeDraft('draft-1')
+  `
+  const host = ts.createCompilerHost(parsed.options)
+  const normalizedVirtualFile = normalize(virtualFile).toLowerCase()
+  const isVirtualFile = (fileName) => normalize(fileName).toLowerCase() === normalizedVirtualFile
+  const originalFileExists = host.fileExists.bind(host)
+  const originalReadFile = host.readFile.bind(host)
+  const originalGetSourceFile = host.getSourceFile.bind(host)
+  host.fileExists = (fileName) => isVirtualFile(fileName) || originalFileExists(fileName)
+  host.readFile = (fileName) => isVirtualFile(fileName) ? source : originalReadFile(fileName)
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+    if (isVirtualFile(fileName)) {
+      return ts.createSourceFile(fileName, source, languageVersion, true, ts.ScriptKind.TS)
+    }
+    return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
+  }
+  const program = ts.createProgram({
+    rootNames: [virtualFile, join(projectRoot, 'src', 'env.d.ts')],
+    options: parsed.options,
+    host,
+  })
+  const messages = ts.getPreEmitDiagnostics(program).map((diagnostic) =>
+    ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+  )
+
+  assert.equal(messages.length, 2, messages.join('\n'))
+  assert.ok(messages.some((message) => message.includes('expectedRevision')), messages.join('\n'))
+  assert.ok(messages.some((message) => message.includes('Expected 2 arguments')), messages.join('\n'))
+})
+
+test('draft mutation sends only caller-held revisions and advances from each response', async () => {
   const calls = []
   const draft = {
-    id: 'draft-legacy',
+    id: 'draft-cas',
     ownerUserId: 'user-1',
     status: 'draft',
     documentId: '',
@@ -302,7 +348,7 @@ test('legacy draft callers resolve the current revision before sending mandatory
     values: {},
     projectValues: {},
     uiState: { wizardStep: 0, pdfPage: 1, pdfScale: 1, previewCollapsed: false },
-    revision: 7,
+    revision: 8,
     fallbackReason: 'manual_selected',
     fallbackNote: '',
     completedProjectId: '',
@@ -312,30 +358,37 @@ test('legacy draft callers resolve the current revision before sending mandatory
   globalThis.fetch = async (input, init = {}) => {
     const url = String(input)
     calls.push({ url, init })
-    const data = init.method === 'POST' ? draft : [draft]
+    const data = calls.length === 1
+      ? draft
+      : { ...draft, status: 'abandoned', revision: 9 }
     return new Response(JSON.stringify({ success: true, data }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  await saveProjectIntakeDraft('draft-legacy', { values: { 'project.name': '旧入口' } })
-  await abandonProjectIntakeDraft('draft-legacy')
+  let revision = 7
+  const saved = await saveProjectIntakeDraft('draft-cas', {
+    expectedRevision: revision,
+    values: { 'project.name': '当前窗口值' },
+  })
+  revision = saved.revision
+  const abandoned = await abandonProjectIntakeDraft('draft-cas', revision)
+  revision = abandoned.revision
 
   assert.deepEqual(
     calls.map(({ url, init }) => [url, init.method || 'GET']),
     [
-      ['/api/project-intake-drafts', 'GET'],
-      ['/api/project-intake-drafts/draft-legacy', 'POST'],
-      ['/api/project-intake-drafts', 'GET'],
-      ['/api/project-intake-drafts/draft-legacy/abandon', 'POST'],
+      ['/api/project-intake-drafts/draft-cas', 'POST'],
+      ['/api/project-intake-drafts/draft-cas/abandon', 'POST'],
     ],
   )
-  assert.deepEqual(JSON.parse(calls[1].init.body), {
-    values: { 'project.name': '旧入口' },
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    values: { 'project.name': '当前窗口值' },
     expectedRevision: 7,
   })
-  assert.deepEqual(JSON.parse(calls[3].init.body), { expectedRevision: 7 })
+  assert.deepEqual(JSON.parse(calls[1].init.body), { expectedRevision: 8 })
+  assert.equal(revision, 9)
 })
 
 test('draft types expose persisted project/UI state and required optimistic revision contracts', () => {

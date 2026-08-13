@@ -148,6 +148,7 @@ const manualValues = reactive<ContractDraftValues>({})
 const recentDrafts = ref<ProjectIntakeDraft[]>([])
 const draftsLoading = ref(false)
 const activeDraftId = ref('')
+const activeDraftRevision = ref<number | null>(null)
 let pollTimer = 0
 
 const sourceReady = computed(() => !!uploadedVersionId.value || !!job.value)
@@ -198,7 +199,7 @@ function backToModes() {
   if (busyAction.value) return
   mode.value = null
   phase.value = 'mode'
-  activeDraftId.value = ''
+  setActiveDraft(null)
   resultMessage.value = ''
 }
 
@@ -293,9 +294,12 @@ async function saveManualDraft() {
       documentVersionId: uploadedVersionId.value || undefined,
     }
     const draft = activeDraftId.value
-      ? await saveProjectIntakeDraft(activeDraftId.value, payload)
+      ? await saveProjectIntakeDraft(activeDraftId.value, {
+          ...payload,
+          expectedRevision: requireActiveDraftRevision(),
+        })
       : await createProjectIntakeDraft(payload)
-    activeDraftId.value = draft.id
+    setActiveDraft(draft)
     await loadDrafts()
     phase.value = 'input'
     resultMessage.value = uploadFailure
@@ -349,7 +353,7 @@ async function loadDrafts() {
 }
 
 function resumeDraft(draft: ProjectIntakeDraft) {
-  activeDraftId.value = draft.id
+  setActiveDraft(draft)
   Object.keys(manualValues).forEach((key) => delete manualValues[key])
   Object.assign(manualValues, draft.values)
   file.value = null
@@ -363,8 +367,14 @@ function resumeDraft(draft: ProjectIntakeDraft) {
 
 async function abandonDraft(draftId: string) {
   if (!window.confirm('确认放弃这条合同录入草稿？放弃后不能继续编辑。')) return
+  const draft = recentDrafts.value.find((item) => item.id === draftId)
+  if (!draft) {
+    MessagePlugin.error('草稿已不在当前列表中，请刷新后重试。')
+    return
+  }
   try {
-    await abandonProjectIntakeDraft(draftId)
+    await abandonProjectIntakeDraft(draftId, draft.revision)
+    if (activeDraftId.value === draftId) setActiveDraft(null)
     await loadDrafts()
     MessagePlugin.success('草稿已放弃')
   } catch (error) {
@@ -453,7 +463,11 @@ function manualRequiredTitle(current: RecognitionJob | null) {
 async function handleCreated(projectId: string) {
   if (activeDraftId.value) {
     try {
-      await saveProjectIntakeDraft(activeDraftId.value, { completedProjectId: projectId })
+      const draft = await saveProjectIntakeDraft(activeDraftId.value, {
+        expectedRevision: requireActiveDraftRevision(),
+        completedProjectId: projectId,
+      })
+      setActiveDraft(draft)
     } catch {
       MessagePlugin.warning('项目已创建，但原录入草稿未能自动归档。')
     }
@@ -481,8 +495,20 @@ function reset() {
   externalMarkdown.value = ''
   promptCopied.value = false
   busyAction.value = ''
-  activeDraftId.value = ''
+  setActiveDraft(null)
   Object.keys(manualValues).forEach((key) => delete manualValues[key])
+}
+
+function setActiveDraft(draft: ProjectIntakeDraft | null) {
+  activeDraftId.value = draft?.id || ''
+  activeDraftRevision.value = draft?.revision ?? null
+}
+
+function requireActiveDraftRevision() {
+  if (activeDraftRevision.value === null) {
+    throw new Error('当前草稿版本缺失，请重新载入草稿后继续。')
+  }
+  return activeDraftRevision.value
 }
 
 function stopPolling() {
