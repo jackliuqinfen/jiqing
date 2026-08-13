@@ -655,6 +655,11 @@
       />
     </section>
 
+    <DocumentDrivenEntry
+      v-model:visible="contractCreationVisible"
+      @created="handleContractProjectCreated"
+    />
+
     <AModal
       :visible="projectDialog.visible"
       :title="projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目'"
@@ -1228,6 +1233,7 @@ import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
+import DocumentDrivenEntry from '@/components/document-review/DocumentDrivenEntry.vue'
 import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
@@ -1278,6 +1284,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const contractCreationVisible = ref(false)
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
@@ -2886,6 +2893,11 @@ function changePage(nextPage: number) {
 
 function openProjectForm(record?: ProjectRecord | null) {
   if (!requireEditorAccess(record ? '编辑项目' : '创建项目')) return
+  if (!record) {
+    detailDialogVisible.value = false
+    contractCreationVisible.value = true
+    return
+  }
   projectDialog.mode = record ? 'edit' : 'create'
   projectDialog.saving = false
   resetProjectFormErrors()
@@ -2899,6 +2911,13 @@ function openProjectForm(record?: ProjectRecord | null) {
   if (record) resetProjectCreationFlow()
   projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
+}
+
+async function handleContractProjectCreated(projectId: string) {
+  contractCreationVisible.value = false
+  await loadAll()
+  const created = records.value.find((record) => record.id === projectId)
+  if (created) await selectProject(created)
 }
 
 function closeProjectDialog(force = false) {

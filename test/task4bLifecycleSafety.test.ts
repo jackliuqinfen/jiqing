@@ -117,3 +117,11 @@ test('desktop lifecycle refresh uses the partial-safe refresh coordinator', () =
 
   assert.match(source, /settleLifecycleRefresh\s*\(/)
 })
+
+test('new project actions open contract review intake instead of the blocked ordinary create flow', () => {
+  const source = readFileSync(new URL('../src/views/ProjectManagementView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<DocumentDrivenEntry/)
+  assert.match(source, /contractCreationVisible\.value\s*=\s*true/)
+  assert.match(source, /if\s*\(!record\)[\s\S]*?contractCreationVisible\.value\s*=\s*true[\s\S]*?return/)
+})
