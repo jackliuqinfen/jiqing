@@ -680,11 +680,12 @@ class DocumentApiContractTests(unittest.TestCase):
         status, _headers, abandoned = self.request(
             "POST",
             f"/api/project-intake-drafts/{draft_id}/abandon",
-            payload={},
+            payload={"expectedRevision": updated["data"]["revision"]},
             user_id="editor-user",
         )
         self.assertEqual(status, 200)
         self.assertEqual(abandoned["data"]["status"], "abandoned")
+        self.assertEqual(abandoned["data"]["revision"], 2)
         with audit_api.connect() as conn:
             after_counts = {
                 table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -783,6 +784,61 @@ class DocumentApiContractTests(unittest.TestCase):
         )
         self.assertEqual(status, 422, missing_revision)
         self.assertEqual(missing_revision["code"], "required_field_missing")
+
+        for invalid_revision in (1.0, "1", True, -1):
+            with self.subTest(invalid_revision=invalid_revision):
+                status, _headers, invalid = self.request(
+                    "POST",
+                    f"/api/project-intake-drafts/{draft_id}",
+                    payload={
+                        "expectedRevision": invalid_revision,
+                        "uiState": {"wizardStep": 3},
+                    },
+                    user_id="editor-user",
+                )
+                self.assertEqual(status, 422, invalid)
+                self.assertEqual(invalid["code"], "invalid_integer")
+
+        status, _headers, oversized_amount = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {},
+                "projectValues": {"submittedAmount": 10**400},
+                "fallbackReason": "manual_selected",
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 422, oversized_amount)
+        self.assertEqual(oversized_amount["code"], "project_value_invalid")
+
+        status, _headers, missing_abandon_revision = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}/abandon",
+            payload={},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 422, missing_abandon_revision)
+        self.assertEqual(missing_abandon_revision["code"], "required_field_missing")
+
+        status, _headers, stale_abandon = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}/abandon",
+            payload={"expectedRevision": 0},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 409, stale_abandon)
+        self.assertEqual(stale_abandon["code"], "draft_version_conflict")
+
+        status, _headers, abandoned = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}/abandon",
+            payload={"expectedRevision": updated["data"]["revision"]},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 200, abandoned)
+        self.assertEqual(abandoned["data"]["status"], "abandoned")
+        self.assertEqual(abandoned["data"]["revision"], 2)
 
     def test_draft_can_be_marked_completed_after_formal_project_creation(self):
         status, _headers, created = self.request(

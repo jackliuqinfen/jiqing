@@ -1,5 +1,8 @@
 import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from server.document_repository import create_document_upload
 from server.migrations import apply_pending_migrations
@@ -30,6 +33,24 @@ def memory_conn():
         """
     )
     apply_pending_migrations(conn)
+    return conn
+
+
+def file_conn(path, *, initialize=False):
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    if initialize:
+        conn.execute(
+            """
+            CREATE TABLE project_records (
+              id TEXT PRIMARY KEY,
+              project_status TEXT DEFAULT 'awarded',
+              lifecycle_version INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        apply_pending_migrations(conn)
     return conn
 
 
@@ -131,6 +152,7 @@ class ProjectIntakeDraftTests(unittest.TestCase):
             ({"unknown": "value"}, None),
             ({"submittedAmount": True}, None),
             ({"paidAmount": float("inf")}, None),
+            ({"submittedAmount": 10**400}, None),
             (None, {"unknown": "value"}),
             (None, {"wizardStep": True}),
             (None, {"wizardStep": -1}),
@@ -259,9 +281,11 @@ class ProjectIntakeDraftTests(unittest.TestCase):
             self.conn,
             draft_id=draft["id"],
             owner_user_id="editor-1",
+            expected_revision=draft["revision"],
             now=NOW,
         )
         self.assertEqual(abandoned["status"], "abandoned")
+        self.assertEqual(abandoned["revision"], 1)
         with self.assertRaisesRegex(ProjectIntakeDraftError, "不能继续修改"):
             save_draft(
                 self.conn,
@@ -271,6 +295,144 @@ class ProjectIntakeDraftTests(unittest.TestCase):
                 values={"project.name": "修改"},
                 now=NOW,
             )
+
+    def test_abandon_rejects_non_integer_and_negative_revisions(self):
+        draft = create_draft(
+            self.conn,
+            owner_user_id="editor-1",
+            values={},
+            fallback_reason="manual",
+            now=NOW,
+        )
+
+        for invalid_revision in (None, 0.0, "0", True, -1):
+            with self.subTest(invalid_revision=invalid_revision):
+                with self.assertRaises(ProjectIntakeDraftError) as raised:
+                    abandon_draft(
+                        self.conn,
+                        draft_id=draft["id"],
+                        owner_user_id="editor-1",
+                        expected_revision=invalid_revision,
+                        now=NOW,
+                    )
+                self.assertEqual(raised.exception.code, "draft_revision_invalid")
+
+        current = get_draft(self.conn, draft["id"], owner_user_id="editor-1")
+        self.assertEqual(current["status"], "draft")
+        self.assertEqual(current["revision"], 0)
+
+    def test_save_read_then_abandon_commit_keeps_draft_abandoned(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "drafts.sqlite3"
+            saving_conn = file_conn(path, initialize=True)
+            abandoning_conn = file_conn(path)
+            try:
+                draft = create_draft(
+                    saving_conn,
+                    owner_user_id="editor-1",
+                    values={},
+                    fallback_reason="manual_selected",
+                    now=NOW,
+                )
+                saving_conn.commit()
+                original_get_draft = get_draft
+                interleaved = False
+
+                def read_then_abandon(conn, *args, **kwargs):
+                    nonlocal interleaved
+                    snapshot = original_get_draft(conn, *args, **kwargs)
+                    if conn is saving_conn and not interleaved:
+                        interleaved = True
+                        abandon_draft(
+                            abandoning_conn,
+                            draft_id=draft["id"],
+                            owner_user_id="editor-1",
+                            expected_revision=0,
+                            now=NOW,
+                        )
+                        abandoning_conn.commit()
+                    return snapshot
+
+                with patch(
+                    "server.project_intake_drafts.get_draft",
+                    side_effect=read_then_abandon,
+                ):
+                    with self.assertRaises(ProjectIntakeDraftError) as raised:
+                        save_draft(
+                            saving_conn,
+                            draft_id=draft["id"],
+                            owner_user_id="editor-1",
+                            expected_revision=0,
+                            project_values={"description": "过期保存"},
+                            now=NOW,
+                        )
+
+                self.assertEqual(raised.exception.code, "draft_version_conflict")
+                final = original_get_draft(
+                    saving_conn, draft["id"], owner_user_id="editor-1"
+                )
+                self.assertEqual(final["status"], "abandoned")
+                self.assertEqual(final["revision"], 1)
+            finally:
+                abandoning_conn.close()
+                saving_conn.close()
+
+    def test_abandon_read_then_save_commit_rejects_stale_abandon(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "drafts.sqlite3"
+            abandoning_conn = file_conn(path, initialize=True)
+            saving_conn = file_conn(path)
+            try:
+                draft = create_draft(
+                    abandoning_conn,
+                    owner_user_id="editor-1",
+                    values={},
+                    fallback_reason="manual_selected",
+                    now=NOW,
+                )
+                abandoning_conn.commit()
+                original_get_draft = get_draft
+                interleaved = False
+
+                def read_then_save(conn, *args, **kwargs):
+                    nonlocal interleaved
+                    snapshot = original_get_draft(conn, *args, **kwargs)
+                    if conn is abandoning_conn and not interleaved:
+                        interleaved = True
+                        save_draft(
+                            saving_conn,
+                            draft_id=draft["id"],
+                            owner_user_id="editor-1",
+                            expected_revision=0,
+                            project_values={"description": "并发保存"},
+                            now=NOW,
+                        )
+                        saving_conn.commit()
+                    return snapshot
+
+                with patch(
+                    "server.project_intake_drafts.get_draft",
+                    side_effect=read_then_save,
+                ):
+                    with self.assertRaises(ProjectIntakeDraftError) as raised:
+                        abandon_draft(
+                            abandoning_conn,
+                            draft_id=draft["id"],
+                            owner_user_id="editor-1",
+                            expected_revision=0,
+                            now=NOW,
+                        )
+
+                self.assertEqual(raised.exception.code, "draft_version_conflict")
+                final = original_get_draft(
+                    abandoning_conn, draft["id"], owner_user_id="editor-1"
+                )
+                self.assertEqual(final["status"], "draft")
+                self.assertEqual(final["revision"], 1)
+                self.assertEqual(final["project_values"]["description"], "并发保存")
+            finally:
+                saving_conn.close()
+                abandoning_conn.close()
 
 
 if __name__ == "__main__":

@@ -153,12 +153,7 @@ def save_draft(
         raise ProjectIntakeDraftError("draft_not_found", "未找到项目录入草稿。")
     if draft["status"] not in _EDITABLE_STATUSES:
         raise ProjectIntakeDraftError("draft_immutable", "当前草稿不能继续修改。")
-    if (
-        isinstance(expected_revision, bool)
-        or not isinstance(expected_revision, int)
-        or expected_revision < 0
-    ):
-        raise ProjectIntakeDraftError("draft_revision_invalid", "草稿版本必须是非负整数。")
+    expected_revision = _validate_expected_revision(expected_revision)
 
     next_values = draft["values"] if values is None else _validate_values(values)
     next_project_values = (
@@ -187,6 +182,7 @@ def save_draft(
             fallback_note = ?, completed_project_id = ?, revision = revision + 1,
             updated_at = ?
         WHERE id = ? AND owner_user_id = ? AND revision = ?
+          AND status IN ('draft', 'document_attached')
         """,
         (
             status,
@@ -212,19 +208,39 @@ def save_draft(
     return get_draft(conn, draft_id, owner_user_id=owner_user_id)
 
 
-def abandon_draft(conn, *, draft_id, owner_user_id, now=None):
+def abandon_draft(
+    conn,
+    *,
+    draft_id,
+    owner_user_id,
+    expected_revision,
+    now=None,
+):
     draft = get_draft(conn, draft_id, owner_user_id=owner_user_id)
     if not draft:
         raise ProjectIntakeDraftError("draft_not_found", "未找到项目录入草稿。")
     if draft["status"] not in _EDITABLE_STATUSES:
         raise ProjectIntakeDraftError("draft_immutable", "当前草稿不能继续修改。")
-    conn.execute(
+    expected_revision = _validate_expected_revision(expected_revision)
+    cursor = conn.execute(
         """
-        UPDATE project_intake_drafts SET status = 'abandoned', updated_at = ?
-        WHERE id = ? AND owner_user_id = ?
+        UPDATE project_intake_drafts
+        SET status = 'abandoned', revision = revision + 1, updated_at = ?
+        WHERE id = ? AND owner_user_id = ? AND revision = ?
+          AND status IN ('draft', 'document_attached')
         """,
-        (now or _now_iso(), str(draft_id), str(owner_user_id)),
+        (
+            now or _now_iso(),
+            str(draft_id),
+            str(owner_user_id),
+            expected_revision,
+        ),
     )
+    if cursor.rowcount != 1:
+        raise ProjectIntakeDraftError(
+            "draft_version_conflict",
+            "草稿已在其他窗口更新，请刷新后继续。",
+        )
     return get_draft(conn, draft_id, owner_user_id=owner_user_id)
 
 
@@ -267,11 +283,17 @@ def _validate_project_values(values):
                 raise ProjectIntakeDraftError(
                     "project_value_invalid", f"项目字段 {key} 必须是有限数值。"
                 )
-            elif not math.isfinite(value):
-                raise ProjectIntakeDraftError(
-                    "project_value_invalid", f"项目字段 {key} 必须是有限数值。"
-                )
             else:
+                try:
+                    finite = math.isfinite(value)
+                except OverflowError as exc:
+                    raise ProjectIntakeDraftError(
+                        "project_value_invalid", f"项目字段 {key} 必须是有限数值。"
+                    ) from exc
+                if not finite:
+                    raise ProjectIntakeDraftError(
+                        "project_value_invalid", f"项目字段 {key} 必须是有限数值。"
+                    )
                 clean[key] = value
         elif value is None or isinstance(value, str):
             clean[key] = value
@@ -280,6 +302,12 @@ def _validate_project_values(values):
                 "project_value_invalid", f"项目字段 {key} 必须是文本。"
             )
     return clean
+
+
+def _validate_expected_revision(value):
+    if type(value) is not int or value < 0:
+        raise ProjectIntakeDraftError("draft_revision_invalid", "草稿版本必须是非负整数。")
+    return value
 
 
 def _validate_ui_state(values):

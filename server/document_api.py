@@ -671,11 +671,12 @@ class DocumentApi:
         self._require_resource_access(source)
 
     def _abandon_intake_draft(self, draft_id):
-        self._read_json_body()
+        data = self._read_json_body()
         row = project_intake_drafts.abandon_draft(
             self.conn,
             draft_id=draft_id,
             owner_user_id=self.actor["id"],
+            expected_revision=_required_revision(data),
         )
         self._log_operation(
             "project_intake_draft_abandoned",
@@ -1189,15 +1190,15 @@ def _required_int(data, key):
 
 
 def _required_revision(data):
-    if isinstance((data or {}).get("expectedRevision"), bool):
+    if "expectedRevision" not in (data or {}):
         raise DocumentApiError(
             422,
-            "invalid_integer",
-            "expectedRevision 必须是非负整数。",
+            "required_field_missing",
+            "expectedRevision 不能为空。",
             field="expectedRevision",
         )
-    revision = _required_int(data, "expectedRevision")
-    if revision < 0:
+    revision = data["expectedRevision"]
+    if type(revision) is not int or revision < 0:
         raise DocumentApiError(
             422,
             "invalid_integer",
