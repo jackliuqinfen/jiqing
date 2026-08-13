@@ -2,11 +2,13 @@ import { onScopeDispose, ref } from 'vue'
 import {
   createProjectIntakeDraft,
   DocumentReviewApiError,
+  fetchDocumentVersion,
   listProjectIntakeDrafts,
   saveProjectIntakeDraft,
 } from '@/api/documentReview'
 import type {
   ContractDraftValues,
+  DocumentVersionMetadata,
   ManualProjectIntakeUiState,
   ManualProjectValues,
   ProjectIntakeDraft,
@@ -29,6 +31,33 @@ interface ManualProjectIntakeDraftOptions {
   onError: (message: string) => void
 }
 
+export function createManualDocumentMetadataLoader<T = DocumentVersionMetadata>(
+  fetcher: (versionId: string) => Promise<T> = fetchDocumentVersion as (versionId: string) => Promise<T>,
+) {
+  let generation = 0
+  return {
+    invalidate() {
+      generation += 1
+    },
+    async load(
+      versionId: string,
+      isCurrent: () => boolean,
+      publish: (metadata: T) => void,
+    ) {
+      const token = ++generation
+      try {
+        const metadata = await fetcher(versionId)
+        if (token !== generation || !isCurrent()) return false
+        publish(metadata)
+        return token === generation && isCurrent()
+      } catch (error) {
+        if (token !== generation || !isCurrent()) return false
+        throw error
+      }
+    },
+  }
+}
+
 export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOptions) {
   const drafts = ref<ProjectIntakeDraft[]>([])
   const activeDraft = ref<ProjectIntakeDraft | null>(null)
@@ -36,10 +65,11 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
   const savingDraft = ref(false)
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
-  let saveTail: Promise<ProjectIntakeDraft | null> = Promise.resolve(null)
+  let saveTail: Promise<boolean> = Promise.resolve(true)
   let pendingSaveCount = 0
   let autosaveStopped = false
   let activeGeneration = 0
+  let switchGeneration = 0
 
   function unfinished(items: ProjectIntakeDraft[]) {
     return items
@@ -87,17 +117,25 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
     }
   }
 
-  function resumeDraft(draft: ProjectIntakeDraft) {
+  async function resumeDraft(draft: ProjectIntakeDraft) {
+    const switchToken = ++switchGeneration
+    const previousId = activeDraft.value?.id || ''
+    if (autosaveStopped) return false
+    if (previousId === draft.id) return true
+    if (previousId) {
+      const saved = await flushSave()
+      if (!saved || autosaveStopped || switchToken !== switchGeneration) return false
+      if ((activeDraft.value?.id || '') !== previousId) return false
+    }
     clearScheduledSave()
     activeGeneration += 1
-    autosaveStopped = false
     activeDraft.value = draft
     options.restore(draftSnapshot(draft))
-    return draft
+    return true
   }
 
-  async function persistSnapshot() {
-    if (autosaveStopped) return activeDraft.value
+  async function persistSnapshot(): Promise<boolean> {
+    if (autosaveStopped) return false
     const generation = activeGeneration
     const snapshot = options.snapshot()
     const active = activeDraft.value
@@ -120,22 +158,23 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
             documentId: snapshot.documentId || undefined,
             documentVersionId: snapshot.documentVersionId || undefined,
           })
-      if (generation !== activeGeneration) return activeDraft.value
-      if (active && activeDraft.value?.id !== active.id) return activeDraft.value
-      return replaceDraft(saved)
+      if (generation !== activeGeneration) return false
+      if (active && activeDraft.value?.id !== active.id) return false
+      replaceDraft(saved)
+      return true
     } catch (error) {
       handleMutationError(error)
-      return activeDraft.value
+      return false
     }
   }
 
-  async function flushSave(): Promise<ProjectIntakeDraft | null> {
+  async function flushSave(): Promise<boolean> {
     clearScheduledSave()
-    if (autosaveStopped) return activeDraft.value
+    if (autosaveStopped) return false
     pendingSaveCount += 1
     savingDraft.value = true
     const request = saveTail.then(() => (
-      autosaveStopped ? activeDraft.value : persistSnapshot()
+      autosaveStopped ? false : persistSnapshot()
     ))
     saveTail = request
     try {
@@ -157,11 +196,11 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
 
   async function attachDocument(documentId: string, documentVersionId: string) {
     clearScheduledSave()
-    if (autosaveStopped) return activeDraft.value
+    if (autosaveStopped) return false
     const current = options.snapshot()
     if (current.documentId !== documentId || current.documentVersionId !== documentVersionId) {
       options.onError('合同文件状态尚未同步，请重新选择 PDF。')
-      return activeDraft.value
+      return false
     }
     return flushSave()
   }
@@ -169,6 +208,7 @@ export function useManualProjectIntakeDraft(options: ManualProjectIntakeDraftOpt
   function completeAndReset() {
     clearScheduledSave()
     activeGeneration += 1
+    switchGeneration += 1
     autosaveStopped = false
     const completedId = activeDraft.value?.id
     activeDraft.value = null

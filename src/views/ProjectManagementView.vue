@@ -1303,7 +1303,11 @@ import {
   newManualProjectIntakeKey,
 } from '@/utils/manualProjectIntake'
 import { settleLifecycleRefresh } from '@/utils/projectLifecycleRefresh'
-import { useManualProjectIntakeDraft, type ManualProjectIntakeDraftSnapshot } from '@/composables/useManualProjectIntakeDraft'
+import {
+  createManualDocumentMetadataLoader,
+  useManualProjectIntakeDraft,
+  type ManualProjectIntakeDraftSnapshot,
+} from '@/composables/useManualProjectIntakeDraft'
 import {
   auditStartEligibilityMessage,
   formatAuditStartSkippedSummary,
@@ -1324,7 +1328,6 @@ import type { DocumentVersionMetadata, ProjectIntakeDraft } from '@/types/docume
 import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 import {
   confirmManualProjectIntake,
-  fetchDocumentVersion,
 } from '@/api/documentReview'
 import {
   createProjectDictionaryOption,
@@ -1678,6 +1681,7 @@ const manualPdfPreviewCollapsed = ref(false)
 const manualPdfUploading = ref(false)
 const manualProjectIdempotencyKey = ref('')
 const restoringManualDraft = ref(false)
+const manualDocumentMetadataLoader = createManualDocumentMetadataLoader()
 
 const {
   drafts: manualDrafts,
@@ -2174,14 +2178,18 @@ function manualDocumentRef(metadata: DocumentVersionMetadata): ManualContractDoc
   }
 }
 
-async function loadManualDocumentMetadata(versionId: string) {
-  try {
-    const metadata = await fetchDocumentVersion(versionId)
+async function loadManualDocumentMetadata(
+  versionId: string,
+  isCurrent: () => boolean,
+  publish: (metadata: DocumentVersionMetadata) => void = (metadata) => {
     manualContractDocument.value = manualDocumentRef(metadata)
-    return metadata
+  },
+) {
+  try {
+    return await manualDocumentMetadataLoader.load(versionId, isCurrent, publish)
   } catch (error) {
     MessagePlugin.error(friendlyErrorMessage(error, '合同原文信息加载失败，请稍后重试。'))
-    return null
+    return false
   }
 }
 
@@ -2190,12 +2198,22 @@ function manualDraftTitle(draft: ProjectIntakeDraft) {
 }
 
 async function resumeManualDraft(draft: ProjectIntakeDraft) {
-  resumeDraft(draft)
+  const switched = await resumeDraft(draft)
+  if (!switched) return false
   manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
-  if (draft.documentVersionId) await loadManualDocumentMetadata(draft.documentVersionId)
+  if (draft.documentVersionId) {
+    const draftId = draft.id
+    const versionId = draft.documentVersionId
+    await loadManualDocumentMetadata(
+      versionId,
+      () => activeDraft.value?.id === draftId && activeDraft.value.documentVersionId === versionId,
+    )
+  }
+  return true
 }
 
 function resetManualProjectIntake() {
+  manualDocumentMetadataLoader.invalidate()
   completeAndReset()
   manualContractDocument.value = null
   manualPdfPage.value = 1
@@ -2206,6 +2224,7 @@ function resetManualProjectIntake() {
 }
 
 async function handleContractPdfUploaded(document: ManualContractDocumentRef) {
+  manualDocumentMetadataLoader.invalidate()
   manualContractDocument.value = document
   manualPdfPage.value = 1
   await attachDocument(document.documentId, document.versionId)
@@ -2298,7 +2317,7 @@ async function confirmManualProject() {
   }
   projectDialog.saving = true
   try {
-    await flushSave()
+    if (!await flushSave()) throw new Error('项目草稿保存失败，请处理提示后重试。')
     if (!activeDraft.value) throw new Error('项目草稿尚未保存，请稍后重试。')
     if (!manualProjectIdempotencyKey.value) {
       manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
@@ -2568,20 +2587,22 @@ function validateProjectForm() {
   if (!projectForm.constructionUnit.trim()) {
     projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
   }
-  if (!projectForm.ownerUnit.trim()) {
-    projectFormErrors.ownerUnit = '请填写建设单位。'
-  }
   if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
     projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
   }
   const contractAmount = Number(projectForm.contractAmount || 0)
   const submittedAmount = Number(projectForm.submittedAmount || 0)
   const paidAmount = Number(projectForm.paidAmount || 0)
-  if (contractAmount <= 0) {
-    projectFormErrors.contractAmount = '合同金额必须大于零。'
-  }
-  if (!projectForm.paymentTerms.trim()) {
-    projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
+  if (projectDialog.mode === 'create') {
+    if (!projectForm.ownerUnit.trim()) {
+      projectFormErrors.ownerUnit = '请填写建设单位。'
+    }
+    if (contractAmount <= 0) {
+      projectFormErrors.contractAmount = '合同金额必须大于零。'
+    }
+    if (!projectForm.paymentTerms.trim()) {
+      projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
+    }
   }
   if (contractAmount > 0 && submittedAmount > contractAmount) {
     projectFormErrors.submittedAmount = '送审金额不能大于合同金额，请核对金额口径。'
@@ -3226,12 +3247,29 @@ async function openManualIntakeFromRoute() {
   if (!projectDialog.visible || projectDialog.mode !== 'create') await openProjectForm()
   const matchingDraft = manualDrafts.value.find((draft) => draft.documentVersionId === versionId)
   if (matchingDraft) {
-    await resumeManualDraft(matchingDraft)
-    return true
+    return resumeManualDraft(matchingDraft)
   }
-  const metadata = await fetchDocumentVersion(versionId)
+  const routeVersionId = versionId
+  let routeMetadata: DocumentVersionMetadata | null = null
+  const published = await loadManualDocumentMetadata(
+    versionId,
+    () => (
+      String(route.query.intakeDocumentVersionId || '').trim() === routeVersionId
+      && projectDialog.visible
+      && projectDialog.mode === 'create'
+    ),
+    (metadata) => {
+      routeMetadata = metadata
+    },
+  )
+  if (!published || !routeMetadata) return false
+  if (String(route.query.intakeDocumentVersionId || '').trim() !== routeVersionId) return false
+  const metadata: DocumentVersionMetadata = routeMetadata
   manualContractDocument.value = manualDocumentRef(metadata)
-  await attachDocument(metadata.documentId, metadata.id)
+  if (!await attachDocument(metadata.documentId, metadata.id)) {
+    manualContractDocument.value = null
+    return false
+  }
   return true
 }
 
@@ -3258,7 +3296,7 @@ function requestCloseProjectDialog() {
     cancelText: '继续编辑',
     danger: projectDialog.mode === 'edit',
     onConfirm: async () => {
-      if (projectDialog.mode === 'create') await flushSave()
+      if (projectDialog.mode === 'create' && !await flushSave()) return
       closeProjectDialog(true)
     },
   })

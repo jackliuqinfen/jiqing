@@ -88,6 +88,7 @@ class DocumentApi:
         re.compile(r"^/api/document-recognition-jobs/([^/]+)$"),
         re.compile(r"^/api/document-reviews/([^/]+)$"),
         re.compile(r"^/api/project-intake-drafts$"),
+        re.compile(r"^/api/project-intake-drafts/mine$"),
         re.compile(r"^/api/project-intake-drafts/([^/]+)$"),
     )
     _POST_ROUTES = (
@@ -239,6 +240,10 @@ class DocumentApi:
             self._list_intake_drafts()
             return True
         match = self._GET_ROUTES[7].fullmatch(path)
+        if match:
+            self._list_intake_drafts(mine_only=True)
+            return True
+        match = self._GET_ROUTES[8].fullmatch(path)
         if match:
             self._get_intake_draft(match.group(1))
             return True
@@ -640,11 +645,11 @@ class DocumentApi:
             return parse_external_contract_markdown(_required_text(data, "markdown")), "external-ai-paste"
         return manual_contract_fields(data.get("values") or {}), "manual-entry"
 
-    def _list_intake_drafts(self):
+    def _list_intake_drafts(self, *, mine_only=False):
         rows = project_intake_drafts.list_drafts(
             self.conn,
             owner_user_id=self.actor["id"],
-            include_all=self.actor["role"] == "admin",
+            include_all=self.actor["role"] == "admin" and not mine_only,
         )
         self._success(200, [_map_intake_draft(row) for row in rows])
 

@@ -217,7 +217,7 @@ export function createProjectIntakeDraft(
 }
 
 export function listProjectIntakeDrafts(): Promise<ProjectIntakeDraft[]> {
-  return request('/project-intake-drafts')
+  return request('/project-intake-drafts/mine')
 }
 
 export function saveProjectIntakeDraft(

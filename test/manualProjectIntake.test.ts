@@ -5,6 +5,7 @@ import { dirname, join, normalize } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { effectScope } from 'vue'
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -38,9 +39,14 @@ const {
   confirmManualProjectIntake,
   downloadOriginalPdf,
   fetchDocumentVersion,
+  listProjectIntakeDrafts,
   originalPdfRequest,
   saveProjectIntakeDraft,
 } = await import('../src/api/documentReview.ts')
+const {
+  createManualDocumentMetadataLoader,
+  useManualProjectIntakeDraft,
+} = await import('../src/composables/useManualProjectIntakeDraft.ts')
 
 const manualForm = {
   projectName: '大洋湾小瀛台翻新改造项目',
@@ -204,6 +210,7 @@ test('manual intake API uses authenticated escaped routes and exact CAS/confirma
       }
       let data = metadata
       if (url.endsWith('/manual-project-confirmation')) data = confirmation
+      else if (url.endsWith('/project-intake-drafts/mine')) data = []
       else if (url.includes('/project-intake-drafts/')) data = draft
       return new Response(JSON.stringify({ success: true, data }), {
         status: init.method === 'POST' ? 200 : 200,
@@ -217,6 +224,7 @@ test('manual intake API uses authenticated escaped routes and exact CAS/confirma
     httpHeaders: { Authorization: 'Bearer manual-test-token' },
   })
   assert.deepEqual(await fetchDocumentVersion('version/1'), metadata)
+  assert.deepEqual(await listProjectIntakeDrafts(), [])
   assert.equal(await (await downloadOriginalPdf('version/1')).text(), '%PDF-1.7')
 
   const confirmationRequest = {
@@ -242,6 +250,7 @@ test('manual intake API uses authenticated escaped routes and exact CAS/confirma
     calls.map(({ url, init }) => [url, init.method || 'GET']),
     [
       ['/api/document-versions/version%2F1', 'GET'],
+      ['/api/project-intake-drafts/mine', 'GET'],
       ['/api/document-versions/version%2F1/original', 'GET'],
       ['/api/document-versions/version%2F1/manual-project-confirmation', 'POST'],
       ['/api/project-intake-drafts/draft%2F1', 'POST'],
@@ -251,13 +260,13 @@ test('manual intake API uses authenticated escaped routes and exact CAS/confirma
   for (const { init } of calls) {
     assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer manual-test-token')
   }
-  assert.deepEqual(JSON.parse(calls[2].init.body), confirmationRequest)
-  assert.deepEqual(JSON.parse(calls[3].init.body), {
+  assert.deepEqual(JSON.parse(calls[3].init.body), confirmationRequest)
+  assert.deepEqual(JSON.parse(calls[4].init.body), {
     expectedRevision: 4,
     projectValues: { description: '保存' },
     uiState: { wizardStep: 1 },
   })
-  assert.deepEqual(JSON.parse(calls[4].init.body), { expectedRevision: 4 })
+  assert.deepEqual(JSON.parse(calls[5].init.body), { expectedRevision: 4 })
 })
 
 test('manual confirmation and original download preserve structured and non-JSON HTTP errors', async () => {
@@ -426,6 +435,137 @@ test('manual intake draft composable owns debounce, CAS conflicts, route attachm
   assert.match(source, /function\s+completeAndReset\s*\(/)
 })
 
+function draftFixture(id, overrides = {}) {
+  return {
+    id,
+    ownerUserId: 'user-1',
+    status: 'document_attached',
+    documentId: `document-${id}`,
+    documentVersionId: `version-${id}`,
+    schemaVersion: 'contract.v1',
+    values: { 'project.name': `项目 ${id}` },
+    projectValues: {},
+    uiState: { wizardStep: 0, pdfPage: 1, pdfScale: 1, previewCollapsed: false },
+    revision: 1,
+    fallbackReason: 'manual_selected',
+    fallbackNote: '',
+    completedProjectId: '',
+    createdAt: '2026-08-13T00:00:00Z',
+    updatedAt: '2026-08-13T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function draftSnapshot(name, draft) {
+  return {
+    values: { 'project.name': name },
+    projectValues: {},
+    uiState: { wizardStep: 0, pdfPage: 1, pdfScale: 1, previewCollapsed: false },
+    documentId: draft.documentId,
+    documentVersionId: draft.documentVersionId,
+  }
+}
+
+test('switching drafts flushes pending edits and refuses the switch when persistence fails', async () => {
+  installAuthToken()
+  const draftA = draftFixture('A')
+  const draftB = draftFixture('B')
+  let snapshot = draftSnapshot('项目 A', draftA)
+  const restored = []
+  const errors = []
+  const calls = []
+  globalThis.fetch = async (input, init = {}) => {
+    calls.push({ input: String(input), init })
+    const body = JSON.parse(init.body)
+    return new Response(JSON.stringify({
+      success: true,
+      data: { ...draftA, values: body.values, revision: 2 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const scope = effectScope()
+  const intake = scope.run(() => useManualProjectIntakeDraft({
+    snapshot: () => snapshot,
+    restore: (value) => restored.push(value),
+    onError: (message) => errors.push(message),
+  }))
+  await intake.resumeDraft(draftA)
+  snapshot = draftSnapshot('项目 A 已修改', draftA)
+  intake.scheduleSave()
+  assert.equal(await intake.resumeDraft(draftB), true)
+  assert.equal(intake.activeDraft.value.id, 'B')
+  assert.equal(restored.at(-1).values['project.name'], '项目 B')
+  assert.equal(calls.length, 1)
+  assert.equal(JSON.parse(calls[0].init.body).values['project.name'], '项目 A 已修改')
+
+  snapshot = draftSnapshot('项目 B 保存失败', draftB)
+  globalThis.fetch = async () => new Response('bad gateway', { status: 502 })
+  assert.equal(await intake.resumeDraft(draftA), false)
+  assert.equal(intake.activeDraft.value.id, 'B')
+  assert.deepEqual(errors, ['请求失败: 502'])
+  scope.stop()
+})
+
+test('a 409 conflict permanently latches autosave until an explicit new session', async () => {
+  installAuthToken()
+  const draftA = draftFixture('A')
+  const draftB = draftFixture('B')
+  let snapshot = draftSnapshot('项目 A', draftA)
+  const errors = []
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return new Response(JSON.stringify({
+      success: false,
+      code: 'draft_version_conflict',
+      error: '草稿版本冲突',
+    }), { status: 409, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const scope = effectScope()
+  const intake = scope.run(() => useManualProjectIntakeDraft({
+    snapshot: () => snapshot,
+    restore: (value) => { snapshot = value },
+    onError: (message) => errors.push(message),
+  }))
+  await intake.resumeDraft(draftA)
+  await intake.flushSave()
+  assert.deepEqual(errors, ['草稿已在其他窗口更新，请重新载入后继续。'])
+  assert.equal(await intake.resumeDraft(draftB), false)
+  assert.equal(intake.activeDraft.value.id, 'A')
+  intake.scheduleSave()
+  await new Promise((resolve) => setTimeout(resolve, 850))
+  assert.equal(calls, 1)
+  scope.stop()
+})
+
+test('metadata loader rejects late draft and route responses before publishing', async () => {
+  const pending = new Map()
+  const fetcher = (versionId) => new Promise((resolve) => pending.set(versionId, resolve))
+  const loader = createManualDocumentMetadataLoader(fetcher)
+  const published = []
+
+  let activeDraftId = 'A'
+  const draftA = loader.load('version-A', () => activeDraftId === 'A', (value) => published.push(value.id))
+  activeDraftId = 'B'
+  const draftB = loader.load('version-B', () => activeDraftId === 'B', (value) => published.push(value.id))
+  pending.get('version-B')({ id: 'version-B' })
+  assert.equal(await draftB, true)
+  pending.get('version-A')({ id: 'version-A' })
+  assert.equal(await draftA, false)
+  assert.deepEqual(published, ['version-B'])
+
+  let routeVersionId = 'route-A'
+  const routeA = loader.load('route-A', () => routeVersionId === 'route-A', (value) => published.push(value.id))
+  routeVersionId = 'route-B'
+  const routeB = loader.load('route-B', () => routeVersionId === 'route-B', (value) => published.push(value.id))
+  pending.get('route-B')({ id: 'route-B' })
+  assert.equal(await routeB, true)
+  pending.get('route-A')({ id: 'route-A' })
+  assert.equal(await routeA, false)
+  assert.deepEqual(published, ['version-B', 'route-B'])
+})
+
 test('manual wizard persists preview state and uses one stable key for confirmation retries', () => {
   const source = readFileSync(
     new URL('../src/views/ProjectManagementView.vue', import.meta.url),
@@ -433,7 +573,7 @@ test('manual wizard persists preview state and uses one stable key for confirmat
   )
 
   assert.match(source, /intakeDocumentVersionId/)
-  assert.match(source, /fetchDocumentVersion\s*\(/)
+  assert.match(source, /createManualDocumentMetadataLoader\s*\(/)
   assert.match(source, /scheduleSave\s*\(/)
   assert.match(source, /expectedDraftRevision:\s*activeDraft\.value\.revision/)
   assert.match(source, /idempotencyKey:\s*manualProjectIdempotencyKey\.value/)
@@ -442,4 +582,5 @@ test('manual wizard persists preview state and uses one stable key for confirmat
   assert.match(source, /@update:page="handleContractPdfPage"/)
   assert.match(source, /@update:scale="handleContractPdfScale"/)
   assert.match(source, /@update:collapsed="handleContractPdfCollapsed"/)
+  assert.match(source, /if\s*\(projectDialog\.mode\s*===\s*'create'\)[\s\S]*?ownerUnit/)
 })

@@ -393,6 +393,7 @@ class DocumentApiContractTests(unittest.TestCase):
             ("POST", "/api/document-recognition-jobs/job-id/manual-review"),
             ("POST", "/api/document-recognition-jobs/job-id/external-import"),
             ("GET", "/api/project-intake-drafts"),
+            ("GET", "/api/project-intake-drafts/mine"),
             ("POST", "/api/project-intake-drafts"),
             ("GET", "/api/project-intake-drafts/draft-id"),
             ("POST", "/api/project-intake-drafts/draft-id"),
@@ -932,6 +933,27 @@ class DocumentApiContractTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertNotIn(draft_id, [item["id"] for item in outsider_list["data"]])
+
+        status, _headers, admin_created = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {"project.name": "管理员自己的项目"},
+                "fallbackReason": "manual_selected",
+            },
+            user_id="admin-user",
+        )
+        self.assertEqual(status, 201, admin_created)
+        status, _headers, admin_mine = self.request(
+            "GET", "/api/project-intake-drafts/mine", user_id="admin-user"
+        )
+        self.assertEqual(status, 200, admin_mine)
+        self.assertIn(admin_created["data"]["id"], [item["id"] for item in admin_mine["data"]])
+        self.assertNotIn(draft_id, [item["id"] for item in admin_mine["data"]])
+        self.assertTrue(
+            all(item["ownerUserId"] == "admin-user" for item in admin_mine["data"]),
+            admin_mine,
+        )
 
         status, _headers, updated = self.request(
             "POST",
