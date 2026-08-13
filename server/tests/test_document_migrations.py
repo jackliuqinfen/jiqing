@@ -14,6 +14,7 @@ from server.migrations import (
     DOCUMENT_EVIDENCE_CHECKSUM,
     DOCUMENT_EVIDENCE_MIGRATION,
     LIFECYCLE_RUNTIME_MIGRATION,
+    MANUAL_PROJECT_INTAKE_STATE_MIGRATION,
     MigrationChecksumMismatchError,
     PROJECT_DOCUMENT_STAGE_MIGRATION,
     apply_pending_migrations,
@@ -132,7 +133,24 @@ class DocumentMigrationTests(unittest.TestCase):
                 (CONTRACT_FALLBACK_PROVENANCE_MIGRATION, 1),
                 (DESKTOP_SYNC_HASH_CACHE_MIGRATION, 1),
                 (PROJECT_DOCUMENT_STAGE_MIGRATION, 1),
+                (MANUAL_PROJECT_INTAKE_STATE_MIGRATION, 1),
             ],
+        )
+
+    def test_manual_project_intake_state_migration_adds_draft_state_columns(self):
+        apply_pending_migrations(self.conn)
+
+        columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(project_intake_drafts)")
+        }
+
+        self.assertTrue(
+            {
+                "project_values_json",
+                "ui_state_json",
+                "revision",
+            }.issubset(columns)
         )
 
     def test_project_document_stage_migration_backfills_existing_categories(self):

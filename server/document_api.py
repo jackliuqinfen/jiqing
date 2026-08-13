@@ -152,7 +152,7 @@ class DocumentApi:
             status = 404 if exc.code in {"source_job_not_found", "document_version_not_found"} else 409 if exc.code == "fallback_idempotency_conflict" else 422
             self._error(status, exc.code, str(exc))
         except ProjectIntakeDraftError as exc:
-            status = 404 if exc.code == "draft_not_found" else 409 if exc.code == "draft_immutable" else 422
+            status = 404 if exc.code == "draft_not_found" else 409 if exc.code in {"draft_immutable", "draft_version_conflict"} else 422
             self._error(status, exc.code, str(exc))
         except ReviewVersionConflictError as exc:
             self._error(
@@ -602,6 +602,8 @@ class DocumentApi:
             self.conn,
             owner_user_id=self.actor["id"],
             values=data.get("values") or {},
+            project_values=data.get("projectValues"),
+            ui_state=data.get("uiState"),
             fallback_reason=_required_text(data, "fallbackReason"),
             fallback_note=str(data.get("fallbackNote") or "").strip(),
             document_id=_optional_text(data, "documentId"),
@@ -627,7 +629,10 @@ class DocumentApi:
             self.conn,
             draft_id=draft_id,
             owner_user_id=self.actor["id"],
+            expected_revision=_required_revision(data),
             values=data.get("values") if "values" in data else None,
+            project_values=data.get("projectValues") if "projectValues" in data else None,
+            ui_state=data.get("uiState") if "uiState" in data else None,
             fallback_reason=data.get("fallbackReason") if "fallbackReason" in data else None,
             fallback_note=data.get("fallbackNote") if "fallbackNote" in data else None,
             document_id=data.get("documentId") if "documentId" in data else None,
@@ -1183,6 +1188,25 @@ def _required_int(data, key):
         raise DocumentApiError(422, "invalid_integer", f"{key} 必须是整数。", field=key) from exc
 
 
+def _required_revision(data):
+    if isinstance((data or {}).get("expectedRevision"), bool):
+        raise DocumentApiError(
+            422,
+            "invalid_integer",
+            "expectedRevision 必须是非负整数。",
+            field="expectedRevision",
+        )
+    revision = _required_int(data, "expectedRevision")
+    if revision < 0:
+        raise DocumentApiError(
+            422,
+            "invalid_integer",
+            "expectedRevision 必须是非负整数。",
+            field="expectedRevision",
+        )
+    return revision
+
+
 def _map_upload_result(result):
     return {
         "replayed": bool(result["replayed"]),
@@ -1285,6 +1309,9 @@ def _map_intake_draft(row):
         "documentVersionId": row.get("document_version_id") or "",
         "schemaVersion": row["schema_version"],
         "values": row.get("values") or {},
+        "projectValues": row.get("project_values") or {},
+        "uiState": row.get("ui_state") or {},
+        "revision": int(row.get("revision") or 0),
         "fallbackReason": row.get("fallback_reason") or "",
         "fallbackNote": row.get("fallback_note") or "",
         "completedProjectId": row.get("completed_project_id") or "",

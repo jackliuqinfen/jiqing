@@ -668,7 +668,10 @@ class DocumentApiContractTests(unittest.TestCase):
         status, _headers, updated = self.request(
             "POST",
             f"/api/project-intake-drafts/{draft_id}",
-            payload={"values": {"project.name": "悦铂特工程"}},
+            payload={
+                "values": {"project.name": "悦铂特工程"},
+                "expectedRevision": created["data"]["revision"],
+            },
             user_id="editor-user",
         )
         self.assertEqual(status, 200)
@@ -708,6 +711,79 @@ class DocumentApiContractTests(unittest.TestCase):
         self.assertEqual(status, 403, payload)
         self.assertEqual(payload["code"], "unbound_document_forbidden")
 
+    def test_draft_state_round_trips_and_rejects_stale_revision(self):
+        project_values = {
+            "contractorName": "徐华",
+            "contractorContact": "13800000000",
+            "companyRole": "施工单位",
+            "settlementStatus": "not_started",
+            "submittedAmount": 0,
+            "paidAmount": 0,
+            "paymentTerms": "验收合格后付至80%",
+            "plannedStartDate": "2026-01-05",
+            "plannedEndDate": "2026-02-03",
+            "description": "维修项目",
+        }
+        ui_state = {
+            "wizardStep": 1,
+            "pdfPage": 28,
+            "pdfScale": 1.1,
+            "previewCollapsed": False,
+        }
+        status, _headers, created = self.request(
+            "POST",
+            "/api/project-intake-drafts",
+            payload={
+                "values": {"project.name": "大洋湾小瀛台翻新改造项目"},
+                "projectValues": project_values,
+                "uiState": ui_state,
+                "fallbackReason": "manual_selected",
+            },
+            user_id="editor-user",
+        )
+
+        self.assertEqual(status, 201, created)
+        self.assertEqual(created["data"]["projectValues"], project_values)
+        self.assertEqual(created["data"]["uiState"], ui_state)
+        self.assertEqual(created["data"]["revision"], 0)
+        draft_id = created["data"]["id"]
+
+        status, _headers, updated = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}",
+            payload={
+                "expectedRevision": 0,
+                "projectValues": {**project_values, "description": "第一次保存"},
+                "uiState": {**ui_state, "wizardStep": 2, "pdfPage": 29},
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["data"]["revision"], 1)
+        self.assertEqual(updated["data"]["projectValues"]["description"], "第一次保存")
+        self.assertEqual(updated["data"]["uiState"]["pdfPage"], 29)
+
+        status, _headers, conflict = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}",
+            payload={
+                "expectedRevision": 0,
+                "projectValues": {**project_values, "description": "过期写入"},
+            },
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 409, conflict)
+        self.assertEqual(conflict["code"], "draft_version_conflict")
+
+        status, _headers, missing_revision = self.request(
+            "POST",
+            f"/api/project-intake-drafts/{draft_id}",
+            payload={"uiState": {"wizardStep": 3}},
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 422, missing_revision)
+        self.assertEqual(missing_revision["code"], "required_field_missing")
+
     def test_draft_can_be_marked_completed_after_formal_project_creation(self):
         status, _headers, created = self.request(
             "POST",
@@ -723,7 +799,10 @@ class DocumentApiContractTests(unittest.TestCase):
         status, _headers, completed = self.request(
             "POST",
             f"/api/project-intake-drafts/{created['data']['id']}",
-            payload={"completedProjectId": "project-allowed"},
+            payload={
+                "completedProjectId": "project-allowed",
+                "expectedRevision": created["data"]["revision"],
+            },
             user_id="editor-user",
         )
 

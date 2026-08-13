@@ -13,6 +13,7 @@ CONTRACT_FALLBACK_MIGRATION = "2026071501_contract_fallback"
 CONTRACT_FALLBACK_PROVENANCE_MIGRATION = "2026071502_contract_fallback_provenance"
 DESKTOP_SYNC_HASH_CACHE_MIGRATION = "2026072701_desktop_sync_hash_cache"
 PROJECT_DOCUMENT_STAGE_MIGRATION = "2026080101_project_document_stage_requirements"
+MANUAL_PROJECT_INTAKE_STATE_MIGRATION = "2026081301_manual_project_intake_state"
 
 
 class MigrationChecksumMismatchError(RuntimeError):
@@ -57,6 +58,32 @@ PROJECT_DOCUMENT_STAGE_CHECKSUM = hashlib.sha256(
         (
             _PROJECT_DOCUMENT_STAGE_ALTER_SQL.strip(),
             _PROJECT_DOCUMENT_STAGE_BACKFILL_SQL.strip(),
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+_MANUAL_PROJECT_VALUES_ALTER_SQL = """
+ALTER TABLE project_intake_drafts
+ADD COLUMN project_values_json TEXT NOT NULL DEFAULT '{}'
+"""
+
+_MANUAL_PROJECT_UI_STATE_ALTER_SQL = """
+ALTER TABLE project_intake_drafts
+ADD COLUMN ui_state_json TEXT NOT NULL DEFAULT '{}'
+"""
+
+_MANUAL_PROJECT_REVISION_ALTER_SQL = """
+ALTER TABLE project_intake_drafts
+ADD COLUMN revision INTEGER NOT NULL DEFAULT 0
+"""
+
+MANUAL_PROJECT_INTAKE_STATE_CHECKSUM = hashlib.sha256(
+    "\n".join(
+        statement.strip()
+        for statement in (
+            _MANUAL_PROJECT_VALUES_ALTER_SQL,
+            _MANUAL_PROJECT_UI_STATE_ALTER_SQL,
+            _MANUAL_PROJECT_REVISION_ALTER_SQL,
         )
     ).encode("utf-8")
 ).hexdigest()
@@ -635,6 +662,13 @@ def apply_pending_migrations(conn):
         statements=(),
         prepare=_prepare_project_document_stage,
     )
+    _apply_migration(
+        conn,
+        version=MANUAL_PROJECT_INTAKE_STATE_MIGRATION,
+        checksum=MANUAL_PROJECT_INTAKE_STATE_CHECKSUM,
+        statements=(),
+        prepare=_prepare_manual_project_intake_state,
+    )
 
 
 def _apply_migration(conn, *, version, checksum, statements, prepare=None):
@@ -746,6 +780,15 @@ def _prepare_project_document_stage(conn):
     ):
         conn.execute(_PROJECT_DOCUMENT_STAGE_ALTER_SQL)
         conn.execute(_PROJECT_DOCUMENT_STAGE_BACKFILL_SQL)
+
+
+def _prepare_manual_project_intake_state(conn):
+    if not _column_exists(conn, "project_intake_drafts", "project_values_json"):
+        conn.execute(_MANUAL_PROJECT_VALUES_ALTER_SQL)
+    if not _column_exists(conn, "project_intake_drafts", "ui_state_json"):
+        conn.execute(_MANUAL_PROJECT_UI_STATE_ALTER_SQL)
+    if not _column_exists(conn, "project_intake_drafts", "revision"):
+        conn.execute(_MANUAL_PROJECT_REVISION_ALTER_SQL)
 
 
 def _ensure_schema_migrations_table(conn):
