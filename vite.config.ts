@@ -8,6 +8,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes('pdfjs-dist')) return 'vendor-pdfjs'
           if (id.includes('node_modules')) {
             if (id.includes('@arco-design') || id.includes('@arco-themes')) return 'vendor-arco'
             if (id.includes('jquery')) return 'auth-module'

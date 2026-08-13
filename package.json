@@ -24,6 +24,7 @@
     "@visactor/vchart": "^2.1.1",
     "@visactor/vchart-arco-theme": "^1.13.1",
     "jquery": "^3.7.1",
+    "pdfjs-dist": "6.2.108",
     "pinia": "^2.3.0",
     "sortablejs": "^1.15.6",
     "vue": "^3.5.13",
