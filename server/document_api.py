@@ -38,6 +38,10 @@ from server.document_review_service import (
     save_decisions,
 )
 from server.document_storage import DocumentStorage, UnsafeDocumentPathError
+from server.manual_project_intake_service import (
+    ManualProjectIntakeError,
+    confirm_manual_project_intake,
+)
 from server.project_intake_drafts import ProjectIntakeDraftError
 from server.recognition.schemas import schema_for_document_type, schema_for_version
 from server.recognition_service import enqueue_recognition, recognition_job_snapshot
@@ -79,9 +83,12 @@ class DocumentApi:
     _GET_ROUTES = (
         re.compile(r"^/api/documents/([^/]+)$"),
         re.compile(r"^/api/document-versions/([^/]+)/pages/([1-9][0-9]*)/image$"),
+        re.compile(r"^/api/document-versions/([^/]+)/original$"),
+        re.compile(r"^/api/document-versions/([^/]+)$"),
         re.compile(r"^/api/document-recognition-jobs/([^/]+)$"),
         re.compile(r"^/api/document-reviews/([^/]+)$"),
         re.compile(r"^/api/project-intake-drafts$"),
+        re.compile(r"^/api/project-intake-drafts/mine$"),
         re.compile(r"^/api/project-intake-drafts/([^/]+)$"),
     )
     _POST_ROUTES = (
@@ -90,6 +97,7 @@ class DocumentApi:
         re.compile(r"^/api/document-recognition-jobs/([^/]+)/retry$"),
         re.compile(r"^/api/document-reviews/([^/]+)/decisions$"),
         re.compile(r"^/api/document-reviews/([^/]+)/confirm$"),
+        re.compile(r"^/api/document-versions/([^/]+)/manual-project-confirmation$"),
         re.compile(r"^/api/document-versions/([^/]+)/manual-review$"),
         re.compile(r"^/api/document-versions/([^/]+)/external-import$"),
         re.compile(r"^/api/document-recognition-jobs/([^/]+)/manual-review$"),
@@ -152,8 +160,27 @@ class DocumentApi:
             status = 404 if exc.code in {"source_job_not_found", "document_version_not_found"} else 409 if exc.code == "fallback_idempotency_conflict" else 422
             self._error(status, exc.code, str(exc))
         except ProjectIntakeDraftError as exc:
-            status = 404 if exc.code == "draft_not_found" else 409 if exc.code == "draft_immutable" else 422
+            status = 404 if exc.code == "draft_not_found" else 409 if exc.code in {"draft_immutable", "draft_version_conflict"} else 422
             self._error(status, exc.code, str(exc))
+        except ManualProjectIntakeError as exc:
+            not_found_codes = {"document_version_not_found", "draft_not_found"}
+            conflict_codes = {
+                "draft_immutable",
+                "draft_version_conflict",
+                "draft_document_mismatch",
+                "fallback_idempotency_conflict",
+                "manual_review_field_missing",
+            }
+            status = 404 if exc.code in not_found_codes else 409 if exc.code in conflict_codes else 422
+            details = {"field": exc.field} if exc.field else {}
+            if status == 422:
+                details["blockers"] = [{
+                    "code": exc.code,
+                    "field": exc.field or "",
+                    "message": str(exc),
+                    "severity": "blocker",
+                }]
+            self._error(status, exc.code, str(exc), **details)
         except ReviewVersionConflictError as exc:
             self._error(
                 409,
@@ -195,16 +222,28 @@ class DocumentApi:
             return True
         match = self._GET_ROUTES[2].fullmatch(path)
         if match:
-            self._get_recognition_job(match.group(1))
+            self._get_original_version(match.group(1))
             return True
         match = self._GET_ROUTES[3].fullmatch(path)
         if match:
-            self._get_review(match.group(1))
+            self._get_version(match.group(1))
             return True
-        if self._GET_ROUTES[4].fullmatch(path):
-            self._list_intake_drafts()
+        match = self._GET_ROUTES[4].fullmatch(path)
+        if match:
+            self._get_recognition_job(match.group(1))
             return True
         match = self._GET_ROUTES[5].fullmatch(path)
+        if match:
+            self._get_review(match.group(1))
+            return True
+        if self._GET_ROUTES[6].fullmatch(path):
+            self._list_intake_drafts()
+            return True
+        match = self._GET_ROUTES[7].fullmatch(path)
+        if match:
+            self._list_intake_drafts(mine_only=True)
+            return True
+        match = self._GET_ROUTES[8].fullmatch(path)
         if match:
             self._get_intake_draft(match.group(1))
             return True
@@ -236,34 +275,39 @@ class DocumentApi:
             return True
         match = self._POST_ROUTES[5].fullmatch(path)
         if match:
-            self._require_writer()
-            self._direct_fallback_review(match.group(1), mode="manual")
+            self._require_confirmer()
+            self._confirm_manual_project(match.group(1))
             return True
         match = self._POST_ROUTES[6].fullmatch(path)
         if match:
             self._require_writer()
-            self._direct_fallback_review(match.group(1), mode="external")
+            self._direct_fallback_review(match.group(1), mode="manual")
             return True
         match = self._POST_ROUTES[7].fullmatch(path)
         if match:
             self._require_writer()
-            self._job_fallback_review(match.group(1), mode="manual")
+            self._direct_fallback_review(match.group(1), mode="external")
             return True
         match = self._POST_ROUTES[8].fullmatch(path)
         if match:
             self._require_writer()
+            self._job_fallback_review(match.group(1), mode="manual")
+            return True
+        match = self._POST_ROUTES[9].fullmatch(path)
+        if match:
+            self._require_writer()
             self._job_fallback_review(match.group(1), mode="external")
             return True
-        if self._POST_ROUTES[9].fullmatch(path):
+        if self._POST_ROUTES[10].fullmatch(path):
             self._require_writer()
             self._create_intake_draft()
             return True
-        match = self._POST_ROUTES[10].fullmatch(path)
+        match = self._POST_ROUTES[11].fullmatch(path)
         if match:
             self._require_writer()
             self._save_intake_draft(match.group(1))
             return True
-        match = self._POST_ROUTES[11].fullmatch(path)
+        match = self._POST_ROUTES[12].fullmatch(path)
         if match:
             self._require_writer()
             self._abandon_intake_draft(match.group(1))
@@ -390,6 +434,31 @@ class DocumentApi:
         if not path.is_file():
             raise DocumentApiError(404, "document_page_file_not_found", "文档页文件不存在。")
         self._respond_file_range(path, "image/png")
+
+    def _get_version(self, version_id):
+        source = self._version_source(version_id)
+        self._success(200, _map_version_metadata(source))
+
+    def _get_original_version(self, version_id):
+        source = self._version_source(version_id)
+        mime_type = str(source.get("mime_type") or "").lower().split(";", 1)[0].strip()
+        if mime_type != "application/pdf":
+            raise DocumentApiError(
+                422,
+                "document_original_not_pdf",
+                "合同原文在线预览仅支持 PDF 文件。",
+            )
+        path = self.storage._resolve(source["relative_path"])
+        if not path.is_file():
+            raise DocumentApiError(404, "document_original_file_not_found", "合同原文件不存在。")
+        self._respond_file_range(path, "application/pdf")
+
+    def _version_source(self, version_id):
+        source = self.read_repository.version(version_id)
+        if not source:
+            raise DocumentApiError(404, "document_version_not_found", "未找到文档版本。")
+        self._require_resource_access(source)
+        return source
 
     def _create_recognition_job(self):
         data = self._read_json_body()
@@ -576,11 +645,11 @@ class DocumentApi:
             return parse_external_contract_markdown(_required_text(data, "markdown")), "external-ai-paste"
         return manual_contract_fields(data.get("values") or {}), "manual-entry"
 
-    def _list_intake_drafts(self):
+    def _list_intake_drafts(self, *, mine_only=False):
         rows = project_intake_drafts.list_drafts(
             self.conn,
             owner_user_id=self.actor["id"],
-            include_all=self.actor["role"] == "admin",
+            include_all=self.actor["role"] == "admin" and not mine_only,
         )
         self._success(200, [_map_intake_draft(row) for row in rows])
 
@@ -602,6 +671,8 @@ class DocumentApi:
             self.conn,
             owner_user_id=self.actor["id"],
             values=data.get("values") or {},
+            project_values=data.get("projectValues"),
+            ui_state=data.get("uiState"),
             fallback_reason=_required_text(data, "fallbackReason"),
             fallback_note=str(data.get("fallbackNote") or "").strip(),
             document_id=_optional_text(data, "documentId"),
@@ -627,7 +698,10 @@ class DocumentApi:
             self.conn,
             draft_id=draft_id,
             owner_user_id=self.actor["id"],
+            expected_revision=_required_revision(data),
             values=data.get("values") if "values" in data else None,
+            project_values=data.get("projectValues") if "projectValues" in data else None,
+            ui_state=data.get("uiState") if "uiState" in data else None,
             fallback_reason=data.get("fallbackReason") if "fallbackReason" in data else None,
             fallback_note=data.get("fallbackNote") if "fallbackNote" in data else None,
             document_id=data.get("documentId") if "documentId" in data else None,
@@ -666,11 +740,12 @@ class DocumentApi:
         self._require_resource_access(source)
 
     def _abandon_intake_draft(self, draft_id):
-        self._read_json_body()
+        data = self._read_json_body()
         row = project_intake_drafts.abandon_draft(
             self.conn,
             draft_id=draft_id,
             owner_user_id=self.actor["id"],
+            expected_revision=_required_revision(data),
         )
         self._log_operation(
             "project_intake_draft_abandoned",
@@ -725,6 +800,49 @@ class DocumentApi:
             project_code_generator=self.project_code_generator,
         )
         self._success(200 if result.get("replayed") else 201, _map_confirmation(result))
+
+    def _confirm_manual_project(self, version_id):
+        source = self.read_repository.version(version_id)
+        if not source:
+            raise DocumentApiError(404, "document_version_not_found", "未找到文档版本。")
+        self._require_resource_access(source)
+        data = self._read_json_body()
+        try:
+            result = confirm_manual_project_intake(
+                self.conn,
+                document_version_id=version_id,
+                contract_values=data.get("contractValues") or {},
+                project_values=data.get("projectValues") or {},
+                draft_id=_required_text(data, "draftId"),
+                expected_draft_revision=_required_nonnegative_int(
+                    data, "expectedDraftRevision"
+                ),
+                idempotency_key=_required_text(data, "idempotencyKey"),
+                form_template_version=_required_text(data, "formTemplateVersion"),
+                actor=self.actor,
+                project_code_generator=self.project_code_generator,
+                operation_logger=self._log_operation,
+            )
+        except ReviewBlockedError as exc:
+            duplicate = next(
+                (
+                    blocker
+                    for blocker in exc.blockers
+                    if blocker.get("code") == "duplicate_contract_document"
+                ),
+                None,
+            )
+            if duplicate:
+                raise DocumentApiError(
+                    409,
+                    "duplicate_contract_document",
+                    duplicate.get("message") or "该合同文件已经生成项目，不能重复建档。",
+                    blockers=exc.blockers,
+                ) from exc
+            raise
+        payload = _map_confirmation(result)
+        payload["project"] = _map_project_record(result.get("project") or {})
+        self._success(200 if result.get("replayed") else 201, payload)
 
     def _review_source(self, review_id):
         source = self.read_repository.review_source(review_id)
@@ -854,8 +972,15 @@ class _DocumentReadRepository:
             self.conn,
             """
             SELECT dv.*, d.document_type, d.lifecycle_stage, d.project_id,
-                   d.candidate_project_id, d.status AS document_status,
-                   d.created_by AS document_created_by
+                    d.candidate_project_id, d.status AS document_status,
+                    d.created_by AS document_created_by,
+                    (
+                        SELECT pc.project_id
+                        FROM project_contracts pc
+                        WHERE pc.document_version_id = dv.id
+                        ORDER BY pc.created_at DESC
+                        LIMIT 1
+                    ) AS already_confirmed_project_id
             FROM document_versions dv
             JOIN documents d ON d.id = dv.document_id
             WHERE dv.id = ?
@@ -1148,16 +1273,19 @@ def _parse_range(value, size):
     start_text, end_text = match.groups()
     if not start_text and not end_text:
         return None
-    if not start_text:
-        suffix = int(end_text)
-        if suffix <= 0:
+    try:
+        if not start_text:
+            suffix = int(end_text)
+            if suffix <= 0:
+                return None
+            start = max(size - suffix, 0)
+            return start, size - 1
+        start = int(start_text)
+        if start >= size:
             return None
-        start = max(size - suffix, 0)
-        return start, size - 1
-    start = int(start_text)
-    if start >= size:
+        end = size - 1 if not end_text else min(int(end_text), size - 1)
+    except ValueError:
         return None
-    end = size - 1 if not end_text else min(int(end_text), size - 1)
     if end < start:
         return None
     return start, end
@@ -1181,6 +1309,44 @@ def _required_int(data, key):
         return int(data[key])
     except (TypeError, ValueError) as exc:
         raise DocumentApiError(422, "invalid_integer", f"{key} 必须是整数。", field=key) from exc
+
+
+def _required_revision(data):
+    if "expectedRevision" not in (data or {}):
+        raise DocumentApiError(
+            422,
+            "required_field_missing",
+            "expectedRevision 不能为空。",
+            field="expectedRevision",
+        )
+    revision = data["expectedRevision"]
+    if type(revision) is not int or revision < 0:
+        raise DocumentApiError(
+            422,
+            "invalid_integer",
+            "expectedRevision 必须是非负整数。",
+            field="expectedRevision",
+        )
+    return revision
+
+
+def _required_nonnegative_int(data, key):
+    if key not in (data or {}):
+        raise DocumentApiError(
+            422,
+            "required_field_missing",
+            f"{key} 不能为空。",
+            field=key,
+        )
+    value = data[key]
+    if type(value) is not int or value < 0:
+        raise DocumentApiError(
+            422,
+            "invalid_integer",
+            f"{key} 必须是非负整数。",
+            field=key,
+        )
+    return value
 
 
 def _map_upload_result(result):
@@ -1235,6 +1401,54 @@ def _map_version_row(row):
     }
 
 
+def _map_version_metadata(row):
+    return {
+        "id": row["id"],
+        "documentId": row["document_id"],
+        "name": row["original_name"],
+        "mimeType": row["mime_type"],
+        "fileSize": int(row["file_size"]),
+        "uploadedAt": row["uploaded_at"],
+        "documentType": row["document_type"],
+        "alreadyConfirmedProjectId": row.get("already_confirmed_project_id"),
+    }
+
+
+def _map_project_record(row):
+    return {
+        "id": row.get("id"),
+        "projectCode": row.get("project_code") or "",
+        "projectName": row.get("project_name") or "",
+        "contractDate": row.get("contract_date") or "",
+        "constructionUnit": row.get("construction_unit") or "",
+        "contractorName": row.get("contractor_name") or "",
+        "contractorContact": row.get("contractor_contact") or "",
+        "ownerUnit": row.get("owner_unit") or "",
+        "companyRole": row.get("company_role") or "",
+        "managerName": row.get("manager_name") or "",
+        "projectStatus": row.get("project_status") or "",
+        "settlementStatus": row.get("settlement_status") or "",
+        "auditStage": row.get("audit_stage") or "",
+        "contractAmount": row.get("contract_amount") or 0,
+        "submittedAmount": row.get("submitted_amount") or 0,
+        "paidAmount": row.get("paid_amount") or 0,
+        "paymentTerms": row.get("payment_terms") or "",
+        "plannedStartDate": row.get("planned_start_date") or "",
+        "plannedEndDate": row.get("planned_end_date") or "",
+        "description": row.get("description") or "",
+        "documentCompletion": int(row.get("document_completion") or 0),
+        "missingRequiredCount": int(row.get("missing_required_count") or 0),
+        "settlementBookStatus": row.get("settlement_book_status") or "",
+        "firstAuditMaterialStatus": row.get("first_audit_material_status") or "",
+        "secondAuditMaterialStatus": row.get("second_audit_material_status") or "",
+        "variationCount": int(row.get("variation_count") or 0),
+        "variationAmount": row.get("variation_amount") or 0,
+        "auditProjectId": row.get("audit_project_id") or "",
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
 def _map_page(row):
     return {
         "id": row["id"],
@@ -1285,6 +1499,9 @@ def _map_intake_draft(row):
         "documentVersionId": row.get("document_version_id") or "",
         "schemaVersion": row["schema_version"],
         "values": row.get("values") or {},
+        "projectValues": row.get("project_values") or {},
+        "uiState": row.get("ui_state") or {},
+        "revision": int(row.get("revision") or 0),
         "fallbackReason": row.get("fallback_reason") or "",
         "fallbackNote": row.get("fallback_note") or "",
         "completedProjectId": row.get("completed_project_id") or "",

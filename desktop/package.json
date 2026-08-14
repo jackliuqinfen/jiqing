@@ -1,0 +1,36 @@
+{
+  "name": "jiqing-erp-desktop",
+  "version": "1.0.3",
+  "description": "江苏集庆建设工程管理桌面工作台",
+  "author": "江苏集庆建设",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "postinstall": "install-electron",
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "release-profile": "node scripts/build-release-profile.mjs",
+    "prepare:build": "npm run icons && npm run release-profile",
+    "pack:dir": "npm run prepare:build && node scripts/build-windows.mjs dir",
+    "dist:win": "npm run pack:dir && node scripts/build-windows.mjs nsis",
+    "dist:production": "npm run prepare:build && node scripts/build-windows.mjs production",
+    "stage:update": "node scripts/stage-update-feed.mjs",
+    "verify:package": "node scripts/verify-packaged-app.mjs",
+    "smoke": "node scripts/smoke-runner.mjs",
+    "verify": "node scripts/verify-runner.mjs"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/fuses": "2.1.3",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "js-yaml": "4.3.0",
+    "png-to-ico": "3.0.1",
+    "sharp": "0.34.5"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  }
+}

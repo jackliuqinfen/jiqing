@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 
 const css = await readFile(new URL('../src/styles/arco-premium-workbench.css', import.meta.url), 'utf8')
 const layout = await readFile(new URL('../src/views/AppLayout.vue', import.meta.url), 'utf8')
+const themeRuntime = await readFile(new URL('../src/ui/theme.ts', import.meta.url), 'utf8')
+const systemSettings = await readFile(new URL('../src/views/admin/AdminSystemSettings.vue', import.meta.url), 'utf8')
 const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const cssRules = [...cssWithoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
   selectors: match[1].split(',').map((selector) => selector.replace(/\s+/g, ' ').trim()),
@@ -31,12 +33,42 @@ for (const token of requiredTokens) {
   assert.match(css, new RegExp(token), `missing visual token: ${token}`)
 }
 
+await access(new URL('../src/assets/workspace-background.png', import.meta.url))
+assert.match(themeRuntime, /workspaceBackgroundImage/)
+assert.match(themeRuntime, /--workspace-background-image/)
+assertRule(
+  '.system-shell',
+  /background-image:\s*var\(--workspace-background-image\)/,
+  'application shell must render the configured workspace background image',
+)
+assert.match(systemSettings, /工作台背景/)
+assert.match(systemSettings, /更换背景/)
+assert.match(systemSettings, /恢复默认背景/)
+assert.match(systemSettings, /image\/png,image\/jpeg,image\/webp/)
+
 assert.match(css, /\.system-shell::before/)
 assert.match(css, /\.platform-topbar[\s\S]*backdrop-filter/)
 assert.match(css, /\.arco-table[\s\S]*background:\s*#fff/)
 assert.match(css, /\.arco-modal[\s\S]*background:\s*#fff/)
 assert.match(layout, /aria-label="平台级模块"/)
 assert.match(layout, /aria-label="当前模块业务功能"/)
+assert.match(layout, /class="sidebar-module-heading"/)
+assert.match(layout, /class="sidebar-collapse-toggle"/)
+assert.doesNotMatch(layout, /class="system-brand"/)
+assert.doesNotMatch(layout, /class="sidebar-collapse-actions"/)
+assert.doesNotMatch(layout, /class="sidebar-action"/)
+assert.doesNotMatch(layout, /class="system-status"/)
+
+assertRule(
+  '.system-sidebar',
+  /background:\s*linear-gradient\(180deg,\s*rgba\(235,\s*244,\s*255,\s*0\.94\)\s*0%,\s*rgba\(248,\s*251,\s*255,\s*0\.98\)\s*52%,\s*#fff\s*100%\)\s*!important;/,
+  'sidebar must use the approved quiet blue-to-white background',
+)
+assertRule('.system-sidebar', /border-right:\s*0\s*!important;/, 'sidebar must not render a boxed divider')
+assertRule('.module-link--active', /background:\s*#fff\s*!important;/, 'active secondary navigation must use a white surface')
+assertRule('.module-link--active', /border-color:\s*transparent\s*!important;/, 'active secondary navigation must remain borderless')
+assertRule('.module-link--active', /box-shadow:\s*none\s*!important;/, 'active secondary navigation must remain flat')
+assertRule('.sidebar-collapse-toggle', /background:\s*rgba\(255,\s*255,\s*255,\s*0\.9\)\s*!important;/, 'collapse control must use the quiet floating treatment')
 
 assertRule(
   '.audit-main .toolbar',

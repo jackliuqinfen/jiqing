@@ -117,3 +117,17 @@ test('desktop lifecycle refresh uses the partial-safe refresh coordinator', () =
 
   assert.match(source, /settleLifecycleRefresh\s*\(/)
 })
+
+test('new project actions restore the existing wizard with protected contract confirmation', () => {
+  const source = readFileSync(new URL('../src/views/ProjectManagementView.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(source, /<DocumentDrivenEntry/)
+  assert.doesNotMatch(source, /createProjectRecord/)
+  assert.match(source, /<ContractPdfPreview/)
+  assert.match(source, /confirmManualProjectIntake/)
+  assert.match(source, /if\s*\(!record\)[\s\S]*?projectDialog\.mode\s*=\s*'create'/)
+  assert.match(source, /label="建设单位"[\s\S]*?required/)
+  assert.match(source, /label="合同金额"[\s\S]*?required/)
+  assert.match(source, /label="付款条款"[\s\S]*?required/)
+  assert.match(source, /buildProjectMutationPayload\('edit'/)
+})

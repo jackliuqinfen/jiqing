@@ -8,7 +8,11 @@ import type {
   DocumentUploadRequest,
   DocumentUploadResponse,
   ExternalImportRequest,
+  ManualProjectConfirmationRequest,
+  ManualProjectConfirmationResponse,
   ManualReviewRequest,
+  DocumentVersionMetadata,
+  OriginalPdfRequest,
   ProjectIntakeDraft,
   RecognitionJob,
   RetryRecognitionRequest,
@@ -213,7 +217,7 @@ export function createProjectIntakeDraft(
 }
 
 export function listProjectIntakeDrafts(): Promise<ProjectIntakeDraft[]> {
-  return request('/project-intake-drafts')
+  return request('/project-intake-drafts/mine')
 }
 
 export function saveProjectIntakeDraft(
@@ -226,10 +230,55 @@ export function saveProjectIntakeDraft(
   })
 }
 
-export function abandonProjectIntakeDraft(draftId: string): Promise<ProjectIntakeDraft> {
+export function abandonProjectIntakeDraft(
+  draftId: string,
+  expectedRevision: number,
+): Promise<ProjectIntakeDraft> {
   return request(`/project-intake-drafts/${encodeURIComponent(draftId)}/abandon`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ expectedRevision }),
+  })
+}
+
+export function fetchDocumentVersion(versionId: string): Promise<DocumentVersionMetadata> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}`)
+}
+
+export function originalPdfRequest(versionId: string): OriginalPdfRequest {
+  const token = getAuthToken()
+  return {
+    url: `${API_BASE}/document-versions/${encodeURIComponent(versionId)}/original`,
+    httpHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+  }
+}
+
+export async function downloadOriginalPdf(versionId: string): Promise<Blob> {
+  const source = originalPdfRequest(versionId)
+  let response: Response
+  try {
+    response = await fetch(source.url, { headers: source.httpHeaders })
+  } catch {
+    throw networkError()
+  }
+  if (!response.ok) {
+    let payload: DocumentReviewErrorPayload = fallbackError(response.status)
+    try {
+      payload = errorPayload(parsePayload<never>(await response.json(), response.status), response.status)
+    } catch {
+      // Preserve the HTTP status when an upstream proxy returns a non-JSON body.
+    }
+    throw new DocumentReviewApiError(response.status, payload)
+  }
+  return response.blob()
+}
+
+export function confirmManualProjectIntake(
+  versionId: string,
+  data: ManualProjectConfirmationRequest,
+): Promise<ManualProjectConfirmationResponse> {
+  return request(`/document-versions/${encodeURIComponent(versionId)}/manual-project-confirmation`, {
+    method: 'POST',
+    body: JSON.stringify(data),
   })
 }
 

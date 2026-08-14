@@ -24,11 +24,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from server.lifecycle import (
+    STAGE_ORDER,
     audit_start_failures,
     contract_gate_failures,
     next_stage as lifecycle_next_stage,
     stage_label as lifecycle_stage_label,
     validate_adjacent_transition,
+)
+from server.document_requirements import (
+    applicable_required_categories,
+    normalize_required_from_stage,
 )
 from server.lifecycle_repository import (
     LifecycleBlockedError,
@@ -39,6 +44,16 @@ from server.lifecycle_repository import (
     transition_project,
 )
 from server.document_api import DocumentApi
+from server.desktop_sync_policy import (
+    effective_desktop_sync_policy,
+    normalize_desktop_sync_policy,
+)
+from server.desktop_sync_repository import (
+    InvalidSyncCursor,
+    find_sync_source,
+    list_sync_manifest,
+    list_sync_project_roots,
+)
 from server.migrations import apply_pending_migrations
 from server.recognition.registry import (
     build_recognition_adapter,
@@ -58,14 +73,14 @@ STAGES = [
     ("archived", "办结归档", "#8E95A3"),
 ]
 PROJECT_DOCUMENT_CATEGORIES = [
-    ("contract", "合同文件", "合同、补充协议、合同清单等", 1),
-    ("drawing", "图纸资料", "施工图、竣工图、设计变更图纸等", 1),
-    ("settlement_book", "竣工结算书", "施工单位报送的结算书和汇总表", 1),
-    ("visa_change", "变更签证", "现场签证、工程变更、联系单等", 1),
-    ("first_audit", "一审资料", "一审过程材料、审核意见和确认资料", 1),
-    ("second_audit", "二审资料", "二审复核材料、复核意见和确认资料", 1),
-    ("payment", "付款资料", "付款申请、付款凭证、付款节点资料", 0),
-    ("other", "其他资料", "项目相关补充资料", 0),
+    ("contract", "合同文件", "合同、补充协议、合同清单等", 1, "contract_signed"),
+    ("drawing", "图纸资料", "施工图、竣工图、设计变更图纸等", 1, "under_construction"),
+    ("settlement_book", "竣工结算书", "施工单位报送的结算书和汇总表", 1, "pending_submission"),
+    ("visa_change", "变更签证", "现场签证、工程变更、联系单等", 1, "pending_submission"),
+    ("first_audit", "一审资料", "一审过程材料、审核意见和确认资料", 1, "first_audit"),
+    ("second_audit", "二审资料", "二审复核材料、复核意见和确认资料", 1, "second_audit"),
+    ("payment", "付款资料", "付款申请、付款凭证、付款节点资料", 0, "conclusion"),
+    ("other", "其他资料", "项目相关补充资料", 0, "archived"),
 ]
 PROJECT_STATUSES = {
     "awarded": "已中标",
@@ -126,6 +141,36 @@ FORBIDDEN_ATTACHMENT_SUFFIXES = (
 TEXT_PREVIEW_SUFFIXES = {".txt", ".csv", ".json", ".log", ".md", ".xml", ".yml", ".yaml"}
 INLINE_PREVIEW_PREFIXES = ("image/", "audio/", "video/")
 INLINE_PREVIEW_TYPES = {"application/pdf"}
+MAX_WORKSPACE_BACKGROUND_BYTES = 2 * 1024 * 1024
+WORKSPACE_BACKGROUND_DATA_URL_RE = re.compile(
+    r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$",
+    re.IGNORECASE,
+)
+
+
+def normalize_workspace_background_image(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    match = WORKSPACE_BACKGROUND_DATA_URL_RE.fullmatch(raw)
+    if not match:
+        raise ValueError("工作台背景仅支持 PNG、JPG 或 WebP 图片")
+    try:
+        content = base64.b64decode(match.group(2), validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError("工作台背景文件内容无法识别，请重新选择图片") from exc
+    if len(content) > MAX_WORKSPACE_BACKGROUND_BYTES:
+        raise ValueError("工作台背景不能超过 2 MB")
+
+    mime_type = match.group(1).lower()
+    signatures_valid = {
+        "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+        "image/webp": len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP",
+    }
+    if not signatures_valid[mime_type]:
+        raise ValueError("工作台背景文件内容与图片格式不一致，请重新选择图片")
+    return raw
 
 
 def is_production():
@@ -264,6 +309,11 @@ def user_payload(row):
         "username": row["username"],
         "displayName": row["display_name"],
         "email": row["email"],
+        "avatarUrl": row_get(row, "avatar_url", ""),
+        "phone": row_get(row, "phone", ""),
+        "department": row_get(row, "department", ""),
+        "jobTitle": row_get(row, "job_title", ""),
+        "bio": row_get(row, "bio", ""),
         "role": row["role"],
         "isActive": bool(row["is_active"]),
         "createdAt": row["created_at"],
@@ -644,6 +694,9 @@ def category_payload(row):
         "categoryName": row["category_name"],
         "description": row["description"],
         "required": bool(row["required"]),
+        "requiredFromStage": normalize_required_from_stage(
+            row["category_key"], row_get(row, "required_from_stage")
+        ),
         "sortOrder": row["sort_order"],
         "enabled": bool(row["enabled"]),
     }
@@ -882,8 +935,9 @@ def project_record_payload(conn, row, include_detail=False):
         (row["id"],),
     ).fetchall()
     required_categories = conn.execute(
-        "SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1"
+        "SELECT * FROM project_document_categories WHERE enabled = 1 AND required = 1"
     ).fetchall()
+    required_categories = applicable_required_categories(required_categories, row["project_status"])
     current_categories = {f["category_key"] for f in files if f["is_current"]}
     missing_count = sum(1 for category in required_categories if category["category_key"] not in current_categories)
     total_required = max(len(required_categories), 1)
@@ -1251,7 +1305,14 @@ def query_work_items(conn, limit=80):
 
 
 def refresh_project_rollups(conn, project_id):
-    cats = conn.execute("SELECT category_key FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
+    project = conn.execute(
+        "SELECT project_status FROM project_records WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    if not project:
+        return
+    cats = conn.execute("SELECT * FROM project_document_categories WHERE enabled = 1 AND required = 1").fetchall()
+    cats = applicable_required_categories(cats, project["project_status"])
     current = conn.execute(
         "SELECT DISTINCT category_key FROM project_files WHERE project_id = ? AND is_current = 1 AND COALESCE(is_deleted, 0) = 0",
         (project_id,),
@@ -1276,6 +1337,14 @@ def refresh_project_rollups(conn, project_id):
         """,
         (completion, missing, variation["c"], variation["amount"], paid["paid"], now_iso(), project_id),
     )
+
+
+def refresh_all_project_rollups(conn):
+    project_ids = conn.execute(
+        "SELECT id FROM project_records WHERE COALESCE(is_deleted, 0) = 0"
+    ).fetchall()
+    for project in project_ids:
+        refresh_project_rollups(conn, project["id"])
 
 
 def log_action(conn, project_id, action, operator="", note="", before=None, after=None):
@@ -1318,6 +1387,7 @@ def bootstrap():
         ensure_stage_field_defaults(conn)
         purge_seed_projects(conn)
         backfill_project_records(conn)
+        refresh_all_project_rollups(conn)
         conn.commit()
 
 
@@ -1362,8 +1432,29 @@ def seed_system_settings(conn):
         ("login_rules", {"minPasswordLength": 8, "maxLoginAttempts": 5, "sessionTimeoutMinutes": 480, "allowConcurrentSessions": True}, "auth", "登录规则"),
         ("system_name", "江苏集庆·工程管理系统", "system", "系统名称"),
         ("upload_settings", {"maxFileSizeMb": DEFAULT_MAX_UPLOAD_SIZE_MB}, "system", "文件上传设置"),
+        (
+            "desktop_sync_policy",
+            {
+                "enabled": False,
+                "enabledByDefault": False,
+                "allowedRoles": ["admin"],
+                "allowedUserIds": [],
+                "projectSelectionMode": "user_select",
+                "allowedProjectRefs": [],
+                "allowedCategoryKeys": [],
+                "allowedExtensions": [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".webp", ".txt"],
+                "maxFileSizeMb": 100,
+                "maxLocalStorageGb": 10,
+                "pollIntervalSeconds": 300,
+                "allowFolderSelection": True,
+                "removeLocalFilesOnRevocation": False,
+                "policyVersion": 1,
+            },
+            "system",
+            "Windows 客户端本地只读同步策略",
+        ),
         ("sidebar_nav_order", {"order": ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]}, "system", "侧边栏模块顺序"),
-        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"}, "theme", "当前主题"),
+        ("current_theme", {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color", "workspaceBackgroundImage": ""}, "theme", "当前主题"),
     ]
     for key, value, group, desc in defaults:
         conn.execute(
@@ -1449,6 +1540,13 @@ def seed_admin_user(conn):
 
 def ensure_compatible_columns(conn):
     migrations = {
+        "system_users": {
+            "avatar_url": "TEXT DEFAULT ''",
+            "phone": "TEXT DEFAULT ''",
+            "department": "TEXT DEFAULT ''",
+            "job_title": "TEXT DEFAULT ''",
+            "bio": "TEXT DEFAULT ''",
+        },
         "audit_projects": {
             "project_id": "TEXT DEFAULT ''",
             "project_code": "TEXT DEFAULT ''",
@@ -1736,14 +1834,14 @@ def seed_options(conn):
 
 def seed_project_document_categories(conn):
     ts = now_iso()
-    for index, (key, name, desc, required) in enumerate(PROJECT_DOCUMENT_CATEGORIES):
+    for index, (key, name, desc, required, required_from_stage) in enumerate(PROJECT_DOCUMENT_CATEGORIES):
         conn.execute(
             """
             INSERT OR IGNORE INTO project_document_categories
-            (id, category_key, category_name, description, required, sort_order, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            (id, category_key, category_name, description, required, required_from_stage, sort_order, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
-            (new_id(), key, name, desc, int(required), index * 10, ts, ts),
+            (new_id(), key, name, desc, int(required), required_from_stage, index * 10, ts, ts),
         )
 
 
@@ -2381,11 +2479,25 @@ class Handler(BaseHTTPRequestHandler):
         self.respond_file(path, mime_type, original_name, inline=True)
 
     def download_attachment(self, conn, attachment_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.attachment_row(conn, attachment_id)
         if not row:
             self.not_found()
+            return
+        audit_project = conn.execute(
+            "SELECT project_id FROM audit_projects WHERE id = ?",
+            (row["project_id"],),
+        ).fetchone()
+        canonical_project_id = (
+            audit_project["project_id"] if audit_project else ""
+        )
+        if not self.source_project_allowed(conn, user, canonical_project_id):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限下载该项目资料",
+            })
             return
         original_name = row_get(row, "original_name") or row_get(row, "file_name")
         path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
@@ -2457,14 +2569,20 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             self.not_found()
             return
-        required = 1 if bool(data.get("required")) else 0
+        required = int(bool(data["required"])) if "required" in data else int(bool(row["required"]))
+        required_from_stage = str(
+            data.get("requiredFromStage") or row_get(row, "required_from_stage") or ""
+        ).strip()
+        if required_from_stage not in STAGE_ORDER:
+            self.respond(400, {"success": False, "error": "资料生效阶段无效"})
+            return
         conn.execute(
             """
             UPDATE project_document_categories
-            SET required = ?, updated_at = ?
+            SET required = ?, required_from_stage = ?, updated_at = ?
             WHERE category_key = ?
             """,
-            (required, now_iso(), category_key),
+            (required, required_from_stage, now_iso(), category_key),
         )
         project_ids = [item["id"] for item in conn.execute("SELECT id FROM project_records WHERE COALESCE(is_deleted, 0) = 0").fetchall()]
         for project_id in project_ids:
@@ -2475,7 +2593,7 @@ class Handler(BaseHTTPRequestHandler):
             user,
             "project_document_category",
             category_key,
-            detail={"required": bool(required)},
+            detail={"required": bool(required), "requiredFromStage": required_from_stage},
         )
         conn.commit()
         updated = conn.execute("SELECT * FROM project_document_categories WHERE category_key = ?", (category_key,)).fetchone()
@@ -3211,11 +3329,18 @@ class Handler(BaseHTTPRequestHandler):
         ).fetchone()
 
     def preview_project_file(self, conn, file_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.project_file_row(conn, file_id)
         if not row:
             self.not_found()
+            return
+        if not self.source_project_allowed(conn, user, row["project_id"]):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限预览该项目资料",
+            })
             return
         original_name = repair_mojibake_filename(row["original_name"])
         mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
@@ -3232,11 +3357,18 @@ class Handler(BaseHTTPRequestHandler):
         self.respond_file(path, mime_type, original_name, inline=True)
 
     def download_project_file(self, conn, file_id):
-        if not self.require_user(conn):
+        user = self.require_user(conn)
+        if not user:
             return
         row = self.project_file_row(conn, file_id)
         if not row:
             self.not_found()
+            return
+        if not self.source_project_allowed(conn, user, row["project_id"]):
+            self.respond(403, {
+                "success": False,
+                "error": "没有权限下载该项目资料",
+            })
             return
         path = safe_attachment_path(row["relative_path"])
         if not path.exists():
@@ -4550,6 +4682,123 @@ class Handler(BaseHTTPRequestHandler):
         fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (uid,)).fetchone()
         self.respond(200, {"success": True, "data": user_payload(fresh)})
 
+    def update_current_user_profile(self, conn, data):
+        user = self.require_user(conn)
+        if not user:
+            return
+
+        username = str(data.get("username", user["username"]) or "").strip()
+        display_name = str(data.get("displayName", user["display_name"]) or "").strip()
+        email = str(data.get("email", user["email"]) or "").strip()
+        avatar_url = str(data.get("avatarUrl", row_get(user, "avatar_url", "")) or "").strip()
+        phone = str(data.get("phone", row_get(user, "phone", "")) or "").strip()
+        department = str(data.get("department", row_get(user, "department", "")) or "").strip()
+        job_title = str(data.get("jobTitle", row_get(user, "job_title", "")) or "").strip()
+        bio = str(data.get("bio", row_get(user, "bio", "")) or "").strip()
+
+        if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
+            self.respond(400, {"success": False, "error": "账号仅支持 3-32 位字母、数字、点、下划线或短横线"})
+            return
+        if not display_name or len(display_name) > 50:
+            self.respond(400, {"success": False, "error": "姓名不能为空且不能超过 50 个字符"})
+            return
+        if email and (len(email) > 120 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email)):
+            self.respond(400, {"success": False, "error": "请输入有效的邮箱地址"})
+            return
+        if len(phone) > 30 or len(department) > 80 or len(job_title) > 80 or len(bio) > 300:
+            self.respond(400, {"success": False, "error": "个人资料字段长度超出限制"})
+            return
+        if avatar_url:
+            if len(avatar_url) > 700000 or not re.fullmatch(
+                r"data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=\r\n]+",
+                avatar_url,
+            ):
+                self.respond(400, {"success": False, "error": "头像格式无效，请上传 PNG、JPG 或 WebP 图片"})
+                return
+
+        duplicate = conn.execute(
+            "SELECT id FROM system_users WHERE username = ? AND id <> ?",
+            (username, user["id"]),
+        ).fetchone()
+        if duplicate:
+            self.respond(409, {"success": False, "error": "该账号已被使用"})
+            return
+
+        ts = now_iso()
+        conn.execute(
+            """
+            UPDATE system_users
+            SET username = ?, display_name = ?, email = ?, avatar_url = ?,
+                phone = ?, department = ?, job_title = ?, bio = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                username,
+                display_name,
+                email,
+                avatar_url,
+                phone,
+                department,
+                job_title,
+                bio,
+                ts,
+                user["id"],
+            ),
+        )
+        fresh = conn.execute("SELECT * FROM system_users WHERE id = ?", (user["id"],)).fetchone()
+        self.write_operation_log(
+            conn,
+            "user.profile_update",
+            fresh,
+            "system_user",
+            user["id"],
+            detail={"changedFields": sorted([
+                key for key in (
+                    "username", "displayName", "email", "avatarUrl",
+                    "phone", "department", "jobTitle", "bio",
+                ) if key in data
+            ])},
+        )
+        conn.commit()
+        self.respond(200, {"success": True, "data": user_payload(fresh)})
+
+    def change_current_user_password(self, conn, data):
+        user = self.require_user(conn)
+        if not user:
+            return
+        current_password = str(data.get("currentPassword") or "")
+        new_password = str(data.get("newPassword") or "")
+        if not verify_password(current_password, user["password_hash"]):
+            self.respond(400, {"success": False, "error": "当前密码不正确"})
+            return
+        rules_row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'login_rules'"
+        ).fetchone()
+        try:
+            rules = json.loads(rules_row["setting_value"] or "{}") if rules_row else {}
+        except (TypeError, ValueError):
+            rules = {}
+        try:
+            min_length = max(1, min(int(rules.get("minPasswordLength", 8)), 128))
+        except (TypeError, ValueError):
+            min_length = 8
+        if len(new_password) < min_length or len(new_password) > 128:
+            self.respond(400, {
+                "success": False,
+                "error": f"新密码长度应为 {min_length}-128 个字符",
+            })
+            return
+        if current_password == new_password:
+            self.respond(400, {"success": False, "error": "新密码不能与当前密码相同"})
+            return
+        conn.execute(
+            "UPDATE system_users SET password_hash = ?, updated_at = ? WHERE id = ?",
+            (hash_password(new_password), now_iso(), user["id"]),
+        )
+        self.write_operation_log(conn, "user.password_update", user, "system_user", user["id"])
+        conn.commit()
+        self.respond(200, {"success": True, "data": None})
+
     def delete_user(self, conn, uid):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -4611,6 +4860,191 @@ class Handler(BaseHTTPRequestHandler):
         next_order.extend([item for item in allowed if item not in next_order])
         self.respond(200, {"success": True, "data": {"order": next_order}})
 
+    def desktop_bootstrap(self, conn):
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        policy = normalize_desktop_sync_policy(value)
+        self.respond(200, {"success": True, "data": {
+            "environmentName": os.environ.get("APP_ENV_NAME", "工程管理系统"),
+            "minimumDesktopVersion": os.environ.get("MINIMUM_DESKTOP_VERSION", "1.0.0"),
+            "syncPolicyVersion": policy["policyVersion"],
+        }})
+
+    def desktop_policy(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        self.respond(200, {
+            "success": True,
+            "data": effective_desktop_sync_policy(value, row_dict(user)),
+        })
+
+    def desktop_sync_policy_for_user(self, conn, user):
+        row = conn.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+        ).fetchone()
+        value = json.loads(row["setting_value"] or "{}") if row else {}
+        return effective_desktop_sync_policy(value, row_dict(user))
+
+    def desktop_sync_accessible_refs(self, user, roots, policy):
+        root_refs = {item["projectRef"] for item in roots}
+        if user["role"] == "admin":
+            return root_refs
+        user_id = str(user["id"] or "")
+        if (
+            user_id not in set(policy.get("allowedUserIds") or [])
+            or policy.get("projectSelectionMode") != "admin_assigned"
+        ):
+            return set()
+        return root_refs & set(policy.get("allowedProjectRefs") or [])
+
+    def desktop_sync_projects(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        roots = list_sync_project_roots(conn, policy)
+        accessible_refs = self.desktop_sync_accessible_refs(user, roots, policy)
+        self.respond(200, {
+            "success": True,
+            "data": [
+                item
+                for item in roots
+                if item["projectRef"] in accessible_refs
+            ],
+        })
+
+    def desktop_sync_manifest(self, conn, params):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        roots = list_sync_project_roots(conn, policy)
+        accessible_refs = self.desktop_sync_accessible_refs(user, roots, policy)
+        requested_refs = {
+            item.strip()
+            for value in params.get("projectRefs", [])
+            for item in value.split(",")
+            if item.strip()
+        }
+        revoked_refs = sorted(requested_refs - accessible_refs)
+        if revoked_refs:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_scope_changed",
+                "error": "同步项目授权已变化，请刷新项目范围后重试",
+                "revokedProjectRefs": revoked_refs,
+                "policyVersion": policy["policyVersion"],
+            })
+            return
+        project_refs = sorted(requested_refs)
+        try:
+            result = list_sync_manifest(
+                conn,
+                policy,
+                project_refs,
+                cursor=(params.get("cursor", [""])[0] or ""),
+                limit=(params.get("limit", [200])[0] or 200),
+                path_resolver=safe_attachment_path,
+            )
+        except InvalidSyncCursor:
+            self.respond(400, {
+                "success": False,
+                "code": "invalid_sync_cursor",
+                "error": "同步游标无效，请重新获取清单",
+            })
+            return
+        self.respond(200, {"success": True, "data": result})
+
+    def desktop_sync_download(self, conn, source_type, source_id, params):
+        user = self.require_user(conn)
+        if not user:
+            return
+        policy = self.desktop_sync_policy_for_user(conn, user)
+        if not policy["enabledForCurrentUser"]:
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_disabled",
+                "error": "当前账号未启用桌面资料同步",
+            })
+            return
+        source = find_sync_source(conn, policy, source_type, source_id)
+        if source is None or source["projectRef"] not in self.desktop_sync_accessible_refs(
+            user,
+            [source],
+            policy,
+        ):
+            self.respond(403, {
+                "success": False,
+                "code": "desktop_sync_source_forbidden",
+                "error": "该资料不在当前桌面同步授权范围内",
+            })
+            return
+        requested_revision = (
+            params.get("revision", [""])[0] or ""
+        ).strip()
+        if requested_revision != source["sourceRevision"]:
+            self.respond(409, {
+                "success": False,
+                "code": "desktop_sync_revision_changed",
+                "error": "资料版本已变化，请刷新同步清单",
+            })
+            return
+        try:
+            path = safe_attachment_path(source["relativePath"])
+        except (OSError, TypeError, ValueError):
+            self.not_found()
+            return
+        if not path.is_file():
+            self.not_found()
+            return
+        mime_type = (
+            source["mimeType"]
+            or mimetypes.guess_type(source["originalName"])[0]
+            or "application/octet-stream"
+        )
+        self.respond_file(
+            path,
+            mime_type,
+            source["originalName"],
+            inline=False,
+        )
+
+    def source_project_allowed(self, conn, user, canonical_project_id):
+        actor = {
+            "id": user["id"],
+            "name": user["display_name"] or user["username"],
+            "role": user["role"],
+        }
+        allowed_project_ids = self.document_project_scope_provider(conn, actor)
+        if allowed_project_ids is None:
+            return True
+        return bool(
+            canonical_project_id
+            and str(canonical_project_id)
+            in {str(item) for item in allowed_project_ids if item}
+        )
+
     def set_system_setting(self, conn, key, data):
         user = self.require_role(conn, {"admin"})
         if not user:
@@ -4619,6 +5053,30 @@ class Handler(BaseHTTPRequestHandler):
         value = data.get("value")
         if key == "upload_settings":
             value = {"maxFileSizeMb": clamp_upload_size_mb((value or {}).get("maxFileSizeMb"))}
+        if key == "desktop_sync_policy":
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'desktop_sync_policy'"
+            ).fetchone()
+            previous = json.loads(row["setting_value"] or "{}") if row else {}
+            previous_policy = normalize_desktop_sync_policy(previous)
+            policy = normalize_desktop_sync_policy(value)
+            value = {
+                "enabled": policy["enabled"],
+                "enabledByDefault": policy["enabledByDefault"],
+                "allowedRoles": policy["allowedRoles"],
+                "allowedUserIds": policy["allowedUserIds"],
+                "projectSelectionMode": policy["projectSelectionMode"],
+                "allowedProjectRefs": policy["allowedProjectRefs"],
+                "allowedCategoryKeys": policy["allowedCategoryKeys"],
+                "allowedExtensions": policy["allowedExtensions"],
+                "maxFileSizeMb": policy["maxFileSizeBytes"] // (1024 * 1024),
+                "maxLocalStorageGb": policy["maxLocalStorageBytes"] // (1024 * 1024 * 1024),
+                "pollIntervalSeconds": policy["pollIntervalSeconds"],
+                "allowFolderSelection": policy["allowFolderSelection"],
+                "removeLocalFilesOnRevocation": policy["removeLocalFilesOnRevocation"],
+                "policyVersion": previous_policy["policyVersion"] + 1,
+            }
         if key == "sidebar_nav_order":
             allowed = ["/", "/bidding", "/project-management", "/audit", "/materials", "/finance"]
             submitted = value.get("order") if isinstance(value, dict) else []
@@ -4657,6 +5115,7 @@ class Handler(BaseHTTPRequestHandler):
             value["themePackage"] = ""
         if value.get("sidebarLogoVariant") not in {"color", "white", "black"}:
             value["sidebarLogoVariant"] = "color"
+        value["workspaceBackgroundImage"] = value.get("workspaceBackgroundImage") or ""
         row = conn.execute("SELECT * FROM system_theme_configs WHERE theme_key = ?", (value.get("themeKey", "arco-theme-0000"),)).fetchone()
         self.respond(200, {"success": True, "data": {**value, "theme": self.theme_payload(row) if row else None}})
 
@@ -4682,6 +5141,11 @@ class Handler(BaseHTTPRequestHandler):
         if sidebar_logo_variant not in {"color", "white", "black"}:
             self.respond(400, {"success": False, "error": "侧边栏 LOGO 色彩选择不正确，请重新选择后保存。"})
             return
+        try:
+            workspace_background_image = normalize_workspace_background_image(data.get("workspaceBackgroundImage"))
+        except ValueError as exc:
+            self.respond(400, {"success": False, "error": str(exc)})
+            return
         value = {
             "themeKey": theme_key,
             "darkMode": bool(data.get("darkMode")),
@@ -4690,6 +5154,7 @@ class Handler(BaseHTTPRequestHandler):
             "brandColor": brand_color,
             "themePackage": theme_package,
             "sidebarLogoVariant": sidebar_logo_variant,
+            "workspaceBackgroundImage": workspace_background_image,
         }
         ts = now_iso()
         conn.execute(
@@ -4710,7 +5175,7 @@ class Handler(BaseHTTPRequestHandler):
         user = self.require_role(conn, {"admin"})
         if not user:
             return
-        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color"})
+        self.update_theme_current(conn, {"themeKey": "arco-theme-0000", "darkMode": False, "compactMode": False, "applyScope": "global", "brandColor": "#165DFF", "themePackage": "", "sidebarLogoVariant": "color", "workspaceBackgroundImage": ""})
 
     def theme_payload(self, row):
         if not row:
@@ -4786,6 +5251,28 @@ class Handler(BaseHTTPRequestHandler):
                                 **recognition_health,
                             },
                         },
+                    )
+                elif path == "/api/desktop/bootstrap":
+                    self.desktop_bootstrap(conn)
+                elif path == "/api/desktop/policy":
+                    self.desktop_policy(conn)
+                elif path == "/api/desktop/sync/projects":
+                    self.desktop_sync_projects(conn)
+                elif path == "/api/desktop/sync/manifest":
+                    self.desktop_sync_manifest(conn, params)
+                elif re.match(
+                    r"^/api/desktop/sync/files/([^/]+)/([^/]+)/download$",
+                    path,
+                ):
+                    match = re.match(
+                        r"^/api/desktop/sync/files/([^/]+)/([^/]+)/download$",
+                        path,
+                    )
+                    self.desktop_sync_download(
+                        conn,
+                        unquote(match.group(1)),
+                        unquote(match.group(2)),
+                        params,
                     )
                 elif path.startswith("/api/audit/") and not self.require_user(conn):
                     return
@@ -5019,6 +5506,10 @@ class Handler(BaseHTTPRequestHandler):
                 project_match = re.match(r"^/api/projects/([^/]+)$", path)
                 if project_match:
                     self.update_project_record(conn, project_match.group(1), data)
+                elif path == "/api/auth/profile":
+                    self.update_current_user_profile(conn, data)
+                elif path == "/api/auth/password":
+                    self.change_current_user_password(conn, data)
                 elif re.match(r"^/api/project-document-categories/([^/]+)$", path):
                     self.update_project_document_category(conn, re.match(r"^/api/project-document-categories/([^/]+)$", path).group(1), data)
                 elif re.match(r"^/api/project-files/([^/]+)$", path):

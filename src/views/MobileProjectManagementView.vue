@@ -154,20 +154,21 @@
           <ProjectLifecycleStatus
             ref="lifecycleStatusRef"
             :project-id="currentProject.id"
+            :can-advance="authStore.isEditor"
             @advance="openLifecycleTransition"
           />
         </div>
 
         <div class="quick-actions">
-          <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
-          <AButton size="small" variant="outline" @click="openSettlementDialog()">新增结算</AButton>
-          <AButton size="small" variant="outline" @click="openVariationDialog()">新增签证</AButton>
-          <AButton size="small" variant="outline" :loading="auditStarting" @click="currentProject.auditProjectId ? goAudit(currentProject.auditProjectId) : startAudit(currentProject)">
+          <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+          <AButton v-if="authStore.isEditor" size="small" variant="outline" @click="openSettlementDialog()">新增结算</AButton>
+          <AButton v-if="authStore.isEditor" size="small" variant="outline" @click="openVariationDialog()">新增签证</AButton>
+          <AButton v-if="currentProject.auditProjectId || authStore.isEditor" size="small" variant="outline" :loading="auditStarting" @click="currentProject.auditProjectId ? goAudit(currentProject.auditProjectId) : startAudit(currentProject)">
             {{ currentProject.auditProjectId ? '看审计' : '发起审计' }}
           </AButton>
         </div>
 
-        <div class="status-edit">
+        <div v-if="authStore.isEditor" class="status-edit">
           <AForm :model="statusForm" layout="vertical" class="status-form">
             <AFormItem field="settlementStatus" label="结算状态">
               <ASelect v-model="statusForm.settlementStatus" :options="settlementStatusOptions" />
@@ -192,7 +193,7 @@
         </div>
 
         <div v-else-if="activeTab === 'files'" class="mobile-list-block">
-          <button v-for="category in meta.categories" :key="category.categoryKey" type="button" @click="openFileDialog(category.categoryKey)">
+          <button v-for="category in meta.categories" :key="category.categoryKey" type="button" :disabled="!authStore.isEditor" @click="openFileDialog(category.categoryKey)">
             <div>
               <strong>{{ category.categoryName }}</strong>
               <span>{{ filesByCategory(category.categoryKey).length ? `已上传 ${filesByCategory(category.categoryKey).length} 份` : '待上传' }}</span>
@@ -202,7 +203,7 @@
         </div>
 
         <div v-else-if="activeTab === 'settlements'" class="mobile-list-block">
-          <button v-for="item in currentProject.settlements || []" :key="item.id" type="button" @click="openSettlementDialog(item)">
+          <button v-for="item in currentProject.settlements || []" :key="item.id" type="button" :disabled="!authStore.isEditor" @click="openSettlementDialog(item)">
             <div>
               <strong>{{ item.settlementName }}</strong>
               <span>{{ settlementTypeLabel(item.settlementType) }}</span>
@@ -210,11 +211,11 @@
             </div>
             <ATag size="small" variant="light" :theme="settlementTheme(item.settlementStatus)">{{ settlementStatusLabel(item.settlementStatus) }}</ATag>
           </button>
-          <AButton v-if="!(currentProject.settlements || []).length" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
+          <AButton v-if="authStore.isEditor && !(currentProject.settlements || []).length" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
         </div>
 
         <div v-else-if="activeTab === 'variations'" class="mobile-list-block">
-          <button v-for="item in currentProject.variations || []" :key="item.id" type="button" @click="openVariationDialog(item)">
+          <button v-for="item in currentProject.variations || []" :key="item.id" type="button" :disabled="!authStore.isEditor" @click="openVariationDialog(item)">
             <div>
               <strong>{{ item.variationName }}</strong>
               <span>{{ variationTypeLabel(item.variationType) }}</span>
@@ -222,7 +223,7 @@
             </div>
             <ATag size="small" variant="light" :theme="projectTheme(item.variationStatus)">{{ variationStatusLabel(item.variationStatus) }}</ATag>
           </button>
-          <AButton v-if="!(currentProject.variations || []).length" theme="primary" @click="openVariationDialog()">新增签证</AButton>
+          <AButton v-if="authStore.isEditor && !(currentProject.variations || []).length" theme="primary" @click="openVariationDialog()">新增签证</AButton>
         </div>
 
         <div v-else class="mobile-list-block">
@@ -319,6 +320,7 @@ import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
+import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
 import { friendlyErrorMessage } from '@/utils/errors'
 import { auditStartEligibilityMessage, getAuditStartEligibility } from '@/utils/auditEligibility'
@@ -354,6 +356,7 @@ type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type QuickFilter = '' | 'all' | 'active' | 'settlement' | 'audit' | 'missing'
 
 const router = useRouter()
+const authStore = useAuthStore()
 const filters = reactive<ProjectFilters>({
   keyword: '',
   projectStatus: '',
@@ -395,6 +398,12 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 const lifecycleStatusRef = ref<InstanceType<typeof ProjectLifecycleStatus> | null>(null)
 const lifecycleTransitionVisible = ref(false)
 const lifecycleTransitionSnapshot = ref<ProjectLifecycleSnapshot | null>(null)
+
+function requireEditorAccess(action: string) {
+  if (authStore.isEditor) return true
+  MessagePlugin.warning(`当前账号无${action}权限`)
+  return false
+}
 
 const statusForm = reactive({ settlementStatus: '' })
 const fileDialog = reactive({ visible: false, saving: false, projectId: '', categoryKey: '', displayName: '', file: null as File | null })
@@ -688,6 +697,7 @@ async function refreshCurrentProject() {
 }
 
 async function saveStatus() {
+  if (!requireEditorAccess('修改结算状态')) return
   if (!currentProject.value) return
   statusSaving.value = true
   try {
@@ -704,6 +714,7 @@ async function saveStatus() {
 }
 
 function openFileDialog(categoryKey?: string) {
+  if (!requireEditorAccess('上传资料')) return
   if (!currentProject.value) return
   fileDialog.projectId = currentProject.value.id
   fileDialog.categoryKey = categoryKey || meta.categories[0]?.categoryKey || ''
@@ -720,6 +731,7 @@ function onFilePicked(event: Event) {
 }
 
 async function saveFile() {
+  if (!requireEditorAccess('上传资料')) return
   if (!fileDialog.projectId) return
   if (!fileDialog.categoryKey) {
     MessagePlugin.error('请选择资料分类')
@@ -767,6 +779,7 @@ function fillSettlementForm(record?: ProjectSettlement | null) {
 }
 
 function openSettlementDialog(record?: ProjectSettlement | null) {
+  if (!requireEditorAccess(record ? '编辑结算' : '新增结算')) return
   if (!currentProject.value) return
   settlementDialog.mode = record ? 'edit' : 'create'
   settlementDialog.id = record?.id || ''
@@ -775,6 +788,7 @@ function openSettlementDialog(record?: ProjectSettlement | null) {
 }
 
 async function saveSettlement() {
+  if (!requireEditorAccess(settlementDialog.mode === 'edit' ? '编辑结算' : '新增结算')) return
   if (!currentProject.value) return
   if (!settlementForm.settlementName.trim()) {
     MessagePlugin.error('请填写结算名称')
@@ -808,6 +822,7 @@ function fillVariationForm(record?: ProjectVariation | null) {
 }
 
 function openVariationDialog(record?: ProjectVariation | null) {
+  if (!requireEditorAccess(record ? '编辑签证' : '新增签证')) return
   if (!currentProject.value) return
   variationDialog.mode = record ? 'edit' : 'create'
   variationDialog.id = record?.id || ''
@@ -816,6 +831,7 @@ function openVariationDialog(record?: ProjectVariation | null) {
 }
 
 async function saveVariation() {
+  if (!requireEditorAccess(variationDialog.mode === 'edit' ? '编辑签证' : '新增签证')) return
   if (!currentProject.value) return
   if (!variationForm.variationName.trim()) {
     MessagePlugin.error('请填写签证名称')
@@ -837,6 +853,7 @@ async function saveVariation() {
 }
 
 function startAudit(record: ProjectRecord) {
+  if (!requireEditorAccess('发起审计')) return
   if (!record?.id) return
   if (record.auditProjectId) {
     goAudit(record.auditProjectId)
@@ -857,6 +874,7 @@ function startAudit(record: ProjectRecord) {
 }
 
 function openLifecycleTransition(snapshot: ProjectLifecycleSnapshot) {
+  if (!requireEditorAccess('推进项目阶段')) return
   lifecycleTransitionSnapshot.value = snapshot
   lifecycleTransitionVisible.value = true
 }

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>正在连接</title>
+    <style>
+      :root { color-scheme: light; font-family: "Microsoft YaHei UI", sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; color: #14213d; background: #f4f8ff; }
+      main { width: min(480px, calc(100vw - 48px)); text-align: center; }
+      .mark { width: 48px; height: 48px; margin: 0 auto 22px; border: 3px solid #d9e5ff; border-top-color: #165dff; border-radius: 50%; animation: spin 1s linear infinite; }
+      h1 { margin: 0; font-size: 24px; }
+      p { margin: 12px 0 0; color: #5f6b7a; font-size: 14px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .mark { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true"></div>
+      <h1>正在连接工程管理系统</h1>
+      <p>正在检查服务器状态，请稍候。</p>
+    </main>
+  </body>
+</html>

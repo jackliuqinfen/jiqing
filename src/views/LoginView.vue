@@ -117,7 +117,8 @@
               html-type="submit"
               block
               size="large"
-              :loading="authStore.isAuthLoading"
+              :loading="authStore.isAuthLoading || welcomeVisible"
+              :disabled="welcomeVisible"
             >
               登录系统
             </AButton>
@@ -136,11 +137,30 @@
         <p class="login-footer">江苏集庆建设 · 工程管理系统</p>
       </section>
     </main>
+
+    <Transition name="login-welcome">
+      <div
+        v-if="welcomeVisible"
+        class="login-welcome"
+        role="status"
+        aria-live="polite"
+        aria-label="登录成功"
+      >
+        <div class="login-welcome__card">
+          <div class="login-welcome__mark" aria-hidden="true">
+            <img :src="brandLogo" alt="" />
+          </div>
+          <p class="login-welcome__eyebrow">JI QING CONSTRUCTION</p>
+          <h2>欢迎回来，{{ welcomeDisplayName }}</h2>
+          <p class="login-welcome__hint">正在打开工程管理系统</p>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { MessagePlugin } from '@/ui/message'
@@ -154,9 +174,15 @@ const router = useRouter()
 const loginFormRef = ref<AppFormInstance | null>(null)
 const passwordVisible = ref(false)
 const activeMode = ref<'login' | 'register'>('login')
+const welcomeVisible = ref(false)
+const componentMounted = ref(true)
 const loginForm = reactive({
   username: '',
   password: '',
+})
+
+const welcomeDisplayName = computed(() => {
+  return authStore.displayName || authStore.username || '工程管理团队'
 })
 
 const loginRules: Record<string, AppValidationRule[]> = {
@@ -211,13 +237,21 @@ async function handleLogin(context?: Event | { validateResult?: boolean }) {
 
   const ok = await authStore.login(loginForm.username.trim(), loginForm.password)
   if (ok) {
+    welcomeVisible.value = true
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 1000))
+    if (!componentMounted.value) return
+
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
-    router.replace(redirect)
+    await router.replace(redirect)
   }
 }
 
 onMounted(() => {
   if (authStore.error) authStore.clearError()
+})
+
+onBeforeUnmount(() => {
+  componentMounted.value = false
 })
 </script>
 
@@ -524,6 +558,98 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1;
   text-align: center;
+}
+
+.login-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(244, 249, 255, 0.54);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+
+.login-welcome__card {
+  width: min(360px, 100%);
+  display: grid;
+  justify-items: center;
+  padding: 30px 28px 26px;
+  color: #102040;
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 251, 255, 0.84)),
+    rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(36, 75, 136, 0.18), 0 2px 8px rgba(36, 75, 136, 0.08);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+.login-welcome__mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(22, 93, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 10px 24px rgba(22, 93, 255, 0.12);
+}
+
+.login-welcome__mark img {
+  width: 76%;
+  height: 76%;
+  object-fit: contain;
+}
+
+.login-welcome__eyebrow {
+  margin: 0 0 8px;
+  color: #165dff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.login-welcome__card h2 {
+  margin: 0;
+  color: #102040;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.login-welcome__hint {
+  margin: 10px 0 0;
+  color: #7183a1;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-welcome-enter-active,
+.login-welcome-leave-active {
+  transition: opacity .18s ease;
+}
+
+.login-welcome-enter-active .login-welcome__card,
+.login-welcome-leave-active .login-welcome__card {
+  transition: transform .18s ease, opacity .18s ease;
+}
+
+.login-welcome-enter-from,
+.login-welcome-leave-to {
+  opacity: 0;
+}
+
+.login-welcome-enter-from .login-welcome__card,
+.login-welcome-leave-to .login-welcome__card {
+  opacity: 0;
+  transform: translateY(8px) scale(.98);
 }
 
 .login-page .login-hero {

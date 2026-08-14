@@ -6,6 +6,8 @@ node_modules/
 dist/
 dist-ssr/
 release-temp/
+desktop/dist/
+desktop/src/release-profile.generated.json
 *.zip
 *.local
 
@@ -51,6 +53,7 @@ server/*.db
 
 # Optional npm cache directory
 .npm
+desktop/.npm-cache/
 
 # Optional eslint cache
 .eslintcache

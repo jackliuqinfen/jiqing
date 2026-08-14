@@ -119,42 +119,66 @@ def save_decisions(
     actor = _require_actor(actor)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        review = _mutable_review(conn, review_id, expected_review_version)
-        state = _field_state(conn, review["recognition_job_id"])
-        fields_by_id = {field["id"]: field for field in state["fields"]}
-        normalized = [
-            _normalize_decision(item, fields_by_id, review["document_id"])
-            for item in list(decisions or [])
-        ]
-        document = _row(
-            conn, "SELECT document_type FROM documents WHERE id = ?", (review["document_id"],)
+        result = save_decisions_in_transaction(
+            conn,
+            review_id=review_id,
+            expected_review_version=expected_review_version,
+            decisions=decisions,
+            actor=actor,
+            bulk=bulk,
+            now=now,
         )
-        critical = critical_fields_for(document["document_type"])
-        critical_accepts = [
-            item for item in normalized
-            if item["decision"] == "accepted" and item["semantic_key"] in critical
-        ]
-        if critical_accepts and (bulk or len(normalized) > 1):
-            raise CriticalBulkAcceptError(critical_accepts[0]["semantic_key"])
-
-        for item in normalized:
-            upsert_review_decision(
-                conn,
-                review_id=review_id,
-                extracted_field_id=item["field_id"],
-                decision=item["decision"],
-                ai_value=item["ai_value"],
-                confirmed_value=item["confirmed_value"],
-                reviewer_id=actor["id"],
-                reviewer_name=actor["name"],
-                reason=item["reason"],
-                now=now,
-            )
-        _refresh_review_issues(conn, review_id, now=now)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+    return result
+
+
+def save_decisions_in_transaction(
+    conn,
+    *,
+    review_id,
+    expected_review_version,
+    decisions,
+    actor,
+    bulk=False,
+    now=None,
+):
+    now = now or _now_iso()
+    actor = _require_actor(actor)
+    review = _mutable_review(conn, review_id, expected_review_version)
+    state = _field_state(conn, review["recognition_job_id"])
+    fields_by_id = {field["id"]: field for field in state["fields"]}
+    normalized = [
+        _normalize_decision(item, fields_by_id, review["document_id"])
+        for item in list(decisions or [])
+    ]
+    document = _row(
+        conn, "SELECT document_type FROM documents WHERE id = ?", (review["document_id"],)
+    )
+    critical = critical_fields_for(document["document_type"])
+    critical_accepts = [
+        item for item in normalized
+        if item["decision"] == "accepted" and item["semantic_key"] in critical
+    ]
+    if critical_accepts and (bulk or len(normalized) > 1):
+        raise CriticalBulkAcceptError(critical_accepts[0]["semantic_key"])
+
+    for item in normalized:
+        upsert_review_decision(
+            conn,
+            review_id=review_id,
+            extracted_field_id=item["field_id"],
+            decision=item["decision"],
+            ai_value=item["ai_value"],
+            confirmed_value=item["confirmed_value"],
+            reviewer_id=actor["id"],
+            reviewer_name=actor["name"],
+            reason=item["reason"],
+            now=now,
+        )
+    _refresh_review_issues(conn, review_id, now=now)
     return review_detail(conn, review_id)
 
 
@@ -257,91 +281,127 @@ def confirm_review(
     actor = _require_actor(actor)
     try:
         conn.execute("BEGIN IMMEDIATE")
-        review = _row(conn, "SELECT * FROM document_reviews WHERE id = ?", (review_id,))
-        if not review:
-            raise DocumentNotFoundError(review_id)
-        if review["status"] == "confirmed":
-            if review.get("confirmation_idempotency_key") != idempotency_key:
-                raise ReviewImmutableError("confirmed review cannot be changed")
-            result = confirmation_result(conn, review_id)
-            conn.commit()
-            return result
-        _assert_review_version(review, expected_review_version)
-        document = _row(conn, "SELECT * FROM documents WHERE id = ?", (review["document_id"],))
-        target_project_id = project_id or review.get("project_id")
-        scope = _project_scope(allowed_project_ids)
-        state = _confirmation_state(conn, review)
-        link_blockers = []
-        if document["document_type"] != "construction_contract":
-            if not target_project_id:
-                link_blockers.append({
-                    "code": "project_required",
-                    "field": "projectId",
-                    "message": "该阶段凭证必须关联已有项目。",
-                    "severity": "blocker",
-                })
-            else:
-                link_blockers.extend(
-                    validate_document_project_link(
-                        conn,
-                        document["id"],
-                        target_project_id,
-                        allowed_project_ids=scope,
-                        extracted_fields=state["effective_fields"],
-                    )
+        result = confirm_review_in_transaction(
+            conn,
+            review_id=review_id,
+            expected_review_version=expected_review_version,
+            idempotency_key=idempotency_key,
+            actor=actor,
+            allowed_project_ids=allowed_project_ids,
+            form_template_version=form_template_version,
+            project_id=project_id,
+            project_code_generator=project_code_generator,
+            now=now,
+        )
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def confirm_review_in_transaction(
+    conn,
+    *,
+    review_id,
+    expected_review_version,
+    idempotency_key,
+    actor,
+    allowed_project_ids,
+    form_template_version,
+    project_id=None,
+    project_code_generator=None,
+    now=None,
+):
+    if not str(idempotency_key or "").strip():
+        raise ReviewDecisionValidationError(
+            "idempotency_key_required", "idempotencyKey", "确认操作必须提供幂等键。"
+        )
+    if not str(form_template_version or "").strip():
+        raise ReviewDecisionValidationError(
+            "form_template_version_required",
+            "formTemplateVersion",
+            "确认操作必须绑定表单模板版本。",
+        )
+    now = now or _now_iso()
+    actor = _require_actor(actor)
+    review = _row(conn, "SELECT * FROM document_reviews WHERE id = ?", (review_id,))
+    if not review:
+        raise DocumentNotFoundError(review_id)
+    if review["status"] == "confirmed":
+        if review.get("confirmation_idempotency_key") != idempotency_key:
+            raise ReviewImmutableError("confirmed review cannot be changed")
+        return confirmation_result(conn, review_id)
+    _assert_review_version(review, expected_review_version)
+    document = _row(conn, "SELECT * FROM documents WHERE id = ?", (review["document_id"],))
+    target_project_id = project_id or review.get("project_id")
+    scope = _project_scope(allowed_project_ids)
+    state = _confirmation_state(conn, review)
+    link_blockers = []
+    if document["document_type"] != "construction_contract":
+        if not target_project_id:
+            link_blockers.append({
+                "code": "project_required",
+                "field": "projectId",
+                "message": "该阶段凭证必须关联已有项目。",
+                "severity": "blocker",
+            })
+        else:
+            link_blockers.extend(
+                validate_document_project_link(
+                    conn,
+                    document["id"],
+                    target_project_id,
+                    allowed_project_ids=scope,
+                    extracted_fields=state["effective_fields"],
                 )
-        blockers = [*state["blockers"], *link_blockers]
-        if blockers:
-            raise ReviewBlockedError(blockers)
-        disposition = {
-            "blockers": [],
-            "warnings": state["warnings"],
-            "reviewVersion": int(review["review_version"]),
-            "confirmedBy": {"id": actor["id"], "name": actor["name"]},
-        }
-        kwargs = {
-            "review": review,
-            "values": state["values"],
-            "evidence_manifest": state["evidence_manifest"],
-            "review_disposition": disposition,
-            "idempotency_key": idempotency_key,
-            "actor": actor,
-            "form_template_version": form_template_version,
-            "extraction_schema_version": state["schema_version"],
-            "now": now,
-        }
+            )
+    blockers = [*state["blockers"], *link_blockers]
+    if blockers:
+        raise ReviewBlockedError(blockers)
+    disposition = {
+        "blockers": [],
+        "warnings": state["warnings"],
+        "reviewVersion": int(review["review_version"]),
+        "confirmedBy": {"id": actor["id"], "name": actor["name"]},
+    }
+    kwargs = {
+        "review": review,
+        "values": state["values"],
+        "evidence_manifest": state["evidence_manifest"],
+        "review_disposition": disposition,
+        "idempotency_key": idempotency_key,
+        "actor": actor,
+        "form_template_version": form_template_version,
+        "extraction_schema_version": state["schema_version"],
+        "now": now,
+    }
+    try:
         if document["document_type"] == "construction_contract":
-            result = create_project_from_confirmed_contract(
+            return create_project_from_confirmed_contract(
                 conn,
                 project_code_generator=project_code_generator,
                 **kwargs,
             )
-        elif document["document_type"] == "completion_acceptance_certificate":
-            result = confirm_acceptance_fact(
+        if document["document_type"] == "completion_acceptance_certificate":
+            return confirm_acceptance_fact(
                 conn,
                 project_id=target_project_id,
                 **kwargs,
             )
-        elif document["document_type"] == "final_audit_determination":
-            result = confirm_final_determination_fact(
+        if document["document_type"] == "final_audit_determination":
+            return confirm_final_determination_fact(
                 conn,
                 project_id=target_project_id,
                 **kwargs,
             )
-        else:
-            raise ReviewDecisionValidationError(
-                "unsupported_document_type",
-                "documentType",
-                "该文件类型暂不支持形成正式业务事实。",
-            )
-        conn.commit()
-        return result
+        raise ReviewDecisionValidationError(
+            "unsupported_document_type",
+            "documentType",
+            "该文件类型暂不支持形成正式业务事实。",
+        )
     except StageFactBlockedError as exc:
-        conn.rollback()
         raise ReviewBlockedError(exc.blockers) from exc
-    except Exception:
-        conn.rollback()
-        raise
 
 
 def _mutable_review(conn, review_id, expected_review_version):
@@ -489,6 +549,7 @@ def _field_state(conn, recognition_job_id):
             "semantic_key": row["semantic_key"],
             "normalized_value": normalized,
             "validation_status": row["validation_status"],
+            "source_kind": row["source_kind"],
             "anchors": item["anchors"],
         })
     return {

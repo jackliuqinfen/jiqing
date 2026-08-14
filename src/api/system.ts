@@ -12,9 +12,17 @@ import type {
   ThemeSetting,
   SidebarNavOrderSetting,
   UpdateAdminUserDto,
+  UpdateCurrentUserProfileDto,
+  ChangeCurrentUserPasswordDto,
   UserProfile,
 } from '@/types'
 import type { ApiResult } from '@/types/audit'
+import {
+  decodeDesktopSyncProjects,
+  type DesktopSyncProject,
+} from './desktopSyncProjectDecoder'
+
+export type { DesktopSyncProject } from './desktopSyncProjectDecoder'
 
 const API_BASE = import.meta.env.VITE_AUDIT_API_BASE || '/api'
 const AUTH_TOKEN_KEY = '__jiqing_auth_token__'
@@ -40,8 +48,14 @@ function normalizeUser(user: UserProfile & { isActive?: boolean }): UserProfile 
     username: user.username,
     displayName: user.displayName,
     email: user.email || '',
+    avatarUrl: user.avatarUrl || '',
+    phone: user.phone || '',
+    department: user.department || '',
+    jobTitle: user.jobTitle || '',
+    bio: user.bio || '',
     role: user.role,
     createdAt: user.createdAt,
+    updatedAt: user.updatedAt || '',
   }
 }
 
@@ -147,6 +161,29 @@ export async function logoutSession(): Promise<void> {
   } finally {
     clearAuthSession()
   }
+}
+
+export async function updateCurrentUserProfile(
+  dto: UpdateCurrentUserProfileDto,
+): Promise<UserProfile> {
+  const user = await request<UserProfile>('/auth/profile', {
+    method: 'PUT',
+    body: JSON.stringify(dto),
+  })
+  return normalizeUser(user)
+}
+
+export async function changeCurrentUserPassword(
+  dto: ChangeCurrentUserPasswordDto,
+): Promise<void> {
+  await request<null>('/auth/password', {
+    method: 'PUT',
+    body: JSON.stringify(dto),
+  })
+}
+
+export async function fetchDesktopSyncProjects(): Promise<DesktopSyncProject[]> {
+  return decodeDesktopSyncProjects(await request<unknown>('/desktop/sync/projects'))
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {

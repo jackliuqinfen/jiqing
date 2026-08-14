@@ -15,7 +15,7 @@
         <em v-if="snapshot.nextTransition?.blockers.length">{{ snapshot.nextTransition.blockers.length }} 项待处理</em>
       </div>
       <AButton
-        v-if="snapshot.nextTransition"
+        v-if="snapshot.nextTransition && props.canAdvance"
         size="small"
         type="primary"
         @click="emit('advance', snapshot)"
@@ -35,7 +35,9 @@ import { ref, watch } from 'vue'
 import { fetchProjectLifecycleSnapshot } from '@/api/projectLifecycle'
 import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 
-const props = defineProps<{ projectId: string }>()
+const props = withDefaults(defineProps<{ projectId: string; canAdvance?: boolean }>(), {
+  canAdvance: false,
+})
 const emit = defineEmits<{ advance: [snapshot: ProjectLifecycleSnapshot] }>()
 
 const snapshot = ref<ProjectLifecycleSnapshot | null>(null)

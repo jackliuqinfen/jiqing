@@ -7,7 +7,15 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "test:premium-theme": "node scripts/verify-premium-theme.mjs"
+    "test:premium-theme": "node scripts/verify-premium-theme.mjs",
+    "test:desktop-settings": "node scripts/verify-desktop-sync-settings.mjs",
+    "test:desktop-sync-ui": "node scripts/verify-desktop-sync-ui.mjs",
+    "test:desktop-sync-focused": "node --test test/desktopSync*.test.ts",
+    "test:desktop-ipc": "node scripts/verify-desktop-ipc.mjs",
+    "desktop:install": "npm --prefix desktop ci",
+    "desktop:test": "npm --prefix desktop test",
+    "desktop:start": "npm --prefix desktop start",
+    "desktop:pack": "npm --prefix desktop run dist:win"
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.58.0",
@@ -16,6 +24,7 @@
     "@visactor/vchart": "^2.1.1",
     "@visactor/vchart-arco-theme": "^1.13.1",
     "jquery": "^3.7.1",
+    "pdfjs-dist": "6.2.108",
     "pinia": "^2.3.0",
     "sortablejs": "^1.15.6",
     "vue": "^3.5.13",

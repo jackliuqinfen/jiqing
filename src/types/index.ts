@@ -238,8 +238,30 @@ export interface UserProfile {
   email: string
   displayName: string
   username: string
+  avatarUrl?: string
+  phone?: string
+  department?: string
+  jobTitle?: string
+  bio?: string
   role: AdminRole
   createdAt: string
+  updatedAt?: string
+}
+
+export interface UpdateCurrentUserProfileDto {
+  username: string
+  displayName: string
+  email: string
+  avatarUrl: string
+  phone: string
+  department: string
+  jobTitle: string
+  bio: string
+}
+
+export interface ChangeCurrentUserPasswordDto {
+  currentPassword: string
+  newPassword: string
 }
 
 /** 认证会话 */
@@ -290,7 +312,7 @@ export interface AdminUser {
 }
 
 /** 系统设置键 */
-export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name' | 'current_theme' | 'upload_settings' | 'sidebar_nav_order'
+export type SystemSettingKey = 'registration_open' | 'login_rules' | 'system_name' | 'current_theme' | 'upload_settings' | 'sidebar_nav_order' | 'desktop_sync_policy'
 
 /** 系统设置值类型 */
 export interface RegistrationSetting {
@@ -313,6 +335,7 @@ export interface ThemeSetting {
   brandColor?: string
   themePackage?: string
   sidebarLogoVariant?: 'color' | 'white' | 'black'
+  workspaceBackgroundImage?: string
 }
 
 export interface UploadSetting {
@@ -321,6 +344,23 @@ export interface UploadSetting {
 
 export interface SidebarNavOrderSetting {
   order: string[]
+}
+
+export interface DesktopSyncPolicySetting {
+  enabled: boolean
+  enabledByDefault: boolean
+  allowedRoles: AdminRole[]
+  allowedUserIds: string[]
+  projectSelectionMode: 'user_select' | 'admin_assigned'
+  allowedProjectRefs: string[]
+  allowedCategoryKeys: string[]
+  allowedExtensions: string[]
+  maxFileSizeMb: number
+  maxLocalStorageGb: number
+  pollIntervalSeconds: number
+  allowFolderSelection: boolean
+  removeLocalFilesOnRevocation: boolean
+  policyVersion: number
 }
 
 export interface ThemeOption {
@@ -340,7 +380,7 @@ export interface CurrentTheme extends ThemeSetting {
   theme: ThemeOption | null
 }
 
-export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | ThemeSetting | UploadSetting | SidebarNavOrderSetting | string
+export type SystemSettingValue = RegistrationSetting | LoginRulesSetting | ThemeSetting | UploadSetting | SidebarNavOrderSetting | DesktopSyncPolicySetting | string
 
 /** 系统设置条目 */
 export interface SystemSetting {
@@ -405,6 +445,7 @@ export interface ProjectDocumentCategory {
   categoryName: string
   description: string
   required: boolean
+  requiredFromStage: string
   sortOrder: number
   enabled: boolean
 }

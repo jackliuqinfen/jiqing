@@ -1,5 +1,6 @@
 import { getCurrentTheme } from '@/api/system'
 import type { CurrentTheme, ThemeSetting } from '@/types'
+import defaultWorkspaceBackground from '@/assets/workspace-background.png'
 
 type ThemeTokens = {
   brand: string
@@ -208,6 +209,13 @@ function setVar(name: string, value: string) {
   document.documentElement.style.setProperty(name, value)
 }
 
+export const DEFAULT_WORKSPACE_BACKGROUND = defaultWorkspaceBackground
+
+export function workspaceBackgroundCssValue(customBackground?: string) {
+  const source = String(customBackground || '').trim() || DEFAULT_WORKSPACE_BACKGROUND
+  return `url(${JSON.stringify(source)})`
+}
+
 export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   const tokens = themeTokens[setting.themeKey] || themeTokens['arco-theme-0000']
   const brand = normalizeHexColor(setting.brandColor) || tokens.brand
@@ -244,6 +252,7 @@ export function applyTheme(setting: ThemeSetting | CurrentTheme) {
   setVar('--color-primary-7', brandDark)
   setVar('--text-link', brand)
   setVar('--text-on-brand', textOnBrand)
+  setVar('--workspace-background-image', workspaceBackgroundCssValue(setting.workspaceBackgroundImage))
 }
 
 export async function initThemePreference() {

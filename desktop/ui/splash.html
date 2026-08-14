@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src app:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    >
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>集庆工程管理</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        position: relative;
+        display: grid;
+        place-items: center;
+        color: #0f2246;
+        background:
+          linear-gradient(180deg, rgba(218, 233, 255, 0.86) 0%, rgba(245, 248, 255, 0.98) 58%, #ffffff 100%);
+        user-select: none;
+      }
+
+      body::before {
+        position: absolute;
+        inset: 0;
+        content: "";
+        opacity: 0.34;
+        background-image: repeating-linear-gradient(
+          116deg,
+          transparent 0,
+          transparent 18px,
+          rgba(80, 133, 232, 0.11) 19px,
+          transparent 20px
+        );
+        pointer-events: none;
+      }
+
+      main {
+        position: relative;
+        z-index: 1;
+        width: calc(100% - 64px);
+        min-height: 340px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(170, 195, 235, 0.58);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 20px 48px rgba(67, 105, 166, 0.14);
+        backdrop-filter: blur(18px);
+      }
+
+      .logo {
+        width: 176px;
+        height: 96px;
+        object-fit: contain;
+        margin-bottom: 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: #165dff;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 2px;
+      }
+
+      h1 {
+        margin: 0;
+        color: #0d2148;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .company {
+        margin: 10px 0 30px;
+        color: #66748d;
+        font-size: 14px;
+      }
+
+      .loading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #53627b;
+        font-size: 13px;
+      }
+
+      .loading-dots {
+        display: flex;
+        gap: 5px;
+      }
+
+      .loading-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #165dff;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+
+      .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+      .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+      @keyframes pulse {
+        0%, 70%, 100% { opacity: 0.24; transform: translateY(0); }
+        35% { opacity: 1; transform: translateY(-3px); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .loading-dots span { animation: none; opacity: 0.7; }
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-label="集庆工程管理启动页">
+      <img
+        class="logo"
+        src="app://brand/splash-logo.png"
+        alt="江苏集庆建设"
+        draggable="false"
+      >
+      <p class="eyebrow">JIQING CONSTRUCTION</p>
+      <h1>集庆工程管理</h1>
+      <p class="company">江苏集庆建设工程管理系统</p>
+      <div class="loading" role="status" aria-live="polite">
+        <span>正在启动并连接业务服务</span>
+        <span class="loading-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+      </div>
+    </main>
+  </body>
+</html>

@@ -33,19 +33,32 @@
         </router-link>
       </nav>
       <div class="topbar-actions">
+        <button type="button" class="topbar-command-trigger" title="全局搜索与命令 (Ctrl+K)" @click="commandCenterVisible = true">
+          <AIcon name="search" />
+          <span>搜索</span>
+          <kbd>Ctrl K</kbd>
+        </button>
         <button v-if="sidebarMode === 'hidden'" type="button" class="topbar-icon-button" title="展开左侧导航" @click="setSidebarMode('full')">
           <AIcon name="list" />
         </button>
-        <div v-if="authStore.isAuthenticated" class="topbar-user" :title="`当前登录用户：${userDisplayName}`">
-          <span class="topbar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
+        <router-link
+          v-if="authStore.isAuthenticated"
+          to="/settings"
+          class="topbar-user"
+          :title="`个人设置 · 当前登录用户：${userDisplayName}`"
+        >
+          <span class="topbar-user__avatar" aria-hidden="true">
+            <img v-if="userAvatarUrl" :src="userAvatarUrl" alt="" />
+            <span v-else>{{ userInitial }}</span>
+          </span>
           <span class="topbar-user__copy">
             <small>欢迎回来</small>
             <strong>{{ userDisplayName }}</strong>
           </span>
-        </div>
+        </router-link>
         <router-link v-if="authStore.isAdmin" to="/admin/field-configs" class="topbar-action-link">
           <AIcon name="setting" />
-          <span>设置</span>
+          <span>后台管理</span>
         </router-link>
         <button v-if="authStore.isAuthenticated" type="button" class="topbar-action-link" @click="logout">
           <AIcon name="rollback" />
@@ -59,58 +72,40 @@
     </header>
 
     <aside v-if="sidebarMode !== 'hidden'" class="system-sidebar">
-      <div class="system-brand" aria-label="当前模块">
-        <span class="brand-copy">
-          <span class="brand-kicker">当前模块</span>
-          <strong>{{ activeModule?.label || '工作台' }}</strong>
-          <em>{{ activeModuleDescription }}</em>
-        </span>
-      </div>
-
       <nav class="module-nav" aria-label="当前模块业务功能">
-        <p class="nav-section-title">业务功能</p>
-        <router-link
-          v-for="item in currentSideNav"
-          :key="item.key"
-          :to="sideNavTarget(item)"
-          class="module-link"
-          :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
-          :aria-current="isSideNavActive(item) ? 'page' : undefined"
-          :title="item.description || item.label"
-          @click="handleSideNavClick(item, $event)"
-        >
-          <span class="module-link__icon"><AIcon :name="item.icon" /></span>
-          <span>{{ item.label }}</span>
-          <small v-if="item.badge">{{ item.badge }}</small>
-        </router-link>
+        <div class="sidebar-module-heading" :title="activeModule?.label || '工作台'">
+          <span class="sidebar-module-heading__icon"><AIcon :name="activeModule?.icon || 'dashboard'" /></span>
+          <strong>{{ activeModule?.label || '工作台' }}</strong>
+          <span class="sidebar-module-caret" aria-hidden="true" />
+        </div>
+        <div class="sidebar-module-items">
+          <router-link
+            v-for="item in currentSideNav"
+            :key="item.key"
+            :to="sideNavTarget(item)"
+            class="module-link"
+            :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
+            :aria-current="isSideNavActive(item) ? 'page' : undefined"
+            :title="item.description || item.label"
+            @click="handleSideNavClick(item, $event)"
+          >
+            <span class="module-link__icon"><AIcon :name="item.icon" /></span>
+            <span>{{ item.label }}</span>
+            <small v-if="item.badge">{{ item.badge }}</small>
+          </router-link>
+        </div>
       </nav>
 
       <div class="sidebar-foot">
-        <div class="sidebar-collapse-actions" aria-label="侧边栏显示方式">
-          <button type="button" :class="{ active: sidebarMode === 'full' }" title="展开侧边栏" @click="setSidebarMode('full')">
-            <AIcon name="list" />
-            <span>展开</span>
-          </button>
-          <button type="button" :class="{ active: sidebarMode === 'icon' }" title="折叠为图标栏" @click="setSidebarMode('icon')">
-            <AIcon name="view-module" />
-            <span>窄栏</span>
-          </button>
-          <button type="button" title="完全收起侧边栏" @click="setSidebarMode('hidden')">
-            <AIcon name="eye-invisible" />
-            <span>隐藏</span>
-          </button>
-        </div>
-        <div class="sidebar-actions">
-          <button type="button" class="sidebar-action" @click="router.push(activeModule?.path || '/')">
-            <AIcon name="dashboard" />
-            <span>模块首页</span>
-          </button>
-        </div>
-        <div class="system-status">
-          <span />
-          <strong>系统可用</strong>
-          <em>数据已同步</em>
-        </div>
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :title="sidebarMode === 'full' ? '收起侧边栏' : '展开侧边栏'"
+          @click="toggleSidebarMode"
+        >
+          <AIcon :name="sidebarMode === 'full' ? 'menu-fold' : 'menu-unfold'" />
+          <span>{{ sidebarMode === 'full' ? '收起' : '展开' }}</span>
+        </button>
       </div>
       <button
         type="button"
@@ -120,6 +115,20 @@
         @pointerdown="startSidebarResize"
       />
     </aside>
+
+    <WorkspaceTabBar
+      :tabs="workspaceState.tabs"
+      :active-tab-id="workspaceState.activeTabId"
+      :can-restore="workspaceState.recentlyClosed.length > 0"
+      @activate="activateTab"
+      @close="closeTab"
+      @close-others="closeOtherTabs"
+      @toggle-pin="toggleTabPin"
+      @restore="restoreClosedTab"
+      @reorder="reorderTab"
+      @back="navigateTabHistory(-1)"
+      @forward="navigateTabHistory(1)"
+    />
 
     <section class="system-main">
       <main class="system-content">
@@ -134,20 +143,41 @@
       @pointermove="handleSidebarResize"
       @pointerup="stopSidebarResize"
     />
+
+    <GlobalCommandCenter
+      v-model:visible="commandCenterVisible"
+      @navigate="navigateFromCommandCenter"
+      @action="executeWorkspaceAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/ui/message'
 import { useAuthStore } from '@/store/auth'
 import { getSidebarNavOrder, setSystemSetting } from '@/api/system'
+import WorkspaceTabBar from '@/components/workspace/WorkspaceTabBar.vue'
+import GlobalCommandCenter from '@/components/workspace/GlobalCommandCenter.vue'
+import {
+  activateWorkspaceTab,
+  closeOtherWorkspaceTabs,
+  closeWorkspaceTab,
+  navigateWorkspaceHistory,
+  recordWorkspaceRoute,
+  reorderWorkspaceTab,
+  restoreLastClosedWorkspaceTab,
+  restoreWorkspaceState,
+  setWorkspaceTabPinned,
+  type WorkspaceRouteInput,
+} from '@/workspace/workspaceTabs'
 import brandLogo from '@/assets/jiqing-wordmark.svg'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+let unsubscribeDesktopWorkspaceCommand: (() => void) | null = null
 type SidebarMode = 'full' | 'icon' | 'hidden'
 type NavItem = {
   key: string
@@ -164,13 +194,19 @@ type NavItem = {
 const SIDEBAR_MODE_KEY = 'jiqing-sidebar-mode'
 const SIDEBAR_WIDTH_KEY = 'jiqing-sidebar-width'
 const SIDEBAR_ORDER_KEY = 'jiqing-sidebar-nav-order'
+const WORKSPACE_STORAGE_KEY = 'jiqing-desktop-workspace-v1'
 const sidebarMode = ref<SidebarMode>('full')
 const sidebarWidth = ref(240)
 const resizing = ref(false)
 const navOrder = ref<string[]>([])
 const draggedModulePath = ref('')
+const commandCenterVisible = ref(false)
+const workspaceState = ref(restoreWorkspaceState(
+  typeof window === 'undefined' ? null : window.sessionStorage.getItem(WORKSPACE_STORAGE_KEY),
+))
 const userDisplayName = computed(() => authStore.displayName || authStore.username || '用户')
 const userInitial = computed(() => userDisplayName.value.trim().slice(0, 1).toUpperCase() || '用')
+const userAvatarUrl = computed(() => authStore.user?.avatarUrl || '')
 
 const shellStyle = computed(() => (
   sidebarMode.value === 'full'
@@ -195,17 +231,13 @@ const orderedMainNav = computed(() => {
 })
 const activeModule = computed(() => {
   if (route.path.startsWith('/admin')) return adminModule
+  if (route.path.startsWith('/settings')) return personalModule
   return orderedMainNav.value.find((item) => isTopNavActive(item.path)) || orderedMainNav.value[0]
-})
-const activeModuleDescription = computed(() => {
-  const key = activeModule.value?.path || '/'
-  return moduleDescriptions[key] || '按当前模块聚合业务功能'
 })
 const currentSideNav = computed(() => {
   const key = activeModule.value?.path || '/'
   return sideNavMap[key] || sideNavMap['/']
 })
-const activeSideNav = computed(() => currentSideNav.value.find((item) => isSideNavActive(item)))
 const activeSideNavKey = computed(() => {
   const withQuery = currentSideNav.value.find((item) => !item.disabled && item.query && matchesSideNavQuery(item))
   if (withQuery) return withQuery.key
@@ -218,16 +250,8 @@ const activeSideNavKey = computed(() => {
   return currentSideNav.value.find((item) => !item.disabled)?.key || currentSideNav.value[0]?.key || ''
 })
 
-const adminModule: NavItem = { key: 'admin', path: '/admin/field-configs', label: '后台设置', icon: 'setting', badge: '管理', status: 'enabled' }
-const moduleDescriptions: Record<string, string> = {
-  '/': '经营数据、待办与跨模块总览',
-  '/project-management': '项目主数据、流程与台账',
-  '/materials': '项目资料、证据与归档',
-  '/audit': '审计流程、阶段与附件',
-  '/bidding': '机会、开标与报价分析',
-  '/finance': '结算、发票与收付款',
-  '/admin/field-configs': '字段、选项、用户与系统规则',
-}
+const adminModule: NavItem = { key: 'admin', path: '/admin/field-configs', label: '后台管理', icon: 'setting', badge: '管理', status: 'enabled' }
+const personalModule: NavItem = { key: 'personal-settings', path: '/settings', label: '个人设置', icon: 'user', status: 'enabled' }
 const sideNavMap: Record<string, NavItem[]> = {
   '/': [
     { key: 'home-overview', path: '/', label: '数据总览', icon: 'dashboard', description: '查看系统核心指标和待办提醒' },
@@ -236,7 +260,7 @@ const sideNavMap: Record<string, NavItem[]> = {
   ],
   '/project-management': [
     { key: 'project-ledger', path: '/project-management', query: { view: 'ledger' }, label: '项目台账', icon: 'task', description: '统一查看项目主档案' },
-    { key: 'project-create', path: '/project-management', label: '新建项目', icon: 'add', action: 'project:create', description: '手工填写项目主档案并保存草稿' },
+    { key: 'project-create', path: '/project-management', label: '手工创建项目', icon: 'add', action: 'project:create', description: '上传合同并手工复核后创建正式项目' },
     { key: 'project-docs', path: '/project-management', query: { onlyMissingDocuments: '1', sort: 'updatedAt' }, label: '资料缺口', icon: 'folder', description: '筛选仍需补齐资料的项目' },
     { key: 'project-audit', path: '/project-management', query: { view: 'audit' }, label: '审计联动', icon: 'view-module', description: '查看已进入审计流程的项目' },
   ],
@@ -275,6 +299,12 @@ const sideNavMap: Record<string, NavItem[]> = {
     { key: 'admin-theme', path: '/admin/settings', label: '主题设置', icon: 'system-setting', description: '配置品牌、上传限制和系统参数' },
     { key: 'admin-users', path: '/admin/users', label: '用户管理', icon: 'usergroup', description: '维护用户账号、角色和权限' },
     { key: 'admin-logs', path: '/admin/operation-logs', label: '操作记录', icon: 'file-paste', description: '查看系统操作留痕' },
+  ],
+  '/settings': [
+    { key: 'settings-profile', path: '/settings', query: { section: 'profile' }, label: '个人资料', icon: 'user', description: '修改姓名、头像和工作信息' },
+    { key: 'settings-sync', path: '/settings', query: { section: 'sync' }, label: '文件同步', icon: 'folder', description: '设置 Windows 本机同步文件夹' },
+    { key: 'settings-security', path: '/settings', query: { section: 'security' }, label: '账号安全', icon: 'lock-on', description: '修改当前账号登录密码' },
+    { key: 'settings-about', path: '/settings', query: { section: 'about' }, label: '关于与更新', icon: 'info-circle', description: '查看客户端版本并检查更新' },
   ],
 }
 
@@ -325,7 +355,12 @@ function setSidebarMode(mode: SidebarMode) {
   if (mode === 'full' && sidebarWidth.value < 216) sidebarWidth.value = 240
 }
 
+function toggleSidebarMode() {
+  setSidebarMode(sidebarMode.value === 'full' ? 'icon' : 'full')
+}
+
 onMounted(async () => {
+  recordCurrentWorkspaceRoute()
   const saved = window.localStorage.getItem(SIDEBAR_MODE_KEY)
   if (saved === 'full' || saved === 'icon' || saved === 'hidden') {
     sidebarMode.value = saved
@@ -334,6 +369,11 @@ onMounted(async () => {
   if (savedWidth >= 216 && savedWidth <= 360) sidebarWidth.value = savedWidth
   const savedOrder = safeParseNavOrder(window.localStorage.getItem(SIDEBAR_ORDER_KEY))
   navOrder.value = savedOrder.length ? savedOrder : defaultNavOrder
+  window.addEventListener('keydown', handleWorkspaceKeyboard)
+  window.addEventListener('mouseup', handleWorkspaceMouseNavigation)
+  unsubscribeDesktopWorkspaceCommand = window.jiqingDesktop?.onWorkspaceCommand(
+    handleDesktopWorkspaceCommand,
+  ) || null
   await loadSidebarNavOrder()
 })
 
@@ -347,6 +387,15 @@ watch(sidebarWidth, (width) => {
 
 watch(navOrder, (order) => {
   window.localStorage.setItem(SIDEBAR_ORDER_KEY, JSON.stringify(normalizeNavOrder(order)))
+}, { deep: true })
+
+watch(
+  () => route.fullPath,
+  () => recordCurrentWorkspaceRoute(),
+)
+
+watch(workspaceState, (state) => {
+  window.sessionStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(state))
 }, { deep: true })
 
 watch(() => authStore.isAuthenticated, (authenticated) => {
@@ -395,7 +444,13 @@ function startSidebarResize(event: PointerEvent) {
   window.addEventListener('dragstart', preventResizeSelection, true)
 }
 
-onBeforeUnmount(stopSidebarResize)
+onBeforeUnmount(() => {
+  stopSidebarResize()
+  window.removeEventListener('keydown', handleWorkspaceKeyboard)
+  window.removeEventListener('mouseup', handleWorkspaceMouseNavigation)
+  unsubscribeDesktopWorkspaceCommand?.()
+  unsubscribeDesktopWorkspaceCommand = null
+})
 
 function preventResizeSelection(event: Event) {
   if (!resizing.value) return
@@ -460,6 +515,122 @@ async function saveSidebarNavOrder() {
   }
 }
 
+function currentWorkspaceRoute(): WorkspaceRouteInput {
+  return {
+    path: route.path,
+    fullPath: route.fullPath,
+    query: route.query as Record<string, unknown>,
+    metaTitle: typeof route.meta.title === 'string' ? route.meta.title : '',
+  }
+}
+
+function recordCurrentWorkspaceRoute() {
+  workspaceState.value = recordWorkspaceRoute(workspaceState.value, currentWorkspaceRoute())
+}
+
+async function navigateToWorkspaceRoute(target: string) {
+  if (!target || target === route.fullPath) return
+  await router.push(target)
+}
+
+async function activateTab(tabId: string) {
+  const result = activateWorkspaceTab(workspaceState.value, tabId)
+  workspaceState.value = result.state
+  await navigateToWorkspaceRoute(result.route)
+}
+
+async function closeTab(tabId: string) {
+  const result = closeWorkspaceTab(workspaceState.value, tabId)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function closeOtherTabs(tabId: string) {
+  workspaceState.value = closeOtherWorkspaceTabs(workspaceState.value, tabId)
+}
+
+function toggleTabPin(tabId: string) {
+  const tab = workspaceState.value.tabs.find((item) => item.id === tabId)
+  if (!tab) return
+  workspaceState.value = setWorkspaceTabPinned(workspaceState.value, tabId, !tab.pinned)
+}
+
+async function restoreClosedTab() {
+  const result = restoreLastClosedWorkspaceTab(workspaceState.value)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function reorderTab(tabId: string, targetIndex: number) {
+  workspaceState.value = reorderWorkspaceTab(workspaceState.value, tabId, targetIndex)
+}
+
+async function navigateTabHistory(direction: -1 | 1) {
+  const result = navigateWorkspaceHistory(workspaceState.value, direction)
+  workspaceState.value = result.state
+  if (result.route) await navigateToWorkspaceRoute(result.route)
+}
+
+function handleWorkspaceKeyboard(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  const editing = Boolean(target?.closest('input, textarea, [contenteditable="true"]'))
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    commandCenterVisible.value = true
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 't') {
+    event.preventDefault()
+    restoreClosedTab()
+    return
+  }
+  if (editing || !event.altKey) return
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    navigateTabHistory(-1)
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    navigateTabHistory(1)
+  }
+}
+
+function handleWorkspaceMouseNavigation(event: MouseEvent) {
+  if (event.button === 3) navigateTabHistory(-1)
+  if (event.button === 4) navigateTabHistory(1)
+}
+
+function handleDesktopWorkspaceCommand(command: string) {
+  if (command === 'workspace:back') navigateTabHistory(-1)
+  if (command === 'workspace:forward') navigateTabHistory(1)
+  if (command === 'workspace:command-center') commandCenterVisible.value = true
+  if (command === 'workspace:restore-closed-tab') restoreClosedTab()
+}
+
+async function navigateFromCommandCenter(target: string) {
+  await navigateToWorkspaceRoute(target)
+}
+
+async function executeWorkspaceAction(action: string) {
+  if (action === 'desktop:open-sync-folder') {
+    if (!window.jiqingDesktop) {
+      MessagePlugin.info('请在 Windows 桌面客户端中打开本地同步目录')
+      return
+    }
+    try {
+      await window.jiqingDesktop.openSyncFolder()
+    } catch {
+      MessagePlugin.warning('尚未设置本地同步目录，请先到资料中心完成设置')
+    }
+    return
+  }
+
+  const targetPath = action === 'materials:upload' ? '/materials' : '/project-management'
+  if (route.path !== targetPath) await router.push(targetPath)
+  await nextTick()
+  window.dispatchEvent(new CustomEvent('jiqing-sidebar-action', { detail: { action } }))
+}
+
 async function logout() {
   await authStore.logout()
   MessagePlugin.success('已退出')
@@ -472,9 +643,10 @@ async function logout() {
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--sidebar-width, 240px) minmax(0, 1fr);
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: 58px 40px minmax(0, 1fr);
   grid-template-areas:
     "topbar topbar"
+    "sidebar tabs"
     "sidebar main";
   background: var(--bg-page);
   color: var(--text-primary);
@@ -488,6 +660,7 @@ async function logout() {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "topbar"
+    "tabs"
     "main";
 }
 
@@ -604,6 +777,41 @@ async function logout() {
   gap: 8px;
 }
 
+.topbar-command-trigger {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 11px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(128, 158, 210, 0.16);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.topbar-command-trigger:hover {
+  color: #0f43d6;
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(22, 93, 255, 0.18);
+}
+
+.topbar-command-trigger kbd {
+  min-width: 40px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  background: rgba(242, 246, 252, 0.9);
+  border: 1px solid rgba(128, 158, 210, 0.18);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 10px;
+}
+
 .topbar-user {
   position: relative;
   height: 42px;
@@ -622,6 +830,7 @@ async function logout() {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, .78) inset,
     0 10px 26px rgba(55, 92, 155, 0.1);
+  text-decoration: none;
 }
 
 .topbar-user::before {
@@ -639,6 +848,41 @@ async function logout() {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.topbar-user__avatar {
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #fff !important;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #165dff, #0f43d6);
+}
+
+.topbar-user__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.topbar-user__avatar > span {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topbar-user__copy {
+  min-width: 0;
+  display: grid;
+}
+
+.topbar-user__copy small {
+  color: #8490a6;
+  font-size: 10px;
+  line-height: 1.1;
 }
 
 .topbar-user strong {
@@ -693,11 +937,11 @@ async function logout() {
   position: relative;
   min-height: calc(100vh - 58px);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
-  gap: 14px;
-  padding: 18px 12px 14px;
-  background: rgba(249, 252, 255, 0.42);
-  border-right: 1px solid rgba(128, 158, 210, 0.14);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 10px 14px;
+  background: linear-gradient(180deg, rgba(235, 244, 255, 0.94) 0%, rgba(248, 251, 255, 0.98) 52%, #fff 100%);
+  border-right: 0;
   color: var(--text-primary);
   min-width: 0;
 }
@@ -721,129 +965,9 @@ async function logout() {
   font: inherit;
 }
 
-.system-brand {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: auto;
-  padding: 2px 10px 14px;
-  color: var(--text-primary);
-  text-decoration: none;
-  border-bottom: 1px solid rgba(128, 158, 210, 0.14);
-}
-
-.brand-icon {
-  width: 204px;
-  height: 124px;
-  display: grid;
-  align-items: center;
-  justify-items: start;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  overflow: visible;
-}
-
-.brand-icon img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon img) {
-  filter: brightness(0) invert(1);
-}
-
-:global(html[data-sidebar-logo='white'] .system-sidebar .brand-icon) {
-  padding: var(--space-3);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-500));
-}
-
-:global(html[data-sidebar-logo='black'] .system-sidebar .brand-icon img) {
-  filter: brightness(0) saturate(100%);
-}
-
-.system-brand strong,
-.system-brand em {
-  display: block;
-  font-style: normal;
-  line-height: 1.25;
-}
-
-.brand-copy { display: grid; gap: 5px; padding-left: 1px; }
-.brand-kicker {
-  color: #7c8ba5;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .08em;
-}
-.system-brand strong { color: #102040; font-size: 18px; font-weight: 800; }
-.system-brand em { color: #6c7a92; font-size: 12px; line-height: 1.45; }
-
 .system-shell--icon .system-sidebar {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-2);
-}
-
-.system-shell--icon .system-brand {
-  min-height: 18px;
-  justify-items: center;
-  padding: 4px 0 10px;
-}
-
-.system-shell--icon .brand-icon {
-  width: 52px;
-  height: 40px;
-  justify-items: center;
-}
-
-.system-shell--icon .brand-copy,
-.system-shell--icon .module-link span,
-.system-shell--icon .module-link small,
-.system-shell--icon .nav-group p,
-.system-shell--icon .route-sense,
-.system-shell--icon .sidebar-context-card,
-.system-shell--icon .sidebar-action span,
-.system-shell--icon .sidebar-collapse-actions span,
-.system-shell--icon .system-status strong,
-.system-shell--icon .system-status em {
-  display: none;
-}
-
-.system-shell--icon .module-link,
-.system-shell--icon .sidebar-action,
-.system-shell--icon .sidebar-collapse-actions button {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.system-shell--icon .system-status {
-  grid-template-columns: 1fr;
-  justify-items: center;
-  padding: var(--space-2);
-}
-
-.system-shell--icon .sidebar-foot {
-  gap: 6px;
-}
-
-.system-shell--icon .sidebar-collapse-actions {
-  grid-template-columns: 1fr;
-}
-
-.system-shell--icon .sidebar-collapse-actions button,
-.system-shell--icon .sidebar-action {
-  width: 100%;
-  height: 34px;
-}
-
-.system-shell--icon .system-status span {
-  grid-row: auto;
 }
 
 .module-nav,
@@ -856,7 +980,46 @@ async function logout() {
   align-self: start;
   min-height: 0;
   overflow: auto;
-  padding: 2px 0;
+  padding: 0;
+}
+
+.sidebar-module-heading {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--color-brand-500);
+}
+
+.sidebar-module-heading__icon {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.sidebar-module-heading strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-module-caret {
+  width: 8px;
+  height: 8px;
+  justify-self: center;
+  border-top: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(2px) rotate(45deg);
+}
+
+.sidebar-module-items {
+  display: grid;
+  gap: 4px;
 }
 
 .nav-section-title {
@@ -891,9 +1054,9 @@ async function logout() {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px 0 34px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -906,26 +1069,19 @@ async function logout() {
 
 .module-link:hover,
 .module-link--active {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(22, 93, 255, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+  border-color: transparent;
   color: #0f43d6;
 }
 
 .module-link--active {
-  background: rgba(255, 255, 255, 0.88);
-  font-weight: 600;
-  box-shadow: 0 8px 18px rgba(61, 105, 185, 0.06);
+  background: #fff;
+  font-weight: 700;
+  box-shadow: none;
 }
 
 .module-link--active::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #165dff, #14c9c9);
+  content: none;
 }
 
 .module-link :deep(.arco-icon) { flex: 0 0 auto; }
@@ -936,15 +1092,15 @@ async function logout() {
   flex: 0 0 24px !important;
   display: inline-grid;
   place-items: center;
-  color: #6f7f98;
-  background: rgba(239, 245, 255, .7);
+  color: #8b96a8;
+  background: transparent;
   border-radius: 8px;
 }
 
 .module-link--active .module-link__icon,
 .module-link:hover .module-link__icon {
   color: #165dff;
-  background: rgba(22, 93, 255, .08);
+  background: transparent;
 }
 
 .module-link small {
@@ -1063,93 +1219,63 @@ async function logout() {
 }
 
 .sidebar-foot {
-  display: grid;
-  gap: var(--space-2);
+  display: flex;
+  justify-content: flex-end;
   align-self: end;
   min-width: 0;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-color);
+  padding: 8px 2px 0;
+  border-top: 0;
 }
 
-.sidebar-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.sidebar-collapse-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  min-width: 0;
-}
-
-.sidebar-collapse-actions button {
-  min-width: 0;
+.sidebar-collapse-toggle {
+  min-width: 62px;
   height: 34px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 6px;
-  color: var(--text-tertiary);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(128, 158, 210, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(31, 64, 108, 0.04);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
 }
 
-.sidebar-collapse-actions button:hover,
-.sidebar-collapse-actions button.active {
+.sidebar-collapse-toggle:hover {
   color: var(--color-brand-500);
-  border-color: var(--color-brand-200);
-  background: var(--bg-hover);
+  background: #fff;
 }
 
-.sidebar-action {
-  height: 34px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-3);
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font: inherit;
-  text-decoration: none;
+.system-shell--icon .sidebar-module-heading {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 0;
 }
 
-.sidebar-action:hover {
-  color: var(--color-brand-500);
-  border-color: var(--color-brand-200);
-  background: var(--bg-hover);
+.system-shell--icon .sidebar-module-heading strong,
+.system-shell--icon .sidebar-module-caret,
+.system-shell--icon .sidebar-collapse-toggle span {
+  display: none;
 }
 
-.system-status {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 8px;
-  align-items: center;
-  padding: 10px var(--space-3);
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+.system-shell--icon .module-link {
+  justify-content: center;
+  padding-inline: 0;
 }
 
-.system-status span {
-  width: 8px;
-  height: 8px;
-  grid-row: span 2;
-  background: var(--color-success);
-  border-radius: 2px;
+.system-shell--icon .sidebar-foot {
+  justify-content: center;
 }
 
-.system-status strong { font-size: var(--text-xs); font-weight: 600; }
-.system-status em { font-size: 10px; font-style: normal; color: var(--text-tertiary); }
+.system-shell--icon .sidebar-collapse-toggle {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
 
 .sidebar-resizer {
   position: absolute;
@@ -1207,7 +1333,7 @@ async function logout() {
 .system-main {
   grid-area: main;
   min-width: 0;
-  min-height: calc(100vh - 58px);
+  min-height: calc(100vh - 98px);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }
@@ -1223,7 +1349,7 @@ async function logout() {
 @media (max-width: 900px) {
   .system-shell {
     grid-template-columns: 72px minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 40px minmax(0, 1fr);
   }
   .system-shell--hidden {
     grid-template-columns: minmax(0, 1fr);
@@ -1247,35 +1373,43 @@ async function logout() {
   .topbar-user strong { max-width: 96px; font-size: 12px; }
   .topbar-action-link span { display: none; }
   .topbar-action-link { width: 34px; padding: 0; }
+  .topbar-command-trigger span,
+  .topbar-command-trigger kbd { display: none; }
+  .topbar-command-trigger { width: 34px; padding: 0; justify-content: center; }
   .system-sidebar { padding: var(--space-3) var(--space-2); gap: var(--space-3); }
-  .system-brand .brand-copy,
+  .sidebar-module-heading strong,
+  .sidebar-module-caret,
   .module-link span,
   .module-link small,
   .nav-group p,
   .route-sense,
   .sidebar-context-card,
-  .sidebar-action span,
-  .system-status strong,
-  .system-status em { display: none; }
-  .brand-icon {
-    width: 52px;
-    height: 39px;
-    justify-items: center;
-  }
+  .sidebar-collapse-toggle span { display: none; }
+  .sidebar-module-heading { grid-template-columns: 1fr; justify-items: center; padding: 0; }
   .module-link { justify-content: center; padding: 0; min-height: 42px; }
+  .sidebar-foot { justify-content: center; }
+  .sidebar-collapse-toggle { width: 40px; min-width: 40px; padding: 0; }
   .system-content { padding: var(--space-3); }
 }
 
 @media (max-width: 640px) {
   .system-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto 40px minmax(0, 1fr);
     grid-template-areas:
       "topbar"
       "sidebar"
+      "tabs"
       "main";
   }
-  .system-shell--hidden { grid-template-columns: minmax(0, 1fr); }
+  .system-shell--hidden {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 40px minmax(0, 1fr);
+    grid-template-areas:
+      "topbar"
+      "tabs"
+      "main";
+  }
   .platform-topbar {
     position: sticky;
     grid-template-columns: 1fr auto;
@@ -1297,9 +1431,6 @@ async function logout() {
     gap: var(--space-3);
     padding: var(--space-3);
   }
-  .system-brand { display: none; }
-  .system-brand strong { font-size: var(--text-md); }
-  .system-brand em { font-size: 11px; }
   .module-nav {
     grid-column: 1 / -1;
     display: flex;
@@ -1308,6 +1439,8 @@ async function logout() {
     padding-bottom: 2px;
     scrollbar-width: none;
   }
+  .sidebar-module-heading { display: none; }
+  .sidebar-module-items { display: flex; gap: var(--space-2); }
   .module-nav::-webkit-scrollbar { display: none; }
   .module-link {
     flex: 0 0 auto;

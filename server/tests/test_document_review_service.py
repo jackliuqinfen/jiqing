@@ -3,6 +3,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 
+import server.document_review_service as review_service
 from server.document_repository import (
     add_document_pages,
     create_document_upload,
@@ -361,6 +362,129 @@ class DocumentReviewServiceTests(unittest.TestCase):
         rendered = json.dumps(detail, ensure_ascii=False)
         self.assertNotIn("relative_path", rendered)
         self.assertNotIn("documents/page-0001.png", rendered)
+
+    def test_transaction_neutral_save_leaves_commit_and_rollback_to_caller(self):
+        operation = getattr(review_service, "save_decisions_in_transaction", None)
+        self.assertIsNotNone(operation)
+        field = next(
+            item for item in self.review["fields"]
+            if item["semanticKey"] == "project.name"
+        )
+
+        self.conn.execute("BEGIN IMMEDIATE")
+        detail = operation(
+            self.conn,
+            review_id=self.review["id"],
+            expected_review_version=0,
+            decisions=[{
+                "fieldId": field["id"],
+                "decision": "accepted",
+                "confirmedValue": field["aiValue"],
+            }],
+            actor=ACTOR,
+            now=NOW,
+        )
+
+        self.assertEqual(detail["reviewVersion"], 1)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM review_decisions").fetchone()[0],
+            1,
+        )
+        self.conn.rollback()
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM review_decisions").fetchone()[0],
+            0,
+        )
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT review_version FROM document_reviews WHERE id = ?",
+                (self.review["id"],),
+            ).fetchone()[0],
+            0,
+        )
+
+    def test_transaction_neutral_confirmation_leaves_rollback_to_caller(self):
+        operation = getattr(review_service, "confirm_review_in_transaction", None)
+        self.assertIsNotNone(operation)
+        detail = self.review
+        for field in self.review["fields"]:
+            detail = save_decisions(
+                self.conn,
+                review_id=self.review["id"],
+                expected_review_version=detail["reviewVersion"],
+                decisions=[{
+                    "fieldId": field["id"],
+                    "decision": "accepted",
+                    "confirmedValue": field["aiValue"],
+                }],
+                actor=ACTOR,
+                now=NOW,
+            )
+
+        self.conn.execute("BEGIN IMMEDIATE")
+        result = operation(
+            self.conn,
+            review_id=self.review["id"],
+            expected_review_version=detail["reviewVersion"],
+            idempotency_key="confirm:contract:transaction-owner",
+            actor=ACTOR,
+            allowed_project_ids=(),
+            form_template_version="contract-form.v1",
+            project_code_generator=lambda *_args: "20260701-YBT-001",
+            now=NOW,
+        )
+
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0],
+            1,
+        )
+        self.conn.rollback()
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM project_records").fetchone()[0],
+            0,
+        )
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT status FROM document_reviews WHERE id = ?",
+                (self.review["id"],),
+            ).fetchone()[0],
+            "in_review",
+        )
+
+    def test_accepted_manual_field_without_anchor_has_no_evidence_blocker(self):
+        field = next(
+            item for item in self.review["fields"]
+            if item["semanticKey"] == "project.name"
+        )
+        self.conn.execute(
+            "UPDATE extracted_fields SET source_kind = 'manual' WHERE id = ?",
+            (field["id"],),
+        )
+        self.conn.execute(
+            "DELETE FROM evidence_anchors WHERE extracted_field_id = ?",
+            (field["id"],),
+        )
+        self.conn.commit()
+
+        detail = save_decisions(
+            self.conn,
+            review_id=self.review["id"],
+            expected_review_version=0,
+            decisions=[{
+                "fieldId": field["id"],
+                "decision": "accepted",
+                "confirmedValue": field["aiValue"],
+            }],
+            actor=ACTOR,
+            now=NOW,
+        )
+
+        blockers = {
+            (item["code"], item["field"])
+            for item in detail["blockers"]
+        }
+        self.assertNotIn(("evidence_anchor_missing", "project.name"), blockers)
 
 
 if __name__ == "__main__":

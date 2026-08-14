@@ -1,0 +1,30 @@
+appId: cn.jiqing.erp.desktop
+productName: 集庆工程管理
+asar: true
+files:
+  - src/**/*
+  - ui/**/*
+  - assets/**/*
+directories:
+  output: dist
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+  executableName: JiqingERP
+  artifactName: JiqingERP-${version}-${arch}-Setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+beforePack: scripts/before-pack.mjs
+afterPack: scripts/after-pack.mjs
+publish:
+  - provider: generic
+    url: ${env.DESKTOP_UPDATE_URL}

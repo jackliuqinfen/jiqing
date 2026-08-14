@@ -16,7 +16,7 @@
           <template #icon><AIcon name="refresh" /></template>
           刷新
         </AButton>
-        <AButton theme="primary" @click="openProjectForm()">
+        <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">
           <template #icon><AIcon name="add" /></template>
           手工创建项目
         </AButton>
@@ -59,7 +59,7 @@
         <h3>项目库还没有项目</h3>
         <p>先建立项目主档案，再到资料中心补充资料，并按需从项目主档案发起审计流程。</p>
       </div>
-      <AButton type="primary" @click="openProjectForm()">手工创建第一个项目</AButton>
+      <AButton v-if="authStore.isEditor" type="primary" @click="openProjectForm()">手工创建第一个项目</AButton>
     </section>
 
     <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
@@ -98,7 +98,7 @@
     >
       <template #actions>
         <AButton variant="outline" @click="resetFilters">清除筛选</AButton>
-        <AButton theme="primary" @click="openProjectForm()">手工创建项目</AButton>
+        <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">手工创建项目</AButton>
       </template>
     </StatePanel>
 
@@ -137,6 +137,7 @@
             <AButton size="small" variant="outline" :disabled="displayRecords.length === 0" @click="selectCurrentPage">选择当前页</AButton>
             <AButton size="small" variant="outline" :disabled="selectedRecords.length === 0" @click="batchMarkFocus">标记关注</AButton>
             <AButton
+              v-if="authStore.isEditor"
               size="small"
               theme="primary"
               variant="outline"
@@ -189,6 +190,7 @@
               :horizontal-scroll-affixed-bottom="true"
               bordered
               hover
+              @row-contextmenu="openProjectContextMenu"
             >
               <template #select="{ row }">
                 <ACheckbox
@@ -230,8 +232,8 @@
               <template #actions="{ row }">
                 <div class="action-cell">
                   <button type="button" @click="selectProject(row)">查看</button>
-                  <button type="button" @click="openProjectForm(row)">编辑</button>
-                  <button type="button" :disabled="!canDelete" @click="confirmDeleteProject(row)">删除</button>
+                  <button v-if="authStore.isEditor" type="button" @click="openProjectForm(row)">编辑</button>
+                  <button v-if="canDelete" type="button" @click="confirmDeleteProject(row)">删除</button>
                 </div>
               </template>
             </ATable>
@@ -268,10 +270,11 @@
             <ProjectLifecycleStatus
               ref="lifecycleStatusRef"
               :project-id="currentProject.id"
+              :can-advance="authStore.isEditor"
               @advance="openLifecycleTransition"
             />
             <div class="detail-head__actions">
-              <AButton size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</AButton>
+              <AButton v-if="authStore.isEditor" size="small" variant="outline" @click="openProjectForm(currentProject)">编辑</AButton>
               <AButton
                 v-if="currentProject.auditProjectId"
                 size="small"
@@ -281,7 +284,7 @@
                 查看审计进度
               </AButton>
               <AButton
-                v-else
+                v-else-if="authStore.isEditor"
                 size="small"
                 variant="outline"
                 :loading="auditStarting"
@@ -289,7 +292,7 @@
               >
                 发起审计
               </AButton>
-              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
           </div>
 
@@ -439,6 +442,7 @@
                 <p>{{ currentProject.auditProjectId ? '审计看板将读取项目主数据，并维护阶段、金额和审计记录。' : '可从项目主档案发起审计，系统会自动带入项目名称、金额、负责人和计划日期。' }}</p>
               </div>
               <AButton
+                v-if="currentProject.auditProjectId || authStore.isEditor"
                 :variant="currentProject.auditProjectId ? 'outline' : undefined"
                 :theme="currentProject.auditProjectId ? 'default' : 'primary'"
                 :loading="auditStarting"
@@ -465,14 +469,23 @@
             </div>
 
             <div class="document-grid">
-              <article v-for="category in meta.categories" :key="category.categoryKey" class="doc-card">
+              <article v-for="category in visibleDocumentCategories" :key="category.categoryKey" class="doc-card">
                 <div class="doc-card__head">
                   <div>
                     <strong>{{ category.categoryName }}</strong>
                     <span>{{ category.description }}</span>
                   </div>
                   <div class="doc-card__tools">
-                    <ATag variant="light" :theme="category.required ? 'primary' : 'default'">{{ category.required ? '必填' : '按需' }}</ATag>
+                    <ATag variant="light" :theme="categoryIsRequiredNow(category) ? 'primary' : 'default'">{{ categoryRequirementLabel(category) }}</ATag>
+                    <ASelect
+                      v-if="authStore.isAdmin"
+                      class="doc-stage-select"
+                      size="small"
+                      :model-value="categoryRequiredFromStage(category)"
+                      :options="projectStatusOptions"
+                      :disabled="categorySavingKey === category.categoryKey"
+                      @change="updateCategoryRequiredFromStage(category, $event)"
+                    />
                     <button
                       v-if="authStore.isAdmin"
                       type="button"
@@ -497,18 +510,25 @@
                       <small>V{{ file.versionNo }}</small>
                     </button>
                     <button
-                      v-if="filesByCategory(category.categoryKey).length === 0"
+                      v-if="authStore.isEditor && filesByCategory(category.categoryKey).length === 0"
                       type="button"
                       class="inline-empty-action"
                       @click="openFileDialog(category)"
                     >
-                      <strong>{{ category.required ? '必填资料待补充' : '暂无归档资料' }}</strong>
+                      <strong>{{ categoryIsRequiredNow(category) ? '必填资料待补充' : categoryIsAvailableNow(category) ? '暂无归档资料' : '当前阶段暂不要求' }}</strong>
                       <span>点击上传{{ category.categoryName }}</span>
                     </button>
+                    <div
+                      v-else-if="filesByCategory(category.categoryKey).length === 0"
+                      class="inline-empty-action"
+                    >
+                      <strong>{{ categoryIsRequiredNow(category) ? '必填资料待补充' : categoryIsAvailableNow(category) ? '暂无归档资料' : '当前阶段暂不要求' }}</strong>
+                      <span>{{ categoryIsRequiredNow(category) ? '请联系项目维护人员补充资料' : category.description }}</span>
+                    </div>
                   </div>
                   <div class="doc-actions">
-                    <AButton size="small" variant="outline" @click="openFileDialog(category)">上传资料</AButton>
-                    <span>{{ filesByCategory(category.categoryKey).length ? `${filesByCategory(category.categoryKey).length} 份资料` : '待补充' }}</span>
+                    <AButton v-if="authStore.isEditor" size="small" variant="outline" @click="openFileDialog(category)">上传资料</AButton>
+                    <span>{{ filesByCategory(category.categoryKey).length ? `${filesByCategory(category.categoryKey).length} 份资料` : categoryIsRequiredNow(category) ? '待补充' : '非当前必填' }}</span>
                   </div>
                 </div>
               </article>
@@ -518,7 +538,7 @@
           <div v-else-if="activeTab === 'files'" :id="detailTabPanelId('files')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('files')" tabindex="0">
             <div class="section-head">
               <strong>资料列表</strong>
-              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
             <ATable :data="currentProject.files || []" :columns="fileColumns" bordered hover>
               <template #name="{ row }">
@@ -536,22 +556,22 @@
             <div class="action-cell">
                   <button :disabled="!row.canPreview" type="button" @click="previewFile(row)">预览</button>
                   <button type="button" @click="downloadFile(row)">下载</button>
-                  <button type="button" @click="openRenameDialog(row)">重命名</button>
-                  <button type="button" :disabled="!canDelete" @click="confirmDeleteFile(row)">删除</button>
+                  <button v-if="authStore.isEditor" type="button" @click="openRenameDialog(row)">重命名</button>
+                  <button v-if="canDelete" type="button" @click="confirmDeleteFile(row)">删除</button>
                 </div>
               </template>
             </ATable>
             <div v-if="(currentProject.files || []).length === 0" class="detail-empty-action">
               <strong>当前项目还没有上传资料</strong>
               <span>建议先上传合同、招投标、过程资料或结算资料，后续审计会直接引用这些文件。</span>
-              <AButton size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
             </div>
           </div>
 
           <div v-else-if="activeTab === 'settlements'" :id="detailTabPanelId('settlements')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('settlements')" tabindex="0">
             <div class="section-head">
               <strong>付款结算</strong>
-              <AButton size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
             </div>
             <ATable :data="currentProject.settlements || []" :columns="settlementColumns" bordered hover>
               <template #name="{ row }">
@@ -566,21 +586,21 @@
               <template #amount="{ row }"><MoneyDisplay :value="row.approvedAmount || row.applyAmount || 0" mode="compact" /></template>
               <template #actions="{ row }">
                 <div class="action-cell">
-                  <button type="button" @click="openSettlementDialog(row)">编辑</button>
+                  <button v-if="authStore.isEditor" type="button" @click="openSettlementDialog(row)">编辑</button>
                 </div>
               </template>
             </ATable>
             <div v-if="(currentProject.settlements || []).length === 0" class="detail-empty-action">
               <strong>尚未维护付款结算记录</strong>
               <span>补充结算记录后，可以在项目台账中同步查看付款进度和结算状态。</span>
-              <AButton size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openSettlementDialog()">新增结算</AButton>
             </div>
           </div>
 
           <div v-else-if="activeTab === 'variations'" :id="detailTabPanelId('variations')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('variations')" tabindex="0">
             <div class="section-head">
               <strong>变更签证</strong>
-              <AButton size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
             </div>
             <ATable :data="currentProject.variations || []" :columns="variationColumns" bordered hover>
               <template #name="{ row }">
@@ -595,14 +615,14 @@
               <template #amount="{ row }"><MoneyDisplay :value="row.amount || 0" mode="compact" /></template>
               <template #actions="{ row }">
                 <div class="action-cell">
-                  <button type="button" @click="openVariationDialog(row)">编辑</button>
+                  <button v-if="authStore.isEditor" type="button" @click="openVariationDialog(row)">编辑</button>
                 </div>
               </template>
             </ATable>
             <div v-if="(currentProject.variations || []).length === 0" class="detail-empty-action">
               <strong>暂无变更签证记录</strong>
               <span>如项目发生工程量、范围或金额调整，可在这里记录变更签证。</span>
-              <AButton size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
+              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openVariationDialog()">新增签证</AButton>
             </div>
           </div>
 
@@ -642,13 +662,19 @@
       cancel-text="取消"
       :mask-closable="false"
       :esc-to-close="false"
-      :width="projectDialog.mode === 'create' ? 1040 : 920"
+      :width="projectDialog.mode === 'create' ? 'min(1480px, calc(100vw - 48px))' : 920"
       unmount-on-close
       modal-class="project-form-modal"
       @confirm="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
       @cancel="requestCloseProjectDialog"
     >
-      <div v-if="projectDialog.mode === 'create'" class="project-create-wizard">
+      <div
+        v-if="projectDialog.mode === 'create'"
+        class="project-create-shell"
+        :class="{ 'project-create-shell--preview-collapsed': manualPdfPreviewCollapsed }"
+      >
+        <section class="project-create-shell__form">
+          <div class="project-create-wizard">
         <nav class="wizard-stepper" aria-label="新建项目步骤">
           <button
             v-for="(step, index) in projectWizardSteps"
@@ -714,7 +740,13 @@
                   @change="handleProjectDictionaryChange('constructionUnit')"
                 />
               </AFormItem>
-              <AFormItem field="ownerUnit" label="建设单位">
+              <AFormItem
+                field="ownerUnit"
+                label="建设单位"
+                required
+                :validate-status="projectFormErrors.ownerUnit ? 'error' : undefined"
+                :help="projectFormErrors.ownerUnit"
+              >
                 <ASelect
                   v-model="projectForm.ownerUnit"
                   data-project-field="ownerUnit"
@@ -779,10 +811,28 @@
               <AFormItem
                 field="contractAmount"
                 label="合同金额"
+                required
                 :validate-status="projectFormErrors.contractAmount ? 'error' : undefined"
                 :help="projectFormErrors.contractAmount"
               >
                 <AInputNumber v-model="projectForm.contractAmount" :min="0" :precision="2" hide-button @change="clearProjectFieldError('contractAmount')" />
+              </AFormItem>
+              <AFormItem
+                class="dialog-span-2"
+                field="paymentTerms"
+                label="付款条款"
+                required
+                :validate-status="projectFormErrors.paymentTerms ? 'error' : undefined"
+                :help="projectFormErrors.paymentTerms"
+              >
+                <ATextarea
+                  v-model="projectForm.paymentTerms"
+                  data-project-field="paymentTerms"
+                  :auto-size="{ minRows: 3, maxRows: 6 }"
+                  placeholder="请对照合同逐条填写付款节点，每行一条"
+                  allow-clear
+                  @input="clearProjectFieldError('paymentTerms')"
+                />
               </AFormItem>
               <AFormItem
                 field="paidAmount"
@@ -874,10 +924,42 @@
           </section>
         </AForm>
 
-        <div class="wizard-footer-extra">
-          <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
-          <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
-        </div>
+            <div class="wizard-footer-extra">
+              <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
+              <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="project-create-shell__preview">
+          <div v-if="manualDrafts.length && !manualPdfPreviewCollapsed" class="manual-draft-strip">
+            <span>我的未完成草稿</span>
+            <button
+              v-for="draft in manualDrafts"
+              :key="draft.id"
+              type="button"
+              :class="{ active: activeDraft?.id === draft.id }"
+              :disabled="loadingDrafts || savingDraft || projectDialog.saving"
+              @click="resumeManualDraft(draft)"
+            >
+              <strong>{{ manualDraftTitle(draft) }}</strong>
+              <small>{{ formatDate(draft.updatedAt) }}</small>
+            </button>
+          </div>
+          <ContractPdfPreview
+            :document="manualContractDocument"
+            :max-file-size-mb="uploadLimitMb"
+            :page="manualPdfPage"
+            :scale="manualPdfScale"
+            :collapsed="manualPdfPreviewCollapsed"
+            @uploaded="handleContractPdfUploaded"
+            @update:page="handleContractPdfPage"
+            @update:scale="handleContractPdfScale"
+            @update:collapsed="handleContractPdfCollapsed"
+            @uploading="manualPdfUploading = $event"
+            @error="MessagePlugin.error($event)"
+          />
+        </aside>
       </div>
 
       <AForm v-else ref="projectFormRef" :model="projectForm" layout="vertical" class="arco-project-form">
@@ -1188,23 +1270,44 @@
         </label>
       </div>
     </AModal>
+
+    <ObjectContextMenu
+      v-model:visible="projectContextMenu.visible"
+      :x="projectContextMenu.x"
+      :y="projectContextMenu.y"
+      :items="projectContextMenuItems"
+      @select="handleProjectContextAction"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { TableData } from '@arco-design/web-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatePanel from '@/components/StatePanel.vue'
 import MoneyDisplay from '@/components/MoneyDisplay.vue'
+import ContractPdfPreview from '@/components/project/ContractPdfPreview.vue'
 import ProjectLifecycleStatus from '@/components/project/ProjectLifecycleStatus.vue'
 import ProjectStageTransitionModal from '@/components/project/ProjectStageTransitionModal.vue'
+  import ObjectContextMenu, { type ObjectContextMenuItem } from '@/components/workspace/ObjectContextMenu.vue'
 import { MessagePlugin } from '@/ui/message'
 import type { AppFormInstance } from '@/ui/arcoAppComponents'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 import { friendlyErrorMessage } from '@/utils/errors'
 import { buildProjectMutationPayload } from '@/utils/projectMutationPayload'
+import {
+  buildManualContractValues,
+  buildManualProjectValues,
+  newManualProjectIntakeKey,
+} from '@/utils/manualProjectIntake'
 import { settleLifecycleRefresh } from '@/utils/projectLifecycleRefresh'
+import {
+  createManualDocumentMetadataLoader,
+  useManualProjectIntakeDraft,
+  type ManualProjectIntakeDraftSnapshot,
+} from '@/composables/useManualProjectIntakeDraft'
 import {
   auditStartEligibilityMessage,
   formatAuditStartSkippedSummary,
@@ -1221,10 +1324,13 @@ import {
   variationStatusOptions as variationStatusDict,
 } from '@/utils/businessDictionaries'
 import type { ProjectDocumentCategory, ProjectFile, ProjectFilters, ProjectMeta, ProjectRecord, ProjectSettlement, ProjectSummary, ProjectVariation, WorkItem } from '@/types'
+import type { DocumentVersionMetadata, ProjectIntakeDraft } from '@/types/documentReview'
 import type { ProjectLifecycleSnapshot } from '@/types/projectLifecycle'
 import {
+  confirmManualProjectIntake,
+} from '@/api/documentReview'
+import {
   createProjectDictionaryOption,
-  createProjectRecord,
   deleteProjectFile,
   deleteProjectRecord,
   fetchProjectFileDownloadBlob,
@@ -1272,6 +1378,7 @@ type SavedProjectFilterView = {
 }
 
 const SAVED_PROJECT_FILTERS_KEY = 'project-management-saved-filters'
+const PROJECT_WORKSPACE_STATE_KEY = 'project-management-workspace-state-v1'
 
 const baseTableColumns = [
   { colKey: 'select', title: '选择', width: 64, fixed: 'left' as const },
@@ -1463,8 +1570,20 @@ const page = ref(1)
 const pageSize = ref(10)
 const activeTab = ref<DetailTab>('overview')
 const activeSummaryKey = ref('')
-const canDelete = true
+const canDelete = computed(() => authStore.isAdmin)
 const categorySavingKey = ref('')
+
+function requireEditorAccess(action: string) {
+  if (authStore.isEditor) return true
+  MessagePlugin.warning(`当前账号无${action}权限`)
+  return false
+}
+
+function requireAdminAccess(action: string) {
+  if (authStore.isAdmin) return true
+  MessagePlugin.warning(`仅管理员可${action}`)
+  return false
+}
 
 const projectDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, initialSnapshot: '' })
 const filterViewDialog = reactive({ visible: false, name: '', error: '' })
@@ -1503,6 +1622,12 @@ const filePreview = reactive({
 const settlementDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const variationDialog = reactive({ visible: false, mode: 'create' as 'create' | 'edit', saving: false, id: '' })
 const renameDialog = reactive({ visible: false, saving: false, id: '', displayName: '' })
+const projectContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  record: null as ProjectRecord | null,
+})
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const projectFormRef = ref<AppFormInstance | null>(null)
 const projectWizardStepIndex = ref(0)
@@ -1539,6 +1664,53 @@ const projectFormErrors = reactive<ProjectFormErrors>({})
 const projectCreationFlow = reactive({
   projectType: '',
   projectLocation: '',
+})
+
+type ManualContractDocumentRef = {
+  documentId: string
+  versionId: string
+  name: string
+  mimeType: string
+  fileSize: number
+}
+
+const manualContractDocument = ref<ManualContractDocumentRef | null>(null)
+const manualPdfPage = ref(1)
+const manualPdfScale = ref(1)
+const manualPdfPreviewCollapsed = ref(false)
+const manualPdfUploading = ref(false)
+const manualProjectIdempotencyKey = ref('')
+const restoringManualDraft = ref(false)
+const manualDocumentMetadataLoader = createManualDocumentMetadataLoader()
+let manualIntakeRouteGeneration = 0
+
+function beginManualIntakeRoute(versionId: string) {
+  const token = ++manualIntakeRouteGeneration
+  return {
+    isCurrent: () => (
+      token === manualIntakeRouteGeneration
+      && String(route.query.intakeDocumentVersionId || '').trim() === versionId
+      && projectDialog.visible
+      && projectDialog.mode === 'create'
+    ),
+  }
+}
+
+const {
+  drafts: manualDrafts,
+  activeDraft,
+  loadingDrafts,
+  savingDraft,
+  loadDrafts,
+  resumeDraft,
+  scheduleSave,
+  flushSave,
+  attachDocument,
+  completeAndReset,
+} = useManualProjectIntakeDraft({
+  snapshot: manualProjectDraftSnapshot,
+  restore: restoreManualProjectDraftSnapshot,
+  onError: (message) => MessagePlugin.error(message),
 })
 
 const settlementForm = reactive({
@@ -1587,6 +1759,22 @@ const uploadPreviewTitle = computed(() => {
   return '文件已选择'
 })
 const projectStatusOptions = computed(() => meta.projectStatuses.length ? meta.projectStatuses : defaultProjectStatuses)
+const documentStageDefaults: Record<string, string> = {
+  contract: 'contract_signed',
+  drawing: 'under_construction',
+  settlement_book: 'pending_submission',
+  visa_change: 'pending_submission',
+  first_audit: 'first_audit',
+  second_audit: 'second_audit',
+  payment: 'conclusion',
+  other: 'archived',
+}
+const lifecycleStageRank = new Map(defaultProjectStatuses.map((item, index) => [item.value, index]))
+const visibleDocumentCategories = computed(() => meta.categories.filter((category) => (
+  authStore.isAdmin
+  || filesByCategory(category.categoryKey).length > 0
+  || categoryIsAvailableNow(category)
+)))
 const settlementStatusOptions = computed(() => meta.settlementStatuses.length ? meta.settlementStatuses : defaultSettlementStatuses)
 const projectCodePreview = computed(() => projectForm.projectCode || buildProjectCodePreview(projectForm.contractDate, projectForm.constructionUnit))
 const projectWizardSteps = computed(() => {
@@ -1627,6 +1815,37 @@ const activeFilterChips = computed<ProjectFilterChip[]>(() => {
     chips.push({ key: 'sort', label: '排序', value: sortOptions.find((item) => item.value === filters.sort)?.label || filters.sort })
   }
   return chips
+})
+
+const projectContextMenuItems = computed<ObjectContextMenuItem[]>(() => {
+  const record = projectContextMenu.record
+  if (!record) return []
+  const items: ObjectContextMenuItem[] = [
+    { key: 'view', label: '查看项目详情', icon: 'eye', shortcut: 'Enter' },
+  ]
+  if (authStore.isEditor) {
+    items.push(
+      { key: 'edit', label: '编辑项目', icon: 'edit-1' },
+      { key: 'upload', label: '上传项目资料', icon: 'upload' },
+    )
+  }
+  if (record.auditProjectId) {
+    items.push({ key: 'audit', label: '查看审计进度', icon: 'view-module' })
+  } else if (authStore.isEditor) {
+    items.push({ key: 'start-audit', label: '发起审计', icon: 'play-circle' })
+  }
+  items.push(
+    { key: 'divider-1', divider: true },
+    {
+      key: selectedProjectIds.value.includes(record.id) ? 'unselect' : 'select',
+      label: selectedProjectIds.value.includes(record.id) ? '取消选择' : '加入批量选择',
+      icon: 'check',
+    },
+  )
+  if (canDelete.value) {
+    items.push({ key: 'delete', label: '删除项目', icon: 'close', danger: true })
+  }
+  return items
 })
 const showProjectEmptyOnboarding = computed(() => !loading.value && total.value === 0 && activeFilterChips.value.length === 0)
 const groupedDisplayRecords = computed(() => {
@@ -1675,21 +1894,23 @@ const projectActionHints = computed(() => {
       action: () => { activeTab.value = 'overview' },
     })
   }
-  items.push(project.auditProjectId
-    ? {
-        label: '审计联动',
-        title: '查看审计进度',
-        description: '进入审计看板查看当前阶段、资料状态和操作记录。',
-        level: 'primary',
-        action: () => goAudit(project.auditProjectId),
-      }
-    : {
-        label: '审计联动',
-        title: '发起审计流程',
-        description: '发起后会自动带入项目主数据，避免重复录入。',
-        level: 'primary',
-        action: () => startAudit(project),
-      })
+  if (project.auditProjectId) {
+    items.push({
+      label: '审计联动',
+      title: '查看审计进度',
+      description: '进入审计看板查看当前阶段、资料状态和操作记录。',
+      level: 'primary',
+      action: () => goAudit(project.auditProjectId),
+    })
+  } else if (authStore.isEditor) {
+    items.push({
+      label: '审计联动',
+      title: '发起审计流程',
+      description: '发起后会自动带入项目主数据，避免重复录入。',
+      level: 'primary',
+      action: () => startAudit(project),
+    })
+  }
   if (!items.some((item) => item.level === 'warning' || item.level === 'danger')) {
     items.unshift({
       label: '项目状态',
@@ -1878,6 +2099,174 @@ function resetProjectCreationFlow() {
   projectWizardStepIndex.value = 0
 }
 
+function manualProjectDraftSnapshot(): ManualProjectIntakeDraftSnapshot {
+  const paymentTerms = projectForm.paymentTerms
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  const contractAmount = Number(projectForm.contractAmount || 0)
+  const submittedAmount = Number(projectForm.submittedAmount || 0)
+  const paidAmount = Number(projectForm.paidAmount || 0)
+  return {
+    values: {
+      'project.name': projectForm.projectName.trim(),
+      'party.owner': projectForm.ownerUnit.trim(),
+      'party.contractor': projectForm.constructionUnit.trim(),
+      'contract.amount': Number.isFinite(contractAmount) ? Math.round(contractAmount * 100) : 0,
+      'contract.signed_date': projectForm.contractDate,
+      'project.manager': projectForm.managerName.trim(),
+      'contract.start_date': projectForm.plannedStartDate,
+      'contract.end_date': projectForm.plannedEndDate,
+      'contract.payment_terms': paymentTerms,
+    },
+    projectValues: {
+      contractorName: projectForm.contractorName.trim(),
+      contractorContact: projectForm.contractorContact.trim(),
+      companyRole: projectForm.companyRole.trim(),
+      settlementStatus: projectForm.settlementStatus,
+      submittedAmount: Number.isFinite(submittedAmount) && submittedAmount >= 0 ? submittedAmount : 0,
+      paidAmount: Number.isFinite(paidAmount) && paidAmount >= 0 ? paidAmount : 0,
+      paymentTerms: projectForm.paymentTerms,
+      plannedStartDate: projectForm.plannedStartDate,
+      plannedEndDate: projectForm.plannedEndDate,
+      description: appendProjectCreationNotes(projectForm.description),
+    },
+    uiState: {
+      wizardStep: projectWizardStepIndex.value,
+      pdfPage: manualPdfPage.value,
+      pdfScale: manualPdfScale.value,
+      previewCollapsed: manualPdfPreviewCollapsed.value,
+    },
+    documentId: manualContractDocument.value?.documentId || '',
+    documentVersionId: manualContractDocument.value?.versionId || '',
+  }
+}
+
+function restoreManualProjectDraftSnapshot(snapshot: ManualProjectIntakeDraftSnapshot) {
+  restoringManualDraft.value = true
+  fillProjectForm(null)
+  resetProjectCreationFlow()
+  const amountFen = Number(snapshot.values['contract.amount'] || 0)
+  Object.assign(projectForm, {
+    projectName: String(snapshot.values['project.name'] || ''),
+    ownerUnit: String(snapshot.values['party.owner'] || ''),
+    constructionUnit: String(snapshot.values['party.contractor'] || ''),
+    contractAmount: Number.isFinite(amountFen) ? amountFen / 100 : 0,
+    contractDate: String(snapshot.values['contract.signed_date'] || ''),
+    managerName: String(snapshot.values['project.manager'] || ''),
+    plannedStartDate: String(snapshot.values['contract.start_date'] || snapshot.projectValues.plannedStartDate || ''),
+    plannedEndDate: String(snapshot.values['contract.end_date'] || snapshot.projectValues.plannedEndDate || ''),
+    paymentTerms: Array.isArray(snapshot.values['contract.payment_terms'])
+      ? snapshot.values['contract.payment_terms'].join('\n')
+      : String(snapshot.projectValues.paymentTerms || ''),
+    contractorName: String(snapshot.projectValues.contractorName || ''),
+    contractorContact: String(snapshot.projectValues.contractorContact || ''),
+    companyRole: String(snapshot.projectValues.companyRole || '工程咨询'),
+    settlementStatus: String(snapshot.projectValues.settlementStatus || 'not_started'),
+    submittedAmount: Number(snapshot.projectValues.submittedAmount || 0),
+    paidAmount: Number(snapshot.projectValues.paidAmount || 0),
+    description: String(snapshot.projectValues.description || ''),
+  })
+  projectWizardStepIndex.value = Math.min(
+    Math.max(0, Number(snapshot.uiState.wizardStep || 0)),
+    projectWizardSteps.value.length - 1,
+  )
+  manualPdfPage.value = Math.max(1, Number(snapshot.uiState.pdfPage || 1))
+  manualPdfScale.value = Math.min(2.5, Math.max(0.5, Number(snapshot.uiState.pdfScale || 1)))
+  manualPdfPreviewCollapsed.value = Boolean(snapshot.uiState.previewCollapsed)
+  manualContractDocument.value = null
+  void nextTick(() => {
+    restoringManualDraft.value = false
+    projectDialog.initialSnapshot = projectFormSnapshot()
+  })
+}
+
+function manualDocumentRef(metadata: DocumentVersionMetadata): ManualContractDocumentRef {
+  return {
+    documentId: metadata.documentId,
+    versionId: metadata.id,
+    name: metadata.name,
+    mimeType: metadata.mimeType,
+    fileSize: metadata.fileSize,
+  }
+}
+
+async function loadManualDocumentMetadata(
+  versionId: string,
+  isCurrent: () => boolean,
+  publish: (metadata: DocumentVersionMetadata) => void = (metadata) => {
+    manualContractDocument.value = manualDocumentRef(metadata)
+  },
+) {
+  try {
+    return await manualDocumentMetadataLoader.load(versionId, isCurrent, publish)
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '合同原文信息加载失败，请稍后重试。'))
+    return false
+  }
+}
+
+function manualDraftTitle(draft: ProjectIntakeDraft) {
+  return String(draft.values['project.name'] || '').trim() || '未命名项目草稿'
+}
+
+async function resumeManualDraft(
+  draft: ProjectIntakeDraft,
+  isCurrent: () => boolean = () => true,
+) {
+  if (!isCurrent()) return false
+  const switched = await resumeDraft(draft, isCurrent)
+  if (!switched || !isCurrent()) return false
+  manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+  if (draft.documentVersionId) {
+    const draftId = draft.id
+    const versionId = draft.documentVersionId
+    const published = await loadManualDocumentMetadata(
+      versionId,
+      () => (
+        isCurrent()
+        && activeDraft.value?.id === draftId
+        && activeDraft.value.documentVersionId === versionId
+      ),
+    )
+    if (!published || !isCurrent()) return false
+  }
+  return isCurrent()
+}
+
+function resetManualProjectIntake() {
+  manualDocumentMetadataLoader.invalidate()
+  completeAndReset()
+  manualContractDocument.value = null
+  manualPdfPage.value = 1
+  manualPdfScale.value = 1
+  manualPdfPreviewCollapsed.value = false
+  manualPdfUploading.value = false
+  manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+}
+
+async function handleContractPdfUploaded(document: ManualContractDocumentRef) {
+  manualDocumentMetadataLoader.invalidate()
+  manualContractDocument.value = document
+  manualPdfPage.value = 1
+  await attachDocument(document.documentId, document.versionId)
+}
+
+function handleContractPdfPage(page: number) {
+  manualPdfPage.value = page
+  scheduleSave()
+}
+
+function handleContractPdfScale(scale: number) {
+  manualPdfScale.value = scale
+  scheduleSave()
+}
+
+function handleContractPdfCollapsed(collapsed: boolean) {
+  manualPdfPreviewCollapsed.value = collapsed
+  scheduleSave()
+}
+
 function appendProjectCreationNotes(description: string) {
   const notes = [
     projectCreationFlow.projectType ? `项目类型：${projectCreationFlow.projectType}` : '',
@@ -1895,6 +2284,9 @@ function validateProjectWizardStep() {
     if (!projectForm.projectName.trim()) projectFormErrors.projectName = '请填写项目名称，便于后续资料、结算和审计流转。'
     if (!projectForm.contractDate) projectFormErrors.contractDate = '请选择工程合同签订日期，系统将据此生成项目编号。'
     if (!projectForm.constructionUnit.trim()) projectFormErrors.constructionUnit = '请填写施工单位，系统将取核心字号生成项目编号。'
+    if (!projectForm.ownerUnit.trim()) projectFormErrors.ownerUnit = '请填写建设单位。'
+    if (Number(projectForm.contractAmount || 0) <= 0) projectFormErrors.contractAmount = '合同金额必须大于零。'
+    if (!projectForm.paymentTerms.trim()) projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
     if (projectForm.contractorContact.trim() && !/^[\d\s\-+()]{6,20}$/.test(projectForm.contractorContact.trim())) {
       projectFormErrors.contractorContact = '联系电话格式不正确，请填写手机号或固定电话。'
     }
@@ -1932,7 +2324,55 @@ async function handleProjectWizardConfirm() {
     projectWizardStepIndex.value += 1
     return
   }
-  await saveProject()
+  await confirmManualProject()
+}
+
+async function confirmManualProject() {
+  if (!requireEditorAccess('创建项目')) return
+  if (!validateProjectForm()) {
+    MessagePlugin.error('请先完善项目表单中的提示项')
+    return
+  }
+  if (!manualContractDocument.value) {
+    MessagePlugin.error('请先上传施工合同 PDF，再生成项目。')
+    return
+  }
+  projectDialog.saving = true
+  try {
+    if (!await flushSave()) throw new Error('项目草稿保存失败，请处理提示后重试。')
+    if (!activeDraft.value) throw new Error('项目草稿尚未保存，请稍后重试。')
+    if (!manualProjectIdempotencyKey.value) {
+      manualProjectIdempotencyKey.value = newManualProjectIntakeKey()
+    }
+    const result = await confirmManualProjectIntake(manualContractDocument.value.versionId, {
+      idempotencyKey: manualProjectIdempotencyKey.value,
+      formTemplateVersion: 'manual-project-wizard.v1',
+      draftId: activeDraft.value.id,
+      expectedDraftRevision: activeDraft.value.revision,
+      contractValues: buildManualContractValues(projectForm),
+      projectValues: buildManualProjectValues(projectForm, projectCreationFlow),
+    })
+    completeAndReset()
+    closeProjectDialog(true)
+    await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
+    const created = records.value.find((record) => record.id === result.projectId)
+    if (created) await selectProject(created)
+    else {
+      const projectId = result.projectId || result.project.id
+      await router.push({
+        path: '/project-management',
+        query: { projectId, projectName: result.project.projectName },
+      })
+      detailDialogVisible.value = true
+      await loadCurrentProject(projectId)
+      activeTab.value = 'overview'
+    }
+    MessagePlugin.success('项目已生成')
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '项目生成失败，已保留当前表单和合同，可直接重试。'))
+  } finally {
+    projectDialog.saving = false
+  }
 }
 
 function projectGroupKey(record: ProjectRecord) {
@@ -2175,6 +2615,17 @@ function validateProjectForm() {
   const contractAmount = Number(projectForm.contractAmount || 0)
   const submittedAmount = Number(projectForm.submittedAmount || 0)
   const paidAmount = Number(projectForm.paidAmount || 0)
+  if (projectDialog.mode === 'create') {
+    if (!projectForm.ownerUnit.trim()) {
+      projectFormErrors.ownerUnit = '请填写建设单位。'
+    }
+    if (contractAmount <= 0) {
+      projectFormErrors.contractAmount = '合同金额必须大于零。'
+    }
+    if (!projectForm.paymentTerms.trim()) {
+      projectFormErrors.paymentTerms = '请对照合同填写付款条款。'
+    }
+  }
   if (contractAmount > 0 && submittedAmount > contractAmount) {
     projectFormErrors.submittedAmount = '送审金额不能大于合同金额，请核对金额口径。'
   }
@@ -2286,6 +2737,52 @@ function loadSavedFilterViews() {
 
 function persistSavedFilterViews() {
   window.localStorage.setItem(SAVED_PROJECT_FILTERS_KEY, JSON.stringify(savedFilterViews.value.slice(0, 8)))
+}
+
+function saveProjectWorkspaceState() {
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  window.sessionStorage.setItem(PROJECT_WORKSPACE_STATE_KEY, JSON.stringify({
+    filters: normalizeProjectFilters({ ...filters }),
+    activeSavedView: activeSavedView.value,
+    activeCustomFilterId: activeCustomFilterId.value,
+    activeSummaryKey: activeSummaryKey.value,
+    groupBy: groupBy.value,
+    visibleProjectColumnKeys: visibleProjectColumnKeys.value,
+    scrollTop: scrollContainer?.scrollTop || 0,
+  }))
+}
+
+function restoreProjectWorkspaceState() {
+  try {
+    const raw = window.sessionStorage.getItem(PROJECT_WORKSPACE_STATE_KEY)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw) as {
+      filters?: Partial<ProjectFilters>
+      activeSavedView?: BuiltInProjectView
+      activeCustomFilterId?: string
+      activeSummaryKey?: string
+      groupBy?: ProjectGroupBy
+      visibleProjectColumnKeys?: string[]
+      scrollTop?: number
+    }
+    if (parsed.filters) assignProjectFilters(parsed.filters)
+    if (['all', 'risk', 'audit'].includes(String(parsed.activeSavedView))) {
+      activeSavedView.value = parsed.activeSavedView as BuiltInProjectView
+    }
+    activeCustomFilterId.value = String(parsed.activeCustomFilterId || '')
+    activeSummaryKey.value = String(parsed.activeSummaryKey || '')
+    if (['none', 'status', 'owner', 'audit'].includes(String(parsed.groupBy))) {
+      groupBy.value = parsed.groupBy as ProjectGroupBy
+    }
+    if (Array.isArray(parsed.visibleProjectColumnKeys)) {
+      const allowed = new Set(baseTableColumns.map((column) => String(column.colKey)))
+      const keys = parsed.visibleProjectColumnKeys.filter((key) => allowed.has(key))
+      if (keys.includes('project')) visibleProjectColumnKeys.value = keys
+    }
+    return Math.max(0, Number(parsed.scrollTop || 0))
+  } catch {
+    return 0
+  }
 }
 
 function saveCurrentFilterView() {
@@ -2402,19 +2899,23 @@ function applyRouteFilters() {
   const managerName = String(query.managerName || '').trim()
   const onlyMissingDocuments = String(query.onlyMissingDocuments || '').trim()
   const onlyMonthlyNew = String(query.onlyMonthlyNew || '').trim()
+  let applied = false
 
   if (view === 'risk') {
+    applied = true
     activeSummaryKey.value = 'risk'
     activeSavedView.value = 'risk'
     activeCustomFilterId.value = ''
     filters.onlyRisk = true
     filters.sort = 'plannedEndDate'
   } else if (view === 'audit') {
+    applied = true
     activeSummaryKey.value = 'audit'
     activeSavedView.value = 'audit'
     activeCustomFilterId.value = ''
     filters.onlyAuditLinked = true
   } else if (view === 'due') {
+    applied = true
     activeSummaryKey.value = 'due'
     activeSavedView.value = 'all'
     activeCustomFilterId.value = ''
@@ -2423,25 +2924,32 @@ function applyRouteFilters() {
   }
 
   if (projectStatus) {
+    applied = true
     filters.projectStatus = projectStatus
     activeSummaryKey.value = projectStatus
   }
   if (managerName) {
+    applied = true
     filters.managerName = managerName
     activeSummaryKey.value = 'owner'
   }
   if (onlyMissingDocuments === '1' || onlyMissingDocuments === 'true') {
+    applied = true
     filters.onlyMissingDocuments = true
     activeSummaryKey.value = 'missing'
   }
   if (onlyMonthlyNew === '1' || onlyMonthlyNew === 'true') {
+    applied = true
     filters.onlyMonthlyNew = true
     activeSummaryKey.value = 'monthly'
     activeSavedView.value = 'all'
     activeCustomFilterId.value = ''
   }
-  if (sort) filters.sort = sort
-  filters.page = 1
+  if (sort) {
+    applied = true
+    filters.sort = sort
+  }
+  if (applied) filters.page = 1
 }
 
 function applySummaryFilter(key: string) {
@@ -2552,6 +3060,30 @@ function toggleProjectSelection(id: string) {
     : [...selectedProjectIds.value, id]
 }
 
+function openProjectContextMenu(record: TableData, event: Event) {
+  const pointer = event as MouseEvent
+  pointer.preventDefault()
+  projectContextMenu.record = record as ProjectRecord
+  projectContextMenu.x = pointer.clientX
+  projectContextMenu.y = pointer.clientY
+  projectContextMenu.visible = true
+}
+
+async function handleProjectContextAction(action: string) {
+  const record = projectContextMenu.record
+  if (!record) return
+  if (action === 'view') await selectProject(record)
+  if (action === 'edit') openProjectForm(record)
+  if (action === 'upload') {
+    await loadCurrentProject(record.id)
+    if (currentProject.value) openFileDialog()
+  }
+  if (action === 'audit' && record.auditProjectId) goAudit(record.auditProjectId)
+  if (action === 'start-audit') await startAudit(record)
+  if (action === 'select' || action === 'unselect') toggleProjectSelection(record.id)
+  if (action === 'delete') await confirmDeleteProject(record)
+}
+
 function selectCurrentPage() {
   selectedProjectIds.value = Array.from(new Set([...selectedProjectIds.value, ...displayRecords.value.map((record) => record.id)]))
   MessagePlugin.success(`已选择当前显示的 ${displayRecords.value.length} 个项目`)
@@ -2601,6 +3133,7 @@ function batchMarkFocus() {
 }
 
 async function batchStartAudit() {
+  if (!requireEditorAccess('批量发起审计')) return
   if (!selectedRecords.value.length) {
     MessagePlugin.warning('请先选择需要发起审计的项目')
     return
@@ -2704,20 +3237,60 @@ function changePage(nextPage: number) {
   loadRecords()
 }
 
-function openProjectForm(record?: ProjectRecord | null) {
-  projectDialog.mode = record ? 'edit' : 'create'
-  projectDialog.saving = false
-  resetProjectFormErrors()
+async function openProjectForm(record?: ProjectRecord | null) {
+  if (!requireEditorAccess(record ? '编辑项目' : '创建项目')) return
   if (!record) {
+    projectDialog.mode = 'create'
+    projectDialog.saving = false
+    resetProjectFormErrors()
     resetProjectCreationFlow()
+    resetManualProjectIntake()
     detailDialogVisible.value = false
     currentProject.value = null
     activeTab.value = 'overview'
+    fillProjectForm(null)
+    projectDialog.initialSnapshot = projectFormSnapshot()
+    projectDialog.visible = true
+    await loadDrafts()
+    return
   }
-  fillProjectForm(record || null)
-  if (record) resetProjectCreationFlow()
+  projectDialog.mode = 'edit'
+  projectDialog.saving = false
+  resetProjectFormErrors()
+  fillProjectForm(record)
+  resetProjectCreationFlow()
   projectDialog.initialSnapshot = projectFormSnapshot()
   projectDialog.visible = true
+}
+
+async function openManualIntakeFromRoute() {
+  const versionId = String(route.query.intakeDocumentVersionId || '').trim()
+  const routeRequest = beginManualIntakeRoute(versionId)
+  if (!versionId || !authStore.isEditor) return false
+  if (!projectDialog.visible || projectDialog.mode !== 'create') await openProjectForm()
+  if (!routeRequest.isCurrent()) return false
+  const matchingDraft = manualDrafts.value.find((draft) => draft.documentVersionId === versionId)
+  if (matchingDraft) {
+    return resumeManualDraft(matchingDraft, routeRequest.isCurrent)
+  }
+  let routeMetadata: DocumentVersionMetadata | null = null
+  const published = await loadManualDocumentMetadata(
+    versionId,
+    routeRequest.isCurrent,
+    (metadata) => {
+      routeMetadata = metadata
+    },
+  )
+  if (!published || !routeMetadata || !routeRequest.isCurrent()) return false
+  const metadata: DocumentVersionMetadata = routeMetadata
+  manualContractDocument.value = manualDocumentRef(metadata)
+  const attached = await attachDocument(metadata.documentId, metadata.id)
+  if (!routeRequest.isCurrent()) return false
+  if (!attached) {
+    manualContractDocument.value = null
+    return false
+  }
+  return true
 }
 
 function closeProjectDialog(force = false) {
@@ -2735,16 +3308,22 @@ function requestCloseProjectDialog() {
     return
   }
   openConfirm({
-    title: '放弃未保存的项目信息？',
-    message: '当前项目表单还有未保存内容。关闭后，本次填写的信息将不会保留。',
-    confirmText: '放弃修改',
+    title: projectDialog.mode === 'create' ? '关闭项目创建窗口？' : '放弃未保存的项目信息？',
+    message: projectDialog.mode === 'create'
+      ? '当前内容将保存为未完成草稿，下次可以继续填写。'
+      : '当前项目表单还有未保存内容。关闭后，本次填写的信息将不会保留。',
+    confirmText: projectDialog.mode === 'create' ? '保存草稿并关闭' : '放弃修改',
     cancelText: '继续编辑',
-    danger: true,
-    onConfirm: () => closeProjectDialog(true),
+    danger: projectDialog.mode === 'edit',
+    onConfirm: async () => {
+      if (projectDialog.mode === 'create' && !await flushSave()) return
+      closeProjectDialog(true)
+    },
   })
 }
 
 function openFileDialog(category?: ProjectDocumentCategory | null) {
+  if (!requireEditorAccess('上传资料')) return
   if (!currentProject.value) return
   resetUploadPreview()
   fileDialog.projectId = currentProject.value.id
@@ -2808,6 +3387,7 @@ async function prepareUploadPreview(file: File) {
 }
 
 function openSettlementDialog(record?: ProjectSettlement | null) {
+  if (!requireEditorAccess(record ? '编辑结算' : '新增结算')) return
   if (!currentProject.value) return
   settlementDialog.mode = record ? 'edit' : 'create'
   settlementDialog.id = record?.id || ''
@@ -2816,6 +3396,7 @@ function openSettlementDialog(record?: ProjectSettlement | null) {
 }
 
 function openVariationDialog(record?: ProjectVariation | null) {
+  if (!requireEditorAccess(record ? '编辑签证' : '新增签证')) return
   if (!currentProject.value) return
   variationDialog.mode = record ? 'edit' : 'create'
   variationDialog.id = record?.id || ''
@@ -2824,6 +3405,7 @@ function openVariationDialog(record?: ProjectVariation | null) {
 }
 
 function openRenameDialog(file: ProjectFile) {
+  if (!requireEditorAccess('重命名资料')) return
   renameDialog.id = file.id
   renameDialog.displayName = file.displayName
   renameDialog.visible = true
@@ -2833,7 +3415,10 @@ async function toggleCategoryRequired(category: ProjectDocumentCategory) {
   if (!authStore.isAdmin || categorySavingKey.value) return
   categorySavingKey.value = category.categoryKey
   try {
-    const updated = await updateProjectDocumentCategory(category.categoryKey, { required: !category.required })
+    const updated = await updateProjectDocumentCategory(category.categoryKey, {
+      required: !category.required,
+      requiredFromStage: categoryRequiredFromStage(category),
+    })
     const index = meta.categories.findIndex((item) => item.categoryKey === updated.categoryKey)
     if (index >= 0) meta.categories[index] = updated
     MessagePlugin.success(updated.required ? '已设为必填资料' : '已设为按需资料')
@@ -2841,6 +3426,49 @@ async function toggleCategoryRequired(category: ProjectDocumentCategory) {
     await Promise.all([loadSummary(), loadRecords()])
   } catch (err) {
     MessagePlugin.error(friendlyErrorMessage(err, '资料必填设置保存失败，请稍后重试'))
+  } finally {
+    categorySavingKey.value = ''
+  }
+}
+
+function categoryRequiredFromStage(category: ProjectDocumentCategory) {
+  return category.requiredFromStage || documentStageDefaults[category.categoryKey] || 'awarded'
+}
+
+function categoryIsAvailableNow(category: ProjectDocumentCategory) {
+  const currentStage = currentProject.value?.projectStatus || ''
+  const currentRank = lifecycleStageRank.get(currentStage)
+  const requiredRank = lifecycleStageRank.get(categoryRequiredFromStage(category))
+  return currentRank !== undefined && requiredRank !== undefined && currentRank >= requiredRank
+}
+
+function categoryIsRequiredNow(category: ProjectDocumentCategory) {
+  return category.required && categoryIsAvailableNow(category)
+}
+
+function categoryRequirementLabel(category: ProjectDocumentCategory) {
+  if (!category.required) return '按需'
+  if (categoryIsRequiredNow(category)) return '当前必填'
+  return `${projectStatusLabel(categoryRequiredFromStage(category))}起必填`
+}
+
+async function updateCategoryRequiredFromStage(category: ProjectDocumentCategory, value: unknown) {
+  if (!authStore.isAdmin || categorySavingKey.value) return
+  const requiredFromStage = String(value || '')
+  if (!lifecycleStageRank.has(requiredFromStage)) return
+  categorySavingKey.value = category.categoryKey
+  try {
+    const updated = await updateProjectDocumentCategory(category.categoryKey, {
+      required: category.required,
+      requiredFromStage,
+    })
+    const index = meta.categories.findIndex((item) => item.categoryKey === updated.categoryKey)
+    if (index >= 0) meta.categories[index] = updated
+    MessagePlugin.success(`已调整为${projectStatusLabel(requiredFromStage)}起生效`)
+    if (currentProject.value) await loadCurrentProject(currentProject.value.id)
+    await Promise.all([loadSummary(), loadRecords()])
+  } catch (err) {
+    MessagePlugin.error(friendlyErrorMessage(err, '资料生效阶段保存失败，请稍后重试'))
   } finally {
     categorySavingKey.value = ''
   }
@@ -2883,6 +3511,7 @@ async function loadRecords() {
     total.value = result.total
     page.value = result.page
     pageSize.value = result.pageSize
+    saveProjectWorkspaceState()
     if (!currentProject.value || !records.value.find((item) => item.id === currentProject.value?.id)) {
       if (await openProjectFromRoute()) {
         return
@@ -2911,6 +3540,7 @@ async function loadCurrentProject(id: string) {
 }
 
 function openLifecycleTransition(snapshot: ProjectLifecycleSnapshot) {
+  if (!requireEditorAccess('推进项目阶段')) return
   lifecycleTransitionSnapshot.value = snapshot
   lifecycleTransitionVisible.value = true
 }
@@ -2961,6 +3591,17 @@ function showAuditIntentGuide() {
 }
 
 async function selectProject(record: ProjectRecord, fetchDetail = true) {
+  const routeProjectId = String(route.query.projectId || '')
+  if (routeProjectId !== record.id) {
+    await router.push({
+      path: '/project-management',
+      query: {
+        projectId: record.id,
+        projectName: record.projectName,
+      },
+    })
+    return
+  }
   if (currentProject.value?.id === record.id && !fetchDetail) return
   detailDialogVisible.value = true
   if (!fetchDetail) {
@@ -2977,9 +3618,13 @@ function closeProjectDetail() {
   currentProject.value = null
   activeTab.value = 'overview'
   closeFilePreview()
+  if (route.path === '/project-management' && route.query.projectId) {
+    router.push({ path: '/project-management', query: { view: 'ledger' } })
+  }
 }
 
 async function saveProject() {
+  if (projectDialog.mode !== 'edit' || !requireEditorAccess('编辑项目')) return
   if (!validateProjectForm()) {
     MessagePlugin.error('请先完善项目表单中的提示项')
     return
@@ -2987,15 +3632,13 @@ async function saveProject() {
   projectDialog.saving = true
   try {
     const payload = {
-      ...buildProjectMutationPayload(projectDialog.mode, projectForm),
+      ...buildProjectMutationPayload('edit', projectForm),
       contractAmount: Number(projectForm.contractAmount || 0),
       submittedAmount: Number(projectForm.submittedAmount || 0),
       paidAmount: Number(projectForm.paidAmount || 0),
-      description: projectDialog.mode === 'create' ? appendProjectCreationNotes(projectForm.description) : projectForm.description,
+      description: projectForm.description,
     }
-    const result = projectDialog.mode === 'create'
-      ? await createProjectRecord(payload)
-      : await updateProjectRecord(projectForm.id, payload)
+    const result = await updateProjectRecord(projectForm.id, payload)
     MessagePlugin.success('项目已保存')
     closeProjectDialog(true)
     await Promise.all([loadSummary(), loadWorkItems(), loadRecords()])
@@ -3008,6 +3651,7 @@ async function saveProject() {
 }
 
 async function startAudit(record: ProjectRecord) {
+  if (!requireEditorAccess('发起审计')) return
   if (!record?.id) return
   if (record.auditProjectId) {
     MessagePlugin.warning('该项目已进入审计流程，请直接查看审计进度')
@@ -3045,6 +3689,7 @@ async function runStartAudit(record: ProjectRecord) {
 }
 
 async function saveFile() {
+  if (!requireEditorAccess('上传资料')) return
   if (!currentProject.value) return
   if (!fileDialog.categoryKey) {
     MessagePlugin.error('请选择资料分类')
@@ -3082,6 +3727,7 @@ async function saveFile() {
 }
 
 async function saveSettlement() {
+  if (!requireEditorAccess(settlementDialog.mode === 'edit' ? '编辑结算' : '新增结算')) return
   if (!currentProject.value) return
   if (!settlementForm.settlementName.trim()) {
     MessagePlugin.error('请填写结算名称')
@@ -3107,6 +3753,7 @@ async function saveSettlement() {
 }
 
 async function saveVariation() {
+  if (!requireEditorAccess(variationDialog.mode === 'edit' ? '编辑签证' : '新增签证')) return
   if (!currentProject.value) return
   if (!variationForm.variationName.trim()) {
     MessagePlugin.error('请填写签证名称')
@@ -3132,6 +3779,7 @@ async function saveVariation() {
 }
 
 async function saveRename() {
+  if (!requireEditorAccess('重命名资料')) return
   renameDialog.saving = true
   try {
     await renameProjectFile(renameDialog.id, renameDialog.displayName)
@@ -3189,6 +3837,7 @@ async function downloadFile(file: ProjectFile) {
 }
 
 async function confirmDeleteProject(record: ProjectRecord) {
+  if (!requireAdminAccess('删除项目')) return
   openConfirm({
     title: '删除项目？',
     message: `删除「${record.projectName}」后，该项目将不再出现在项目台账中。请确认已不需要继续跟踪。`,
@@ -3211,6 +3860,7 @@ async function runDeleteProject(record: ProjectRecord) {
 }
 
 async function confirmDeleteFile(file: ProjectFile) {
+  if (!requireAdminAccess('删除资料')) return
   openConfirm({
     title: '删除资料？',
     message: `删除「${file.displayName}」后，该资料将不再出现在当前项目资料中心。`,
@@ -3241,14 +3891,25 @@ function handleSidebarAction(event: Event) {
   if (action === 'project:create') openProjectForm()
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadSavedFilterViews()
+  const restoredScrollTop = restoreProjectWorkspaceState()
   window.addEventListener('keydown', handleProjectKeyboard)
   window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
-  loadAll()
+  await loadAll()
+  try {
+    await openManualIntakeFromRoute()
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '合同原文无法接入项目草稿，请稍后重试。'))
+  }
+  await nextTick()
+  const scrollContainer = document.querySelector<HTMLElement>('.system-content')
+  if (scrollContainer && restoredScrollTop > 0) scrollContainer.scrollTop = restoredScrollTop
 })
 
 onBeforeUnmount(() => {
+  if (projectDialog.visible && projectDialog.mode === 'create') void flushSave()
+  saveProjectWorkspaceState()
   window.removeEventListener('keydown', handleProjectKeyboard)
   window.removeEventListener('jiqing-sidebar-action', handleSidebarAction)
   closeFilePreview()
@@ -3263,11 +3924,43 @@ watch(
   },
 )
 
+watch(
+  () => route.query.intakeDocumentVersionId,
+  async (versionId, previousVersionId) => {
+    if (versionId === previousVersionId) return
+    try {
+      await openManualIntakeFromRoute()
+    } catch (error) {
+      MessagePlugin.error(friendlyErrorMessage(error, '合同原文无法接入项目草稿，请稍后重试。'))
+    }
+  },
+)
+
+watch(
+  () => [
+    projectDialog.visible,
+    projectDialog.mode,
+    projectFormSnapshot(),
+    manualContractDocument.value?.versionId || '',
+    manualPdfPage.value,
+    manualPdfScale.value,
+    manualPdfPreviewCollapsed.value,
+  ] as const,
+  ([visible, mode]) => {
+    if (!visible || mode !== 'create' || restoringManualDraft.value || projectDialog.saving) return
+    scheduleSave()
+  },
+  { flush: 'post' },
+)
+
 watch(detailDialogVisible, (visible) => {
   if (!visible) {
     currentProject.value = null
     activeTab.value = 'overview'
     closeFilePreview()
+    if (route.path === '/project-management' && route.query.projectId) {
+      router.push({ path: '/project-management', query: { view: 'ledger' } })
+    }
   }
 })
 </script>
@@ -4416,7 +5109,13 @@ watch(detailDialogVisible, (visible) => {
 .doc-card__tools {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.doc-stage-select {
+  width: 132px;
 }
 
 .doc-required-toggle,
@@ -4567,7 +5266,7 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .project-form-modal :deep(.arco-modal-body) {
-  max-height: min(72vh, 680px);
+  max-height: min(78vh, 820px);
   overflow: auto;
   padding: var(--space-4);
   background: var(--bg-surface);
@@ -4586,6 +5285,76 @@ watch(detailDialogVisible, (visible) => {
   display: grid;
   gap: var(--space-4);
 }
+
+.project-create-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
+  gap: var(--space-4);
+  min-height: min(70vh, 740px);
+  max-height: min(70vh, 740px);
+}
+
+.project-create-shell--preview-collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.project-create-shell__form,
+.project-create-shell__preview {
+  min-width: 0;
+  overflow: auto;
+}
+
+.project-create-shell__form {
+  padding-right: 2px;
+}
+
+.project-create-shell__preview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.manual-draft-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.manual-draft-strip > span {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.manual-draft-strip button {
+  display: grid;
+  flex: 0 0 180px;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 9px;
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.manual-draft-strip button.active {
+  border-color: var(--color-primary);
+  background: var(--color-brand-50);
+}
+
+.manual-draft-strip strong,
+.manual-draft-strip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-draft-strip strong { font-size: var(--text-xs); }
+.manual-draft-strip small { color: var(--text-tertiary); }
 
 .wizard-stepper {
   display: grid;
@@ -5107,6 +5876,17 @@ watch(detailDialogVisible, (visible) => {
   .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
+}
+
+@media (max-width: 960px) {
+  .project-create-shell,
+  .project-create-shell--preview-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-create-shell__preview {
+    overflow: visible;
+  }
 }
 
 @media (max-width: 760px) {

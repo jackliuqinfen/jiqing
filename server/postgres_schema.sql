@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS audit_project_attachments (
   is_deleted BOOLEAN DEFAULT FALSE
 );
 
+CREATE TABLE IF NOT EXISTS desktop_sync_hash_cache (
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  revision_key TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  file_size BIGINT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source_type, source_id, revision_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_desktop_sync_hash_updated
+  ON desktop_sync_hash_cache(updated_at);
+
 CREATE TABLE IF NOT EXISTS audit_field_configs (
   id TEXT PRIMARY KEY,
   entity_type TEXT NOT NULL DEFAULT 'project',
@@ -283,6 +296,9 @@ CREATE TABLE IF NOT EXISTS project_intake_drafts (
   document_version_id TEXT REFERENCES document_versions(id),
   schema_version TEXT NOT NULL DEFAULT 'contract.v1',
   values_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  project_values_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ui_state_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  revision INTEGER NOT NULL DEFAULT 0,
   fallback_reason TEXT NOT NULL DEFAULT '',
   fallback_note TEXT NOT NULL DEFAULT '',
   completed_project_id TEXT REFERENCES project_records(id),
@@ -475,6 +491,11 @@ CREATE TABLE IF NOT EXISTS system_users (
   username TEXT UNIQUE NOT NULL,
   display_name TEXT NOT NULL,
   email TEXT DEFAULT '',
+  avatar_url TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  department TEXT DEFAULT '',
+  job_title TEXT DEFAULT '',
+  bio TEXT DEFAULT '',
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   is_active BOOLEAN DEFAULT TRUE,
