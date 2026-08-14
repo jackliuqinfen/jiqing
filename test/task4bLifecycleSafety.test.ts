@@ -8,6 +8,13 @@ import {
   getLoadedProjectPageCount,
   settleLifecycleRefresh,
 } from '../src/utils/projectLifecycleRefresh.ts'
+import { newIdempotencyKey } from '../src/utils/idempotencyKey.ts'
+
+test('generates a lifecycle idempotency key without crypto.randomUUID', () => {
+  const key = newIdempotencyKey('lifecycle', {})
+
+  assert.match(key, /^lifecycle-[0-9a-f]+-[0-9a-f]+-[0-9a-f]+$/)
+})
 
 test('omits backend-owned lifecycle and audit linkage fields from project edits', () => {
   const payload = buildProjectMutationPayload('edit', {

@@ -75,6 +75,7 @@ import type {
   ProjectLifecycleSnapshot,
   ProjectLifecycleValidateResponse,
 } from '@/types/projectLifecycle'
+import { newIdempotencyKey } from '@/utils/idempotencyKey'
 
 const props = defineProps<{
   visible: boolean
@@ -138,7 +139,7 @@ async function submit() {
   errorMessage.value = ''
   needsRefresh.value = false
   // A failed request keeps this key so retrying the same user submission is idempotent.
-  const key = idempotencyKey.value || (idempotencyKey.value = crypto.randomUUID())
+  const key = idempotencyKey.value || (idempotencyKey.value = newIdempotencyKey('lifecycle'))
   try {
     const response = await transitionProjectLifecycle(props.projectId, {
       toStage: targetStage.value,
