@@ -193,7 +193,7 @@ class TencentCosFileStorage:
 
     def size(self, relative_path):
         response = self.client.head_object(Bucket=self.bucket, Key=self._key(relative_path))
-        return int(response.get("ContentLength") or 0)
+        return int(_header_value(response, "content-length") or 0)
 
     def delete(self, relative_path):
         self.client.delete_object(Bucket=self.bucket, Key=self._key(relative_path))
@@ -318,3 +318,11 @@ def _is_cos_not_found(exc):
         "NoSuchBucket",
         "NoSuchResource",
     } or any(marker in message for marker in ("NoSuchKey", "NoSuchObject", "NoSuchBucket", "NoSuchResource"))
+
+
+def _header_value(headers, name):
+    normalized_name = str(name).lower().replace("-", "")
+    for key, value in headers.items():
+        if str(key).lower().replace("-", "") == normalized_name:
+            return value
+    return None
