@@ -6431,8 +6431,10 @@ watch(detailDialogVisible, (visible) => {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
   gap: var(--space-4);
-  min-height: min(70vh, 740px);
+  height: min(70vh, 740px);
+  min-height: 0;
   max-height: min(70vh, 740px);
+  overflow: hidden;
 }
 
 .project-create-shell--preview-collapsed {
@@ -6442,6 +6444,7 @@ watch(detailDialogVisible, (visible) => {
 .project-create-shell__form,
 .project-create-shell__preview {
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -6453,6 +6456,7 @@ watch(detailDialogVisible, (visible) => {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-2);
+  overflow: hidden;
 }
 
 .manual-draft-strip {

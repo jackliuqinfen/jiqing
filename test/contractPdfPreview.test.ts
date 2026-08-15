@@ -170,3 +170,13 @@ test('preview observes its real container and names every symbol-only zoom actio
   assert.equal(source.match(/aria-label="缩小合同 PDF"/g)?.length, 2)
   assert.equal(source.match(/aria-label="放大合同 PDF"/g)?.length, 2)
 })
+
+test('preview keeps the page controls reachable and supports Enter page navigation', () => {
+  const previewSource = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+  const projectSource = readWorkspaceFile('src/views/ProjectManagementView.vue')
+
+  assert.equal(previewSource.match(/aria-label="合同 PDF 页码"/g)?.length, 2)
+  assert.equal(previewSource.match(/@keydown\.enter\.prevent="setPage\(/g)?.length, 2)
+  assert.match(projectSource, /\.project-create-shell\s*\{[\s\S]*height:\s*min\(70vh,\s*740px\);[\s\S]*overflow:\s*hidden;/)
+  assert.match(projectSource, /\.project-create-shell__form,[\s\S]*\.project-create-shell__preview\s*\{[\s\S]*min-height:\s*0;/)
+})

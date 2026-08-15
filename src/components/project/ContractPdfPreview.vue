@@ -62,7 +62,9 @@
             type="number"
             min="1"
             :max="Math.max(totalPages, 1)"
+            aria-label="合同 PDF 页码"
             :disabled="paneBusy"
+            @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
             @change="setPage(Number(($event.target as HTMLInputElement).value))"
           />
           <span>/ {{ totalPages || '—' }} 页</span>
@@ -132,7 +134,9 @@
               type="number"
               min="1"
               :max="Math.max(totalPages, 1)"
+              aria-label="合同 PDF 页码"
               :disabled="paneBusy"
+              @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
               @change="setPage(Number(($event.target as HTMLInputElement).value))"
             />
             <span>/ {{ totalPages || '—' }}</span>
@@ -836,6 +840,12 @@ function formatFileSize(bytes: number) {
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--color-border-2);
+  background: var(--color-bg-1);
+}
+
+.contract-pdf-preview__toolbar button {
+  min-width: 30px;
+  min-height: 30px;
 }
 
 .contract-pdf-preview__toolbar label {
