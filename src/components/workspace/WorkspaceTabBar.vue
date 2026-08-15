@@ -49,6 +49,17 @@
       <AIcon name="rollback" />
     </button>
 
+    <button
+      type="button"
+      class="workspace-tabbar__clear"
+      :disabled="!canClear"
+      title="清理全部标签并回到项目台账"
+      aria-label="清理全部标签并回到项目台账"
+      @click="$emit('clearAll')"
+    >
+      <AIcon name="close" />
+    </button>
+
     <div
       v-if="menu.visible"
       class="workspace-tab-menu"
@@ -81,6 +92,7 @@ const emit = defineEmits<{
   closeOthers: [tabId: string]
   togglePin: [tabId: string]
   restore: []
+  clearAll: []
   reorder: [tabId: string, targetIndex: number]
   back: []
   forward: []
@@ -100,6 +112,7 @@ const canGoForward = computed(() => Boolean(
   activeTab.value
   && activeTab.value.historyIndex < activeTab.value.history.length - 1,
 ))
+const canClear = computed(() => props.tabs.some((tab) => tab.closable))
 
 function startDrag(tabId: string, event: DragEvent) {
   draggedTabId.value = tabId
@@ -172,7 +185,8 @@ onBeforeUnmount(() => {
 }
 
 .workspace-tabbar__history button,
-.workspace-tabbar__restore {
+.workspace-tabbar__restore,
+.workspace-tabbar__clear {
   width: 28px;
   height: 28px;
   display: inline-grid;
@@ -186,7 +200,8 @@ onBeforeUnmount(() => {
 }
 
 .workspace-tabbar__history button:hover:not(:disabled),
-.workspace-tabbar__restore:hover:not(:disabled) {
+.workspace-tabbar__restore:hover:not(:disabled),
+.workspace-tabbar__clear:hover:not(:disabled) {
   color: var(--color-brand-600);
   background: rgba(255, 255, 255, 0.84);
 }
@@ -278,6 +293,11 @@ onBeforeUnmount(() => {
 
 .workspace-tabbar__restore {
   margin-bottom: 4px;
+}
+
+.workspace-tabbar__clear {
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
 }
 
 .workspace-tab-menu {

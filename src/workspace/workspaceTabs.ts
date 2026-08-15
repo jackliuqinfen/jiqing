@@ -286,6 +286,30 @@ export function closeOtherWorkspaceTabs(
   return state
 }
 
+export function clearWorkspaceTabs(
+  _current: WorkspaceState,
+  route: WorkspaceRouteInput,
+  now = Date.now(),
+): WorkspaceNavigationResult {
+  const descriptor = deriveWorkspaceRoute(route)
+  const landingTab: WorkspaceTab = {
+    ...descriptor,
+    closable: false,
+    pinned: true,
+    history: [route.fullPath],
+    historyIndex: 0,
+    lastActivatedAt: now,
+  }
+  return {
+    state: {
+      tabs: [landingTab],
+      activeTabId: landingTab.id,
+      recentlyClosed: [],
+    },
+    route: route.fullPath,
+  }
+}
+
 export function navigateWorkspaceHistory(
   current: WorkspaceState,
   direction: -1 | 1,

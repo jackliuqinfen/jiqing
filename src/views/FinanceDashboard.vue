@@ -19,21 +19,6 @@
       </button>
     </nav>
 
-    <section class="source-status-panel" aria-label="结算财务数据来源">
-      <div class="panel-title">
-        <div>
-          <h2>数据来源状态</h2>
-          <span>只反映接口接入与返回状态，不补造任何统计数据。</span>
-        </div>
-      </div>
-      <div class="source-status-grid">
-        <article v-for="item in sourceStatusItems" :key="item.label" :data-state="item.state">
-          <strong>{{ item.label }}</strong>
-          <span>{{ item.text }}</span>
-        </article>
-      </div>
-    </section>
-
     <section v-if="activeView === 'overview'" class="view-panel">
       <div class="panel-title">
         <div>
@@ -99,40 +84,82 @@
       <div class="panel-title">
         <div>
           <h2>项目结算台账</h2>
-          <span>从结算项目接口读取，不从项目管理页面临时推算。</span>
+          <span>按项目主档案集中查看合同、审计、开票、收款和下一步动作。</span>
+        </div>
+        <div class="settlement-ledger__summary">
+          <strong>{{ visibleSettlementProjects.length }}</strong>
+          <span>/ {{ settlementProjects.length }} 个项目</span>
         </div>
       </div>
-      <DataTable :columns="['项目', '建设/施工单位', '合同金额', '送审/审定金额', '已开票/已收款', '状态/下一步']">
-        <article v-for="item in settlementProjects" :key="item.id" class="table-row table-row--six">
-          <span>
+      <div class="settlement-ledger__toolbar">
+        <div class="settlement-ledger__toolbar-title">
+          <strong>项目结算视图</strong>
+          <span>筛选只影响当前展示，不改变结算数据。</span>
+        </div>
+        <div class="settlement-ledger__filters" role="group" aria-label="按结算状态筛选">
+          <span>结算状态</span>
+          <button
+            v-for="option in ledgerStatusOptions"
+            :key="option.value"
+            type="button"
+            :class="{ active: ledgerStatusFilter === option.value }"
+            @click="ledgerStatusFilter = option.value"
+          >
+            {{ option.label }} <b>{{ option.count }}</b>
+          </button>
+        </div>
+      </div>
+      <div class="settlement-ledger" role="table" aria-label="项目结算台账">
+        <div class="settlement-ledger__group-head" role="row">
+          <span role="columnheader">项目档案<small>项目与参建单位</small></span>
+          <span role="columnheader">资金与结算<small>合同、审计、开票、收款</small></span>
+          <span role="columnheader">推进状态<small>当前状态与下一步动作</small></span>
+        </div>
+        <div class="settlement-ledger__head" role="row">
+          <span role="columnheader">项目主档案</span>
+          <span role="columnheader">建设 / 施工单位</span>
+          <span role="columnheader">合同与审计</span>
+          <span role="columnheader">开票与收款</span>
+          <span role="columnheader">当前状态</span>
+          <span role="columnheader">下一步动作</span>
+        </div>
+        <article v-for="item in visibleSettlementProjects" :key="item.id" class="settlement-ledger__row" role="row">
+          <span class="settlement-ledger__project" role="cell">
             <strong>{{ item.projectName || '项目名称待补充' }}</strong>
             <small>{{ item.projectCode || '项目编号待补充' }}</small>
           </span>
-          <span>
-            <strong>{{ item.ownerUnit || '-' }}</strong>
-            <small>{{ item.constructionUnit || '-' }}</small>
+          <span class="settlement-ledger__parties" role="cell">
+            <strong>{{ item.ownerUnit || '建设单位待补充' }}</strong>
+            <small>施工：{{ item.constructionUnit || '待补充' }}</small>
+            <small v-if="item.managerName">项目经理：{{ item.managerName }}</small>
           </span>
-          <MoneyCell :amount="item.contractAmount" />
-          <span>
-            <MoneyCell :amount="item.submittedAmount" />
-            <small>审定：{{ formatNullableMoney(item.finalAuditAmount ?? item.finalAuditedAmount) }}</small>
+          <span class="settlement-ledger__money-stack" role="cell">
+            <small><em>合同额</em><strong>{{ formatNullableMoney(item.contractAmount) }}</strong></small>
+            <small><em>送审</em><strong>{{ formatNullableMoney(item.submittedAmount) }}</strong></small>
+            <small><em>审定</em><strong>{{ formatNullableMoney(item.finalAuditAmount ?? item.finalAuditedAmount) }}</strong></small>
           </span>
-          <span>
-            <small>开票：{{ formatNullableMoney(item.invoicedAmount ?? item.invoiceAmount) }}</small>
-            <small>甲方已付：{{ formatNullableMoney(item.paymentSummary?.ownerPaidAmount ?? item.receivedAmount) }}</small>
+          <span class="settlement-ledger__money-stack" role="cell">
+            <small><em>已开票</em><strong>{{ formatNullableMoney(item.invoicedAmount ?? item.invoiceAmount) }}</strong></small>
+            <small><em>已收款</em><strong>{{ formatNullableMoney(item.paymentSummary?.ownerPaidAmount ?? item.receivedAmount) }}</strong></small>
+            <small v-if="item.receivableAmount !== undefined && item.receivableAmount !== null"><em>待收款</em><strong>{{ formatNullableMoney(item.receivableAmount) }}</strong></small>
           </span>
-          <span>
-            <em class="status-pill">{{ item.settlementStatus || item.collectionStatus || '状态待补充' }}</em>
-            <small>{{ item.nextAction || item.nextPaymentNode || '-' }}</small>
+          <span class="settlement-ledger__status" role="cell">
+            <em class="status-pill">{{ item.settlementStatus || '状态待补充' }}</em>
+            <small>{{ item.collectionStatus || item.invoiceStatus || item.auditStatus || '结算信息待补充' }}</small>
+          </span>
+          <span class="settlement-ledger__next-action" role="cell">
+            <strong>{{ item.nextAction || item.nextPaymentNode || '待补充下一步动作' }}</strong>
+            <small v-if="item.nextPaymentNode && item.nextAction">付款节点：{{ item.nextPaymentNode }}</small>
+            <small v-else>根据当前结算状态继续维护</small>
           </span>
         </article>
-        <div v-if="settlementProjects.length === 0" class="empty-row empty-row--action">
-          <span>暂无真实项目结算台账</span>
-          <button v-if="canManageSettlementFinance" type="button" @click="openExistingProjectSettlement">从已有项目补充结算信息</button>
-          <button v-if="canManageSettlementFinance" type="button" @click="openExistingProjectSettlement">纳入结算管理</button>
-          <small v-else>如需维护结算信息，请联系管理员开通编辑权限。</small>
+        <div v-if="visibleSettlementProjects.length === 0" class="settlement-ledger__empty">
+          <span>{{ settlementProjects.length === 0 ? '暂无真实项目结算台账' : '当前筛选条件下暂无项目' }}</span>
+          <button v-if="settlementProjects.length > 0" type="button" @click="ledgerStatusFilter = 'all'">清除筛选</button>
+          <button v-if="settlementProjects.length === 0 && canManageSettlementFinance" type="button" @click="openExistingProjectSettlement">纳入结算管理</button>
+          <small v-else-if="settlementProjects.length === 0">如需维护结算信息，请联系管理员开通编辑权限。</small>
         </div>
-      </DataTable>
+      </div>
     </section>
 
     <section v-else-if="activeView === 'invoice'" class="view-panel">
@@ -166,10 +193,44 @@
       <div class="panel-title">
         <div>
           <h2>结算资料管理</h2>
-          <span>结算资料需要与付款节点和资料中心打通，未接入前不展示推测资料完整度。</span>
+          <span>与项目台账资料中心同步，按结算项目查看合同、过程、验收、审计和财务资料。</span>
+        </div>
+        <div class="settlement-ledger__summary">
+          <strong>{{ settlementDocumentCount }}</strong>
+          <span>份资料 · {{ settlementDocumentGroups.length }} 个项目</span>
         </div>
       </div>
-      <EmptyBlock title="暂无结算资料接口" text="请接入结算资料接口后展示合同资料、施工过程资料、竣工验收资料、审计资料和财务资料。" />
+      <div v-if="settlementDocumentGroups.length === 0" class="settlement-documents__empty">
+        <EmptyBlock
+          :title="settlementProjects.length === 0 ? '暂无结算项目' : '暂无已归档结算资料'"
+          :text="settlementProjects.length === 0 ? '请先从项目台账纳入结算管理。' : '当前结算项目尚未在项目资料中心归档资料。资料上传后会自动同步到这里。'"
+        />
+      </div>
+      <div v-else class="settlement-document-groups">
+        <article v-for="group in settlementDocumentGroups" :key="group.key" class="settlement-document-group">
+          <header class="settlement-document-group__head">
+            <div>
+              <strong>{{ group.projectName }}</strong>
+              <small>{{ group.projectCode || '项目编号待补充' }} · {{ group.files.length }} 份资料</small>
+            </div>
+            <button type="button" @click="openSettlementProject(group.projectId)">打开项目台账</button>
+          </header>
+          <div class="settlement-document-group__categories">
+            <span v-for="category in group.categories" :key="category.label">
+              {{ category.label }} <b>{{ category.count }}</b>
+            </span>
+          </div>
+          <ul class="settlement-document-list">
+            <li v-for="file in group.files" :key="file.id">
+              <span class="settlement-document-list__main">
+                <strong>{{ file.displayName || file.originalName || '未命名资料' }}</strong>
+                <small>{{ file.categoryName || '项目资料' }} · {{ file.stageLabel || '项目资料' }} · {{ file.sourceLabel || '项目资料中心' }}</small>
+              </span>
+              <em>{{ file.evidenceStatus || '已归档' }}</em>
+            </li>
+          </ul>
+        </article>
+      </div>
     </section>
 
     <section v-else class="view-panel">
@@ -522,7 +583,7 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref
 import { useRoute, useRouter } from 'vue-router'
 import SettlementManagementWizard from '@/components/SettlementManagementWizard.vue'
 import SettlementPaymentFlowPanel from '@/components/SettlementPaymentFlowPanel.vue'
-import { fetchProjectRecords, saveProjectSettlement } from '@/api/projects'
+import { fetchProjectEvidence, fetchProjectRecords, saveProjectSettlement } from '@/api/projects'
 import {
   createSettlementProject,
   fetchSettlementOverviewDashboard,
@@ -538,11 +599,19 @@ import {
   type SettlementWorkbenchItem,
 } from '@/api/settlementFinance'
 import { useAuthStore } from '@/store/auth'
-import type { ProjectRecord, ProjectSettlement } from '@/types'
+import type { ProjectEvidenceFile, ProjectRecord, ProjectSettlement } from '@/types'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
 
 type ViewKey = 'overview' | 'workbench' | 'ledger' | 'invoice' | 'payment' | 'documents' | 'retention'
 type SettlementWizardStepKey = 'project' | 'contract' | 'stage' | 'template' | 'review'
+type SettlementDocumentGroup = {
+  key: string
+  projectId: string
+  projectName: string
+  projectCode: string
+  files: ProjectEvidenceFile[]
+  categories: { label: string; count: number }[]
+}
 
 const views: { key: ViewKey; label: string }[] = [
   { key: 'ledger', label: '项目结算台账' },
@@ -559,11 +628,13 @@ const router = useRouter()
 // The ledger is the operational entry point: it exposes the real empty state and
 // gives finance a direct path to include an existing project in settlement management.
 const activeView = ref<ViewKey>('ledger')
+const ledgerStatusFilter = ref('all')
 const authStore = useAuthStore()
 const canManageSettlementFinance = computed(() => authStore.isEditor)
 const overviewDashboard = ref<SettlementOverviewDashboard | null>(null)
 const workbenchItems = ref<SettlementWorkbenchItem[]>([])
 const settlementProjects = ref<SettlementProjectLedgerItem[]>([])
+const settlementDocuments = ref<ProjectEvidenceFile[]>([])
 const invoices = ref<SettlementInvoiceRecord[]>([])
 const retentions = ref<SettlementRetentionRecord[]>([])
 const existingProjects = ref<ProjectRecord[]>([])
@@ -660,14 +731,6 @@ const loadMessage = computed(() => {
   if (unavailableEndpoints.value.length === 0) return ''
   return `以下结算财务接口暂未接入或无权限访问：${unavailableEndpoints.value.join('、')}`
 })
-const sourceStatusItems = computed(() => [
-  sourceStatus('结算管理概览', Boolean(overviewDashboard.value), overviewDashboard.value ? '已读取汇总接口' : '接口未返回汇总数据'),
-  sourceStatus('财务工作台', workbenchItems.value.length > 0, workbenchItems.value.length ? `已读取 ${workbenchItems.value.length} 条待办` : '接口可用但暂无待办'),
-  sourceStatus('项目结算台账', settlementProjects.value.length > 0, settlementProjects.value.length ? `已读取 ${settlementProjects.value.length} 个结算项目` : '接口可用但暂无结算项目'),
-  sourceStatus('发票记录', invoices.value.length > 0, invoices.value.length ? `已读取 ${invoices.value.length} 条发票` : '接口可用但暂无发票'),
-  sourceStatus('质保金记录', retentions.value.length > 0, retentions.value.length ? `已读取 ${retentions.value.length} 条记录` : '接口可用但暂无记录'),
-])
-
 const overviewMetrics = computed(() => [
   metric('合同总金额', overviewDashboard.value?.contractTotalAmount),
   metric('审定总金额', overviewDashboard.value?.auditedTotalAmount),
@@ -687,6 +750,64 @@ const settlementStatusStats = computed(() => {
   })
   return Array.from(map.entries()).map(([status, count]) => ({ status, count }))
 })
+
+const ledgerStatusOptions = computed(() => {
+  const counts = new Map<string, number>()
+  settlementProjects.value.forEach((item) => {
+    const status = item.settlementStatus || '状态待补充'
+    counts.set(status, (counts.get(status) || 0) + 1)
+  })
+  return [
+    { value: 'all', label: '全部', count: settlementProjects.value.length },
+    ...Array.from(counts.entries()).map(([status, count]) => ({ value: status, label: status, count })),
+  ]
+})
+
+const visibleSettlementProjects = computed(() => {
+  if (ledgerStatusFilter.value === 'all') return settlementProjects.value
+  return settlementProjects.value.filter((item) => (item.settlementStatus || '状态待补充') === ledgerStatusFilter.value)
+})
+
+const settlementDocumentGroups = computed<SettlementDocumentGroup[]>(() => {
+  const projects = settlementProjects.value
+  if (projects.length === 0) return []
+  const byProjectId = new Map<string, SettlementProjectLedgerItem>()
+  const byProjectName = new Map<string, SettlementProjectLedgerItem>()
+  projects.forEach((item) => {
+    const id = String(item.projectId || item.id || '')
+    if (id) byProjectId.set(id, item)
+    if (item.projectName) byProjectName.set(item.projectName, item)
+  })
+  const groups = new Map<string, SettlementDocumentGroup>()
+  settlementDocuments.value.forEach((file) => {
+    const project = byProjectId.get(String(file.projectId || '')) || byProjectName.get(file.projectName || '')
+    if (!project) return
+    const projectId = String(project.projectId || project.id || file.projectId || '')
+    if (!projectId) return
+    const key = projectId
+    const group = groups.get(key) || {
+      key,
+      projectId,
+      projectName: project.projectName || file.projectName || '项目名称待补充',
+      projectCode: project.projectCode || file.projectCode || '',
+      files: [],
+      categories: [],
+    }
+    group.files.push(file)
+    groups.set(key, group)
+  })
+  return Array.from(groups.values()).map((group) => {
+    const categoryCounts = new Map<string, number>()
+    group.files.forEach((file) => {
+      const label = file.categoryName || '项目资料'
+      categoryCounts.set(label, (categoryCounts.get(label) || 0) + 1)
+    })
+    group.categories = Array.from(categoryCounts.entries()).map(([label, count]) => ({ label, count }))
+    return group
+  })
+})
+
+const settlementDocumentCount = computed(() => settlementDocumentGroups.value.reduce((total, group) => total + group.files.length, 0))
 
 const projectSelectOptions = computed(() => existingProjects.value.map((item) => ({
   label: `${item.projectName || '未命名项目'}${item.projectCode ? ` · ${item.projectCode}` : ''}`,
@@ -730,13 +851,6 @@ function metric(label: string, value?: number) {
   return { label, value: formatWan(value), hint: amountToChineseUpper(value) }
 }
 
-function sourceStatus(label: string, hasData: boolean, emptyText: string) {
-  if (unavailableEndpoints.value.includes(label)) {
-    return { label, state: 'unavailable', text: '接口未接入或无权限访问' }
-  }
-  return { label, state: hasData ? 'ready' : 'empty', text: emptyText }
-}
-
 function formatNullableMoney(value?: number) {
   if (value === undefined || value === null) return '-'
   return formatWan(value)
@@ -766,6 +880,11 @@ function setActiveView(view: ViewKey) {
   activeView.value = view
   const nextQuery = { ...route.query, view }
   router.replace({ path: '/finance', query: nextQuery }).catch(() => {})
+}
+
+function openSettlementProject(projectId: string) {
+  if (!projectId) return
+  router.push({ path: '/project-management', query: { view: 'ledger', projectId } })
 }
 
 function handleSidebarAction(event: Event) {
@@ -974,13 +1093,14 @@ async function handleNewSettlementWizardConfirm() {
 
 async function refresh() {
   unavailableEndpoints.value = []
-  const [overview, workbench, projects, invoiceList, retentionList, projectList] = await Promise.all([
+  const [overview, workbench, projects, invoiceList, retentionList, projectList, documents] = await Promise.all([
     readEndpoint('结算管理概览', fetchSettlementOverviewDashboard, null),
     readEndpoint('财务工作台', fetchSettlementFinanceWorkbench, []),
     readEndpoint('项目结算台账', fetchSettlementProjects, []),
     readEndpoint('发票管理', fetchSettlementInvoices, []),
     readEndpoint('质保金管理', fetchSettlementRetentions, []),
     readEndpoint('已有项目列表', () => fetchProjectRecords({ page: 1, pageSize: 200 }).then((res) => res.data), []),
+    readEndpoint('结算资料', fetchProjectEvidence, []),
   ])
   overviewDashboard.value = overview
   workbenchItems.value = workbench
@@ -988,6 +1108,7 @@ async function refresh() {
   invoices.value = invoiceList
   retentions.value = retentionList
   existingProjects.value = projectList
+  settlementDocuments.value = documents
 }
 
 watch(() => route.query.view, syncViewFromRoute, { immediate: true })
@@ -1011,7 +1132,6 @@ onBeforeUnmount(() => {
 
 .settlement-hero,
 .view-panel,
-.source-status-panel,
 .metric-card,
 .sub-panel {
   background: var(--premium-glass);
@@ -1134,7 +1254,6 @@ small,
 }
 
 .view-panel,
-.source-status-panel,
 .sub-panel {
   padding: 16px;
 }
@@ -1161,41 +1280,6 @@ small,
   gap: 6px;
   min-width: 0;
   padding: 16px;
-}
-
-.source-status-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.source-status-grid article {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(128, 158, 210, 0.2);
-  border-radius: var(--premium-radius-compact);
-}
-
-.source-status-grid article[data-state='ready'] {
-  border-color: rgba(0, 168, 112, 0.28);
-}
-
-.source-status-grid article[data-state='unavailable'] {
-  border-color: rgba(245, 63, 63, 0.25);
-}
-
-.source-status-grid strong,
-.source-status-grid span {
-  overflow-wrap: anywhere;
-}
-
-.source-status-grid span {
-  color: var(--premium-muted);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .metric-card strong {
@@ -1247,6 +1331,359 @@ small,
   overflow: hidden;
   border: 1px solid rgba(128, 158, 210, 0.22);
   border-radius: var(--premium-radius);
+}
+
+.settlement-ledger__summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  color: var(--premium-muted);
+  background: rgba(240, 247, 255, 0.72);
+  border: 1px solid rgba(128, 158, 210, 0.2);
+  border-radius: var(--premium-radius-compact);
+  font-size: 12px;
+}
+
+.settlement-ledger__summary strong {
+  color: var(--premium-blue);
+  font-size: 18px;
+}
+
+.settlement-ledger__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: rgba(246, 250, 255, 0.78);
+  border: 1px solid rgba(128, 158, 210, 0.18);
+  border-radius: var(--premium-radius-compact);
+}
+
+.settlement-ledger__toolbar-title {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.settlement-ledger__toolbar-title span {
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.settlement-ledger__filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.settlement-ledger__filters > span {
+  margin-right: 4px;
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.settlement-ledger__filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  color: var(--premium-muted);
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(128, 158, 210, .2);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.settlement-ledger__filters button b {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settlement-ledger__filters button:hover,
+.settlement-ledger__filters button.active {
+  color: var(--premium-blue);
+  background: rgba(231, 240, 255, .92);
+  border-color: rgba(22, 93, 255, .3);
+}
+
+.settlement-ledger {
+  overflow-x: auto;
+  border: 1px solid rgba(128, 158, 210, 0.22);
+  border-radius: var(--premium-radius);
+}
+
+.settlement-ledger__head,
+.settlement-ledger__row,
+.settlement-ledger__group-head {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.45fr) minmax(180px, 1.18fr) minmax(180px, 1.1fr) minmax(170px, 1.05fr) minmax(145px, .9fr) minmax(180px, 1.15fr);
+  gap: 14px;
+  min-width: 1180px;
+  align-items: start;
+}
+
+.settlement-ledger__group-head {
+  padding: 10px 14px 8px;
+  color: var(--premium-blue);
+  background: rgba(232, 241, 255, 0.92);
+  border-bottom: 1px solid rgba(128, 158, 210, 0.18);
+}
+
+.settlement-ledger__group-head > span {
+  display: grid;
+  grid-column: span 2;
+  gap: 2px;
+  min-width: 0;
+  padding-right: 12px;
+  border-right: 1px solid rgba(128, 158, 210, 0.2);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settlement-ledger__group-head > span:last-child {
+  border-right: 0;
+}
+
+.settlement-ledger__group-head small {
+  color: var(--premium-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.settlement-ledger__head {
+  padding: 12px 14px;
+  color: #385071;
+  background: rgba(240, 247, 255, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settlement-ledger__head > span:first-child,
+.settlement-ledger__row > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-shadow: 10px 0 14px -14px rgba(26, 56, 102, .6);
+}
+
+.settlement-ledger__head > span:first-child {
+  background: rgba(240, 247, 255, .98);
+}
+
+.settlement-ledger__row > :first-child {
+  background: rgba(255, 255, 255, .98);
+}
+
+.settlement-ledger__row {
+  padding: 16px 14px;
+  background: rgba(255, 255, 255, 0.52);
+  border-top: 1px solid rgba(128, 158, 210, 0.18);
+  transition: background .18s ease;
+}
+
+.settlement-ledger__row:hover {
+  background: rgba(246, 250, 255, 0.94);
+}
+
+.settlement-ledger__project,
+.settlement-ledger__parties,
+.settlement-ledger__status,
+.settlement-ledger__next-action,
+.settlement-ledger__money-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settlement-ledger__project strong,
+.settlement-ledger__parties strong,
+.settlement-ledger__next-action strong {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settlement-ledger__project small,
+.settlement-ledger__parties small,
+.settlement-ledger__status small,
+.settlement-ledger__next-action small {
+  color: var(--premium-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settlement-ledger__money-stack > small {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--premium-muted);
+  line-height: 1.35;
+}
+
+.settlement-ledger__money-stack em {
+  flex-shrink: 0;
+  color: var(--premium-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.settlement-ledger__money-stack strong {
+  color: var(--premium-ink);
+  font-size: 13px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.settlement-ledger__status .status-pill {
+  justify-self: start;
+}
+
+.settlement-ledger__empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 150px;
+  padding: 24px;
+  color: var(--premium-muted);
+  text-align: center;
+  border-top: 1px solid rgba(128, 158, 210, 0.18);
+}
+
+.settlement-ledger__empty button {
+  height: 34px;
+  padding: 0 14px;
+  color: var(--premium-blue);
+  background: rgba(255, 255, 255, .82);
+  border: 1px solid rgba(22, 93, 255, .24);
+  border-radius: var(--premium-radius-compact);
+  cursor: pointer;
+}
+
+.settlement-documents__empty {
+  max-width: 720px;
+}
+
+.settlement-document-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.settlement-document-group {
+  overflow: hidden;
+  background: rgba(255, 255, 255, .56);
+  border: 1px solid rgba(128, 158, 210, .22);
+  border-radius: var(--premium-radius);
+}
+
+.settlement-document-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(240, 247, 255, .74);
+  border-bottom: 1px solid rgba(128, 158, 210, .18);
+}
+
+.settlement-document-group__head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settlement-document-group__head strong,
+.settlement-document-group__head small {
+  overflow-wrap: anywhere;
+}
+
+.settlement-document-group__head small {
+  color: var(--premium-muted);
+}
+
+.settlement-document-group__head button {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  color: var(--premium-blue);
+  background: rgba(255, 255, 255, .82);
+  border: 1px solid rgba(22, 93, 255, .24);
+  border-radius: var(--premium-radius-compact);
+  cursor: pointer;
+}
+
+.settlement-document-group__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 12px 16px 4px;
+}
+
+.settlement-document-group__categories span {
+  padding: 4px 8px;
+  color: var(--premium-muted);
+  background: rgba(128, 158, 210, .11);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.settlement-document-group__categories b {
+  margin-left: 3px;
+  color: var(--premium-blue);
+}
+
+.settlement-document-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 6px 16px 10px;
+  list-style: none;
+}
+
+.settlement-document-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(128, 158, 210, .14);
+}
+
+.settlement-document-list li:last-child {
+  border-bottom: 0;
+}
+
+.settlement-document-list__main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settlement-document-list__main strong,
+.settlement-document-list__main small {
+  overflow-wrap: anywhere;
+}
+
+.settlement-document-list__main small {
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.settlement-document-list li > em {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  color: var(--premium-muted);
+  background: rgba(128, 158, 210, .11);
+  border-radius: 6px;
+  font-size: 12px;
+  font-style: normal;
 }
 
 .table-row--six {
@@ -1565,7 +2002,6 @@ small,
 @media (max-width: 1180px) {
   .metric-grid--wide,
   .board-grid,
-  .source-status-grid,
   .auto-info-grid,
   .generated-preview-grid,
   .wizard-review-list {
@@ -1580,14 +2016,18 @@ small,
 @media (max-width: 760px) {
   .settlement-hero,
   .panel-title,
-  .hero-actions {
+  .hero-actions,
+  .settlement-ledger__toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .settlement-ledger__filters {
+    justify-content: flex-start;
+  }
+
   .metric-grid--wide,
   .board-grid,
-  .source-status-grid,
   .table-row--six,
   .settlement-form-grid,
   .settlement-wizard,

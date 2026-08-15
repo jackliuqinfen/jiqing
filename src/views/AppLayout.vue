@@ -1,7 +1,7 @@
 ﻿<template>
   <div
     class="system-shell"
-    :class="[`system-shell--${sidebarMode}`, { 'system-shell--resizing': resizing }]"
+    :class="[`system-shell--${sidebarMode}`, { 'system-shell--resizing': resizing, 'system-shell--icon-hover': sidebarHoverExpanded }]"
     :style="shellStyle"
   >
     <button v-if="sidebarMode === 'hidden'" type="button" class="sidebar-restore" @click="setSidebarMode('full')">
@@ -71,7 +71,12 @@
       </div>
     </header>
 
-    <aside v-if="sidebarMode !== 'hidden'" class="system-sidebar">
+    <aside
+      v-if="sidebarMode !== 'hidden'"
+      class="system-sidebar"
+      @mouseenter="handleSidebarMouseEnter"
+      @mouseleave="handleSidebarMouseLeave"
+    >
       <nav class="module-nav" aria-label="当前模块业务功能">
         <div class="sidebar-module-heading" :title="activeModule?.label || '工作台'">
           <span class="sidebar-module-heading__icon"><AIcon :name="activeModule?.icon || 'dashboard'" /></span>
@@ -128,6 +133,7 @@
       @close-others="closeOtherTabs"
       @toggle-pin="toggleTabPin"
       @restore="restoreClosedTab"
+      @clear-all="clearAllTabs"
       @reorder="reorderTab"
       @back="navigateTabHistory(-1)"
       @forward="navigateTabHistory(1)"
@@ -165,6 +171,7 @@ import WorkspaceTabBar from '@/components/workspace/WorkspaceTabBar.vue'
 import GlobalCommandCenter from '@/components/workspace/GlobalCommandCenter.vue'
 import {
   activateWorkspaceTab,
+  clearWorkspaceTabs,
   closeOtherWorkspaceTabs,
   closeWorkspaceTab,
   navigateWorkspaceHistory,
@@ -200,6 +207,7 @@ const SIDEBAR_WIDTH_KEY = 'jiqing-sidebar-width'
 const SIDEBAR_ORDER_KEY = 'jiqing-sidebar-nav-order'
 const WORKSPACE_STORAGE_KEY = 'jiqing-desktop-workspace-v1'
 const sidebarMode = ref<SidebarMode>('full')
+const sidebarHoverExpanded = ref(false)
 const sidebarWidth = ref(240)
 const resizing = ref(false)
 const navOrder = ref<string[]>([])
@@ -375,6 +383,14 @@ function toggleSidebarMode() {
   setSidebarMode(sidebarMode.value === 'full' ? 'icon' : 'full')
 }
 
+function handleSidebarMouseEnter() {
+  if (sidebarMode.value === 'icon') sidebarHoverExpanded.value = true
+}
+
+function handleSidebarMouseLeave() {
+  sidebarHoverExpanded.value = false
+}
+
 onMounted(async () => {
   recordCurrentWorkspaceRoute()
   const saved = window.localStorage.getItem(SIDEBAR_MODE_KEY)
@@ -395,6 +411,7 @@ onMounted(async () => {
 
 watch(sidebarMode, (mode) => {
   window.localStorage.setItem(SIDEBAR_MODE_KEY, mode)
+  if (mode !== 'icon') sidebarHoverExpanded.value = false
 })
 
 watch(sidebarWidth, (width) => {
@@ -565,6 +582,19 @@ function closeOtherTabs(tabId: string) {
   workspaceState.value = closeOtherWorkspaceTabs(workspaceState.value, tabId)
 }
 
+async function clearAllTabs() {
+  const target: WorkspaceRouteInput = {
+    path: '/project-management',
+    fullPath: '/project-management?view=ledger',
+    query: { view: 'ledger' },
+    metaTitle: '项目台账',
+  }
+  const result = clearWorkspaceTabs(workspaceState.value, target)
+  workspaceState.value = result.state
+  if (route.fullPath !== result.route) await navigateToWorkspaceRoute(result.route)
+  MessagePlugin.success('已清理标签页，返回项目台账')
+}
+
 function toggleTabPin(tabId: string) {
   const tab = workspaceState.value.tabs.find((item) => item.id === tabId)
   if (!tab) return
@@ -670,6 +700,55 @@ async function logout() {
 
 .system-shell--icon {
   grid-template-columns: 76px minmax(0, 1fr);
+}
+
+@media (min-width: 761px) {
+  .system-shell--icon-hover .system-sidebar {
+    position: fixed;
+    top: 58px;
+    bottom: 0;
+    left: 0;
+    z-index: 45;
+    width: var(--sidebar-width, 240px);
+    box-shadow: 14px 0 32px rgba(33, 65, 116, .14);
+  }
+
+  .system-shell--icon-hover .sidebar-module-heading {
+    grid-template-columns: 24px minmax(0, 1fr) 18px;
+    justify-items: stretch;
+    padding: 0 8px;
+  }
+
+  .system-shell--icon-hover .sidebar-module-heading strong,
+  .system-shell--icon-hover .sidebar-module-caret,
+  .system-shell--icon-hover .sidebar-collapse-toggle span {
+    display: initial;
+  }
+
+  .system-shell--icon-hover .module-link {
+    justify-content: flex-start;
+    padding-inline: 10px;
+  }
+
+  .system-shell--icon-hover .nav-section-title,
+  .system-shell--icon-hover .module-link > span:not(.module-link__icon),
+  .system-shell--icon-hover .module-link small {
+    display: initial;
+  }
+
+  .system-shell--icon-hover .sidebar-module-items {
+    gap: 6px;
+  }
+
+  .system-shell--icon-hover .sidebar-foot {
+    justify-content: stretch;
+  }
+
+  .system-shell--icon-hover .sidebar-collapse-toggle {
+    width: auto;
+    min-width: 0;
+    padding: 0 12px;
+  }
 }
 
 .system-shell--hidden {

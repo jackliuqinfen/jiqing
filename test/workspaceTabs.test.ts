@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   activateWorkspaceTab,
+  clearWorkspaceTabs,
   closeWorkspaceTab,
   createWorkspaceState,
   deriveWorkspaceRoute,
@@ -164,4 +165,19 @@ test('closed tabs can be restored and tabs can be reordered without losing histo
   const reordered = reorderWorkspaceTab(restored.state, 'view:/materials:library', 0)
   assert.equal(reordered.tabs[0].id, 'view:/materials:library')
   assert.deepEqual(reordered.tabs[0].history, ['/materials?view=library'])
+})
+
+test('clearing workspace tabs leaves a pinned project ledger landing tab', () => {
+  const result = clearWorkspaceTabs(createWorkspaceState(), {
+    path: '/project-management',
+    fullPath: '/project-management?view=ledger',
+    query: { view: 'ledger' },
+    metaTitle: '项目台账',
+  })
+
+  assert.equal(result.route, '/project-management?view=ledger')
+  assert.deepEqual(result.state.tabs.map((tab) => tab.id), ['view:/project-management:ledger'])
+  assert.equal(result.state.tabs[0].pinned, true)
+  assert.equal(result.state.tabs[0].closable, false)
+  assert.deepEqual(result.state.recentlyClosed, [])
 })
