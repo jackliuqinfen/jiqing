@@ -14,6 +14,7 @@ import type {
   UpdateAdminUserDto,
   UpdateCurrentUserProfileDto,
   ChangeCurrentUserPasswordDto,
+  DesktopSyncPolicySetting,
   UserProfile,
 } from '@/types'
 import type { ApiResult } from '@/types/audit'
@@ -184,6 +185,10 @@ export async function changeCurrentUserPassword(
 
 export async function fetchDesktopSyncProjects(): Promise<DesktopSyncProject[]> {
   return decodeDesktopSyncProjects(await request<unknown>('/desktop/sync/projects'))
+}
+
+export function fetchDesktopSyncPolicy(): Promise<DesktopSyncPolicySetting & { enabledForCurrentUser?: boolean }> {
+  return request('/desktop/policy')
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {

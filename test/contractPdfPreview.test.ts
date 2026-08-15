@@ -12,6 +12,7 @@ import {
   normalizePreviewMetrics,
   previewMetricsRequireRender,
 } from '../src/utils/contractPdfPreview.ts'
+import * as previewUtils from '../src/utils/contractPdfPreview.ts'
 
 const readWorkspaceFile = (relativePath: string) =>
   readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), 'utf8')
@@ -122,6 +123,24 @@ test('preview metrics normalize viewport state and invalidate rendering on size 
   assert.equal(previewMetricsRequireRender(resized, { ...resized }), false)
 })
 
+test('preview fit modes keep an A4 page inside the real canvas viewport', () => {
+  const resolvePreviewScale = previewUtils['resolvePreviewScale']
+  assert.equal(typeof resolvePreviewScale, 'function')
+
+  const base = {
+    pageWidth: 595,
+    pageHeight: 842,
+    containerWidth: 550,
+    containerHeight: 590,
+    padding: 40,
+    requestedScale: 1,
+  }
+
+  assert.equal(resolvePreviewScale({ ...base, mode: 'page' }), 0.65)
+  assert.equal(resolvePreviewScale({ ...base, mode: 'width' }), 0.86)
+  assert.equal(resolvePreviewScale({ ...base, mode: 'custom', requestedScale: 1.25 }), 1.25)
+})
+
 test('PDF.js stays exactly pinned and is split before the generic vendor chunk', () => {
   const packageJson = JSON.parse(readWorkspaceFile('package.json')) as {
     dependencies: Record<string, string>
@@ -179,4 +198,29 @@ test('preview keeps the page controls reachable and supports Enter page navigati
   assert.equal(previewSource.match(/@keydown\.enter\.prevent="setPage\(/g)?.length, 2)
   assert.match(projectSource, /\.project-create-shell\s*\{[\s\S]*height:\s*min\(70vh,\s*740px\);[\s\S]*overflow:\s*hidden;/)
   assert.match(projectSource, /\.project-create-shell__form,[\s\S]*\.project-create-shell__preview\s*\{[\s\S]*min-height:\s*0;/)
+})
+
+test('preview defaults to fit-page, exposes fit modes above the canvas, and consumes the full preview row', () => {
+  const previewSource = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+  const projectSource = readWorkspaceFile('src/views/ProjectManagementView.vue')
+
+  assert.match(previewSource, /ref<PreviewScaleMode>\('page'\)/)
+  assert.equal(previewSource.match(/适应整页/g)?.length, 2)
+  assert.equal(previewSource.match(/适应宽度/g)?.length, 2)
+  assert.ok(
+    previewSource.indexOf('contract-pdf-preview__toolbar')
+      < previewSource.indexOf('contract-pdf-preview__surface'),
+  )
+  assert.match(
+    projectSource,
+    /project-create-shell__preview--with-drafts[\s\S]*manualDrafts\.length/,
+  )
+  assert.match(
+    projectSource,
+    /\.project-create-shell__preview\s*\{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\)/,
+  )
+  assert.match(
+    projectSource,
+    /\.project-create-shell__preview--with-drafts\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/,
+  )
 })

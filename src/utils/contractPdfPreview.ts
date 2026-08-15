@@ -1,5 +1,33 @@
 const MIN_SCALE = 0.5
 const MAX_SCALE = 2.5
+const MIN_FIT_SCALE = 0.2
+
+export type PreviewScaleMode = 'page' | 'width' | 'custom'
+
+export interface ResolvePreviewScaleInput {
+  mode: PreviewScaleMode
+  requestedScale: number
+  pageWidth: number
+  pageHeight: number
+  containerWidth: number
+  containerHeight: number
+  padding?: number
+}
+
+export function resolvePreviewScale(input: ResolvePreviewScaleInput): number {
+  if (input.mode === 'custom') return clampScale(input.requestedScale)
+
+  const pageWidth = Number.isFinite(input.pageWidth) ? Math.max(1, input.pageWidth) : 1
+  const pageHeight = Number.isFinite(input.pageHeight) ? Math.max(1, input.pageHeight) : 1
+  const padding = Number.isFinite(input.padding) ? Math.max(0, input.padding || 0) : 0
+  const availableWidth = Math.max(1, input.containerWidth - padding)
+  const availableHeight = Math.max(1, input.containerHeight - padding)
+  const widthScale = availableWidth / pageWidth
+  const resolved = input.mode === 'page'
+    ? Math.min(widthScale, availableHeight / pageHeight)
+    : widthScale
+  return Math.round(Math.min(MAX_SCALE, Math.max(MIN_FIT_SCALE, resolved)) * 100) / 100
+}
 
 export function clampPage(page: number, totalPages: number): number {
   const safeTotal = Number.isFinite(totalPages) ? Math.max(1, Math.trunc(totalPages)) : 1

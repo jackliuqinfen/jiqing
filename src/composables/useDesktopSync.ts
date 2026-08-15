@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
+  fetchDesktopSyncPolicy,
   fetchDesktopSyncProjects,
   getAuthToken,
   type DesktopSyncProject,
@@ -16,6 +17,7 @@ import type {
   DesktopSyncState,
   JiqingDesktopBridge,
 } from '@/types/desktop'
+import type { DesktopSyncPolicySetting } from '@/types'
 
 const DEFAULT_PERMISSION_MESSAGE = '资料同步权限已变化，请重新确认同步范围'
 
@@ -27,6 +29,7 @@ export function useDesktopSync() {
   const capabilities = ref<DesktopCapabilities | null>(null)
   const state = ref<DesktopSyncState | null>(null)
   const projects = ref<DesktopSyncProject[]>([])
+  const syncPolicy = ref<(DesktopSyncPolicySetting & { enabledForCurrentUser?: boolean }) | null>(null)
   const selectedProjectRefs = ref<string[]>([])
   const loadingProjects = ref(false)
   const actionPending = ref(false)
@@ -39,6 +42,7 @@ export function useDesktopSync() {
   const projectLoadCycle = createDesktopSyncProjectLoadCycle()
   let unsubscribe: null | (() => void) = null
   let initialization: Promise<void> | null = null
+  let autoStartAttemptedUserId = ''
 
   const isDesktop = computed(() => capabilities.value?.desktop === true)
   const isAuthenticated = computed(() => authStore.isAuthenticated && Boolean(authStore.user?.id))
@@ -128,11 +132,35 @@ export function useDesktopSync() {
     errorMessage.value = ''
     policyDisabled.value = false
     try {
+      const policy = await fetchDesktopSyncPolicy()
+      if (!isCurrentProjectLoad(loadTicket)) return
+      syncPolicy.value = policy
+      if (policy.enabled !== true || policy.enabledForCurrentUser === false) {
+        throw new Error('本地同步未启用或当前账号无权限')
+      }
       const allowedProjects = await fetchDesktopSyncProjects()
       if (!isCurrentProjectLoad(loadTicket)) return
       projects.value = allowedProjects
       const allowedRefs = new Set(allowedProjects.map((project) => project.projectRef))
       selectedProjectRefs.value = selectedProjectRefs.value.filter((projectRef) => allowedRefs.has(projectRef))
+      const shouldAutoStart = Boolean(
+        !afterPermissionChange
+          && autoStartAttemptedUserId !== requestedUserId
+          && policy.enabledByDefault
+          && state.value?.localRoot
+          && !isSyncing.value,
+      )
+      if (shouldAutoStart) {
+        if (!selectedProjectRefs.value.length) {
+          selectedProjectRefs.value = allowedProjects.map((project) => project.projectRef)
+        }
+        if (selectedProjectRefs.value.length) {
+          autoStartAttemptedUserId = requestedUserId
+          globalThis.setTimeout(() => {
+            if (dialogOpen.value && currentAuthUserId() === requestedUserId) start()
+          }, 0)
+        }
+      }
       if (afterPermissionChange) {
         permissionRefreshRequired.value = false
         permissionMessage.value = '同步权限范围已重新检查，请重新选择需要同步的项目。'
@@ -141,6 +169,7 @@ export function useDesktopSync() {
       if (!isCurrentProjectLoad(loadTicket)) return
       projects.value = []
       selectedProjectRefs.value = []
+      syncPolicy.value = null
       const message = error instanceof Error ? error.message : '同步项目加载失败'
       errorMessage.value = message
       policyDisabled.value = message.includes('未启用') || message.includes('disabled')
@@ -249,6 +278,7 @@ export function useDesktopSync() {
     ([nextStatus, nextUserId], [previousStatus, previousUserId]) => {
       if (nextStatus === previousStatus && nextUserId === previousUserId) return
       invalidateProjectLoads('auth_change', { clearPermission: true })
+      autoStartAttemptedUserId = ''
       if (dialogOpen.value && nextStatus === 'authenticated' && nextUserId) {
         void loadProjects()
       }
@@ -267,6 +297,7 @@ export function useDesktopSync() {
     capabilities,
     state,
     projects,
+    syncPolicy,
     selectedProjectRefs,
     loadingProjects,
     actionPending,

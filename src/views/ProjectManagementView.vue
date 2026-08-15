@@ -737,7 +737,10 @@
           <div v-else-if="activeTab === 'files'" :id="detailTabPanelId('files')" class="detail-section" role="tabpanel" :aria-labelledby="detailTabId('files')" tabindex="0">
             <div class="section-head">
               <strong>资料列表</strong>
-              <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+              <div class="detail-head__actions">
+                <AButton size="small" variant="outline" :loading="projectArchiveDownloading" @click="downloadProjectArchive()">下载全部资料</AButton>
+                <AButton v-if="authStore.isEditor" size="small" theme="primary" @click="openFileDialog()">上传资料</AButton>
+              </div>
             </div>
             <ATable :data="currentProject.files || []" :columns="fileColumns" bordered hover>
               <template #name="{ row }">
@@ -1130,7 +1133,10 @@
           </div>
         </section>
 
-        <aside class="project-create-shell__preview">
+        <aside
+          class="project-create-shell__preview"
+          :class="{ 'project-create-shell__preview--with-drafts': manualDrafts.length && !manualPdfPreviewCollapsed }"
+        >
           <div v-if="manualDrafts.length && !manualPdfPreviewCollapsed" class="manual-draft-strip">
             <span>我的未完成草稿</span>
             <button
@@ -1534,6 +1540,7 @@ import {
   deleteProjectFile,
   deleteProjectRecord,
   fetchProjectFileDownloadBlob,
+  fetchProjectFilesArchiveBlob,
   fetchProjectFilePreviewBlob,
   fetchProjectMeta,
   fetchProjectRecord,
@@ -1772,6 +1779,7 @@ const lifecycleTransitionVisible = ref(false)
 const lifecycleTransitionSnapshot = ref<ProjectLifecycleSnapshot | null>(null)
 const auditStarting = ref(false)
 const batchAuditing = ref(false)
+const projectArchiveDownloading = ref(false)
 const error = ref('')
 const columnSettingsVisible = ref(false)
 const advancedFiltersVisible = ref(false)
@@ -4188,6 +4196,26 @@ async function downloadFile(file: ProjectFile) {
   }
 }
 
+async function downloadProjectArchive() {
+  const project = currentProject.value
+  if (!project || projectArchiveDownloading.value) return
+  projectArchiveDownloading.value = true
+  try {
+    const blob = await fetchProjectFilesArchiveBlob(project.id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${project.projectName || '项目'}-项目资料.zip`
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 3000)
+    MessagePlugin.success('项目资料压缩包已开始下载')
+  } catch (err) {
+    MessagePlugin.error(friendlyErrorMessage(err, '项目资料打包下载失败，请稍后重试'))
+  } finally {
+    projectArchiveDownloading.value = false
+  }
+}
+
 async function confirmDeleteProject(record: ProjectRecord) {
   if (!requireAdminAccess('删除项目')) return
   openConfirm({
@@ -6454,9 +6482,13 @@ watch(detailDialogVisible, (visible) => {
 
 .project-create-shell__preview {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: var(--space-2);
   overflow: hidden;
+}
+
+.project-create-shell__preview--with-drafts {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .manual-draft-strip {

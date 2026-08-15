@@ -15,8 +15,10 @@ test('desktop preferences persist and restore the selected sync root', () => {
   try {
     const saved = writeDesktopPreferences(directory, {
       localRoot: 'C:\\Users\\tester\\Documents\\Jiqing',
+      selectedProjectRefs: ['project:p-1', 'audit:a-2', 'invalid'],
     })
     assert.equal(saved.localRoot, 'C:\\Users\\tester\\Documents\\Jiqing')
+    assert.deepEqual(saved.selectedProjectRefs, ['project:p-1', 'audit:a-2'])
     assert.deepEqual(readDesktopPreferences(directory), saved)
   } finally {
     rmSync(directory, { recursive: true, force: true })
@@ -27,7 +29,7 @@ test('desktop preferences recover safely from invalid JSON', () => {
   const directory = mkdtempSync(join(tmpdir(), 'jiqing-desktop-preferences-'))
   try {
     writeFileSync(desktopPreferencesPath(directory), '{invalid', 'utf8')
-    assert.deepEqual(readDesktopPreferences(directory), { localRoot: '' })
+    assert.deepEqual(readDesktopPreferences(directory), { localRoot: '', selectedProjectRefs: [] })
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

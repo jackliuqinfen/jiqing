@@ -328,6 +328,18 @@ export class SyncEngine {
     return this.getState()
   }
 
+  setSelectedProjectRefs(projectRefs) {
+    if (!Array.isArray(projectRefs)) {
+      throw new Error('invalid project refs')
+    }
+    this.state = {
+      ...this.state,
+      selectedProjectRefs: [...projectRefs],
+    }
+    this.emit()
+    return this.getState()
+  }
+
   pause() {
     this.cancelActiveRun()
     this.state = {

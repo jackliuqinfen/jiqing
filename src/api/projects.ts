@@ -191,6 +191,10 @@ export function fetchProjectFileDownloadBlob(id: string): Promise<Blob> {
   return authorizedBlob(`/project-files/${id}/download`)
 }
 
+export function fetchProjectFilesArchiveBlob(projectId: string): Promise<Blob> {
+  return authorizedBlob(`/projects/${encodeURIComponent(projectId)}/files/archive`)
+}
+
 function authorizedBlob(path: string): Promise<Blob> {
   const token = getAuthToken()
   return fetch(`${API_BASE}${path}`, {

@@ -8,13 +8,22 @@ import {
 import { dirname, join } from 'node:path'
 
 const MAX_SYNC_ROOT_LENGTH = 32767
+const PROJECT_REF_PATTERN = /^(project|audit):[A-Za-z0-9-]+$/
+const MAX_PROJECT_REFS = 500
 
 function normalizePreferences(value) {
   const localRoot = typeof value?.localRoot === 'string'
     ? value.localRoot.trim()
     : ''
+  const selectedProjectRefs = Array.isArray(value?.selectedProjectRefs)
+    ? [...new Set(value.selectedProjectRefs.filter((item) => (
+      typeof item === 'string'
+      && PROJECT_REF_PATTERN.test(item)
+    )))].slice(0, MAX_PROJECT_REFS)
+    : []
   return Object.freeze({
     localRoot: localRoot.length <= MAX_SYNC_ROOT_LENGTH ? localRoot : '',
+    selectedProjectRefs: Object.freeze(selectedProjectRefs),
   })
 }
 

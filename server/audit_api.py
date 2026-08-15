@@ -9,10 +9,13 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -501,6 +504,13 @@ def repair_mojibake_filename(value):
     except UnicodeError:
         return value
     return repaired or value
+
+
+def archive_safe_name(value, fallback="未命名"):
+    name = repair_mojibake_filename(str(value or "")).strip()
+    name = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", name)
+    name = name.strip(" .")
+    return name or fallback
 
 
 def multipart_filename(disposition):
@@ -3397,6 +3407,80 @@ class Handler(BaseHTTPRequestHandler):
         mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
         self.respond_storage_file(storage, row["relative_path"], mime_type, original_name, inline=False)
 
+    def download_project_files_archive(self, conn, project_id):
+        user = self.require_user(conn)
+        if not user:
+            return
+        project = conn.execute(
+            "SELECT * FROM project_records WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (project_id,),
+        ).fetchone()
+        if not project:
+            self.not_found()
+            return
+        if not self.source_project_allowed(conn, user, project_id):
+            self.respond(403, {"success": False, "error": "没有权限下载该项目全部资料"})
+            return
+
+        files = conn.execute(
+            """
+            SELECT f.*, c.category_name
+            FROM project_files f
+            LEFT JOIN project_document_categories c ON c.category_key = f.category_key
+            WHERE f.project_id = ? AND COALESCE(f.is_deleted, 0) = 0
+            ORDER BY c.sort_order, f.category_key, f.uploaded_at, f.id
+            """,
+            (project_id,),
+        ).fetchall()
+        if not files:
+            self.respond(404, {"success": False, "error": "当前项目还没有可下载的资料"})
+            return
+
+        storage = file_storage()
+        missing = [
+            row["id"]
+            for row in files
+            if not row["relative_path"] or not storage.exists(row["relative_path"])
+        ]
+        if missing:
+            self.respond(409, {
+                "success": False,
+                "error": f"有 {len(missing)} 个资料文件尚未就绪，请稍后重试",
+                "code": "project_file_not_ready",
+            })
+            return
+
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix="jiqing-project-", suffix=".zip", delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+            used_names = set()
+            with zipfile.ZipFile(temporary_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+                for row in files:
+                    category = archive_safe_name(row["category_name"] or row["category_key"], "其他资料")
+                    original_name = archive_safe_name(row["original_name"] or row["display_name"], row["id"])
+                    version_no = int(row["version_no"] or 1)
+                    stem = Path(original_name).stem
+                    suffix = Path(original_name).suffix
+                    candidate = f"{category}/{original_name}"
+                    if candidate in used_names or version_no > 1:
+                        candidate = f"{category}/{stem}（V{version_no}）{suffix}"
+                    counter = 2
+                    base_candidate = candidate
+                    while candidate in used_names:
+                        candidate = f"{Path(base_candidate).parent.as_posix()}/{Path(base_candidate).stem}（{counter}）{Path(base_candidate).suffix}"
+                        counter += 1
+                    used_names.add(candidate)
+                    with archive.open(candidate, "w") as target:
+                        with storage.open_stream(row["relative_path"]) as source:
+                            shutil.copyfileobj(source, target, length=1024 * 1024)
+
+            filename = f"{archive_safe_name(project['project_name'], '项目资料')}-项目资料.zip"
+            self.respond_file(temporary_path, "application/zip", filename, inline=False)
+        finally:
+            if temporary_path:
+                temporary_path.unlink(missing_ok=True)
+
     def rename_project_file(self, conn, file_id, data):
         user = self.require_role(conn, {"admin", "editor"})
         if not user:
@@ -5358,6 +5442,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif re.match(r"^/api/projects/([^/]+)/files$", path):
                     params["projectId"] = [re.match(r"^/api/projects/([^/]+)/files$", path).group(1)]
                     self.list_project_files(conn, params)
+                elif re.match(r"^/api/projects/([^/]+)/files/archive$", path):
+                    self.download_project_files_archive(conn, re.match(r"^/api/projects/([^/]+)/files/archive$", path).group(1))
                 elif re.match(r"^/api/project-files/([^/]+)/preview$", path):
                     self.preview_project_file(conn, re.match(r"^/api/project-files/([^/]+)/preview$", path).group(1))
                 elif re.match(r"^/api/project-files/([^/]+)/download$", path):

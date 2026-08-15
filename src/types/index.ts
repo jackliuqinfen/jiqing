@@ -361,6 +361,7 @@ export interface DesktopSyncPolicySetting {
   allowFolderSelection: boolean
   removeLocalFilesOnRevocation: boolean
   policyVersion: number
+  enabledForCurrentUser?: boolean
 }
 
 export interface ThemeOption {

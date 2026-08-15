@@ -116,6 +116,9 @@ export function createDesktopIpcController({ syncEngine = null } = {}) {
         }
         return syncEngine.setLocalRoot(localRoot)
       },
+      setSelectedProjectRefs(projectRefs) {
+        return syncEngine.setSelectedProjectRefs(validateProjectRefs(projectRefs))
+      },
       start(value) {
         return syncEngine.start(validateSyncStartRequest(value))
       },
@@ -146,6 +149,13 @@ export function createDesktopIpcController({ syncEngine = null } = {}) {
         ...state,
         localRoot,
         message: '已选择本地资料文件夹，尚未开始下载',
+      }
+      return publicState(state)
+    },
+    setSelectedProjectRefs(projectRefs) {
+      state = {
+        ...state,
+        selectedProjectRefs: [...validateProjectRefs(projectRefs)],
       }
       return publicState(state)
     },
@@ -208,6 +218,8 @@ export function registerDesktopIpcHandlers({
   selectFolder,
   openFolder,
   emitState = () => {},
+  syncScheduler = null,
+  onSyncStart = () => {},
 }) {
   if (!ipcMain || typeof ipcMain.handle !== 'function') {
     throw new Error('invalid ipc main')
@@ -249,10 +261,15 @@ export function registerDesktopIpcHandlers({
   })
   handle(DESKTOP_IPC_CHANNELS.startSync, async (args) => {
     const request = assertOneArgument(args)
-    return emit(await controller.start(request))
+    const validatedRequest = validateSyncStartRequest(request)
+    onSyncStart(validatedRequest)
+    const result = await controller.start(validatedRequest)
+    if (syncScheduler) syncScheduler.arm(validatedRequest, result)
+    return emit(result)
   })
   handle(DESKTOP_IPC_CHANNELS.pauseSync, async (args) => {
     assertNoArguments(args)
+    if (syncScheduler) syncScheduler.stop()
     return emit(await controller.pause())
   })
   handle(DESKTOP_IPC_CHANNELS.openSyncFolder, async (args) => {

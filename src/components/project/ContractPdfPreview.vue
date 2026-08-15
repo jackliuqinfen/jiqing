@@ -32,6 +32,32 @@
         </div>
       </header>
 
+      <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
+        <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
+        <label>
+          <span>第</span>
+          <input
+            :value="page"
+            type="number"
+            min="1"
+            :max="Math.max(totalPages, 1)"
+            aria-label="合同 PDF 页码"
+            :disabled="paneBusy"
+            @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
+            @change="setPage(Number(($event.target as HTMLInputElement).value))"
+          />
+          <span>/ {{ totalPages || '—' }}</span>
+        </label>
+        <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
+        <span class="contract-pdf-preview__toolbar-divider" />
+        <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
+        <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
+        <span class="contract-pdf-preview__toolbar-spacer" />
+        <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
+        <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
+        <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
+      </div>
+
       <div ref="previewContainerRef" class="contract-pdf-preview__surface">
         <div v-if="!document" class="contract-pdf-preview__empty">
           <strong>请先上传施工合同 PDF</strong>
@@ -53,28 +79,6 @@
         </div>
       </div>
 
-      <footer v-if="document" class="contract-pdf-preview__toolbar">
-        <button type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">上一页</button>
-        <label>
-          <span>第</span>
-          <input
-            :value="page"
-            type="number"
-            min="1"
-            :max="Math.max(totalPages, 1)"
-            aria-label="合同 PDF 页码"
-            :disabled="paneBusy"
-            @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
-            @change="setPage(Number(($event.target as HTMLInputElement).value))"
-          />
-          <span>/ {{ totalPages || '—' }} 页</span>
-        </label>
-        <button type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">下一页</button>
-        <span class="contract-pdf-preview__toolbar-spacer" />
-        <button aria-label="缩小合同 PDF" type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
-        <span>{{ Math.round(scale * 100) }}%</span>
-        <button aria-label="放大合同 PDF" type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
-      </footer>
     </section>
 
     <ADrawer
@@ -105,6 +109,31 @@
           </div>
         </header>
 
+        <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
+          <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
+          <label>
+            <input
+              :value="page"
+              type="number"
+              min="1"
+              :max="Math.max(totalPages, 1)"
+              aria-label="合同 PDF 页码"
+              :disabled="paneBusy"
+              @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
+              @change="setPage(Number(($event.target as HTMLInputElement).value))"
+            />
+            <span>/ {{ totalPages || '—' }}</span>
+          </label>
+          <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
+          <span class="contract-pdf-preview__toolbar-divider" />
+          <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
+          <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
+          <span class="contract-pdf-preview__toolbar-spacer" />
+          <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
+          <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
+          <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
+        </div>
+
         <div ref="previewContainerRef" class="contract-pdf-preview__surface contract-pdf-preview__surface--drawer">
           <div v-if="!document" class="contract-pdf-preview__empty">
             <strong>请先上传施工合同 PDF</strong>
@@ -126,27 +155,6 @@
           </div>
         </div>
 
-        <footer v-if="document" class="contract-pdf-preview__toolbar">
-          <button type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">上一页</button>
-          <label>
-            <input
-              :value="page"
-              type="number"
-              min="1"
-              :max="Math.max(totalPages, 1)"
-              aria-label="合同 PDF 页码"
-              :disabled="paneBusy"
-              @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
-              @change="setPage(Number(($event.target as HTMLInputElement).value))"
-            />
-            <span>/ {{ totalPages || '—' }}</span>
-          </label>
-          <button type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">下一页</button>
-          <span class="contract-pdf-preview__toolbar-spacer" />
-          <button aria-label="缩小合同 PDF" type="button" :disabled="scale <= 0.5 || paneBusy" @click="setScale(scale - 0.1)">−</button>
-          <span>{{ Math.round(scale * 100) }}%</span>
-          <button aria-label="放大合同 PDF" type="button" :disabled="scale >= 2.5 || paneBusy" @click="setScale(scale + 0.1)">＋</button>
-        </footer>
       </div>
     </ADrawer>
 
@@ -179,7 +187,9 @@ import {
   neighborPages,
   normalizePreviewMetrics,
   previewMetricsRequireRender,
+  resolvePreviewScale,
   type PreviewMetrics,
+  type PreviewScaleMode,
 } from '@/utils/contractPdfPreview'
 import { friendlyErrorMessage } from '@/utils/errors'
 
@@ -227,6 +237,8 @@ const uploading = ref(false)
 const downloading = ref(false)
 const uploadProgress = ref(0)
 const drawerVisible = ref(false)
+const scaleMode = ref<PreviewScaleMode>('page')
+const renderedScale = ref(1)
 const renderTokens = createRenderTokenGuard()
 const prefetchedPages = new Set<number>()
 const previewMetrics = ref<PreviewMetrics>(normalizePreviewMetrics({
@@ -261,6 +273,7 @@ const isNarrow = computed(() => viewportWidth.value < 960)
 watch(
   () => props.document?.versionId || '',
   () => {
+    scaleMode.value = 'page'
     void loadDocument()
   },
   { immediate: true, flush: 'post' },
@@ -446,9 +459,16 @@ function setPage(nextPage: number) {
   if (next !== props.page) emit('update:page', next)
 }
 
-function setScale(nextScale: number) {
-  const next = clampScale(nextScale)
+function setScaleMode(mode: Exclude<PreviewScaleMode, 'custom'>) {
+  scaleMode.value = mode
+  if (pdfDocument.value) void renderCurrentPage()
+}
+
+function adjustScale(delta: number) {
+  const next = clampScale(renderedScale.value + delta)
+  scaleMode.value = 'custom'
   if (next !== props.scale) emit('update:scale', next)
+  else if (pdfDocument.value) void renderCurrentPage()
 }
 
 function reloadDocument() {
@@ -558,7 +578,6 @@ async function renderCurrentPage(explicitPage?: number) {
   if (!loaded || !visibleCanvas) return
 
   const currentPage = clampPage(explicitPage ?? props.page, loaded.numPages)
-  const currentScale = clampScale(props.scale)
   const token = renderTokens.next()
   renderTask?.cancel()
   renderTask = null
@@ -569,6 +588,17 @@ async function renderCurrentPage(explicitPage?: number) {
   try {
     const pageProxy = await loaded.getPage(currentPage)
     if (!renderTokens.isCurrent(token) || loaded !== pdfDocument.value) return
+    const baseViewport = pageProxy.getViewport({ scale: 1 })
+    const currentScale = resolvePreviewScale({
+      mode: scaleMode.value,
+      requestedScale: props.scale,
+      pageWidth: baseViewport.width,
+      pageHeight: baseViewport.height,
+      containerWidth: previewMetrics.value.containerWidth,
+      containerHeight: previewMetrics.value.containerHeight,
+      padding: 40,
+    })
+    renderedScale.value = currentScale
     const viewport = pageProxy.getViewport({ scale: currentScale })
     const outputScale = Math.max(1, devicePixelRatio.value)
     const stagingCanvas = window.document.createElement('canvas')
@@ -594,6 +624,7 @@ async function renderCurrentPage(explicitPage?: number) {
     const visibleContext = visibleCanvas.getContext('2d', { alpha: false })
     if (!visibleContext) throw new Error('浏览器无法显示 PDF 画布。')
     visibleContext.drawImage(stagingCanvas, 0, 0)
+    canvasScrollerRef.value?.scrollTo({ top: 0, left: 0 })
     scheduleNeighborPrefetch(currentPage, loaded)
   } catch (error) {
     if (!isCancellation(error) && renderTokens.isCurrent(token)) {
@@ -759,7 +790,7 @@ function formatFileSize(bytes: number) {
 .contract-pdf-preview__surface {
   position: relative;
   display: flex;
-  min-height: 280px;
+  min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
   background: var(--color-fill-2);
@@ -770,8 +801,11 @@ function formatFileSize(bytes: number) {
 }
 
 .contract-pdf-preview__canvas-scroll {
+  display: flex;
   width: 100%;
   height: 100%;
+  align-items: flex-start;
+  justify-content: center;
   padding: 20px;
   overflow: auto;
   text-align: center;
@@ -779,6 +813,7 @@ function formatFileSize(bytes: number) {
 
 .contract-pdf-preview__canvas-scroll canvas {
   display: inline-block;
+  flex: 0 0 auto;
   max-width: none;
   border-radius: 2px;
   background: #fff;
@@ -837,15 +872,24 @@ function formatFileSize(bytes: number) {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--color-border-2);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-2);
   background: var(--color-bg-1);
 }
 
 .contract-pdf-preview__toolbar button {
   min-width: 30px;
   min-height: 30px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.contract-pdf-preview__toolbar button.active {
+  border-color: rgb(var(--primary-6));
+  color: rgb(var(--primary-6));
+  background: rgb(var(--primary-1));
 }
 
 .contract-pdf-preview__toolbar label {
@@ -868,6 +912,19 @@ function formatFileSize(bytes: number) {
 
 .contract-pdf-preview__toolbar-spacer {
   flex: 1 1 auto;
+}
+
+.contract-pdf-preview__toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--color-border-2);
+}
+
+.contract-pdf-preview__scale {
+  min-width: 44px;
+  color: var(--color-text-2);
+  font-size: 12px;
+  text-align: center;
 }
 
 .contract-pdf-preview__compact,

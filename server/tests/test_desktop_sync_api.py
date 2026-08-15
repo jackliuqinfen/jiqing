@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+from zipfile import ZipFile
 
 from server import audit_api
 
@@ -542,6 +543,30 @@ class DesktopSyncApiContractTest(unittest.TestCase):
                 conn.execute(
                     "UPDATE project_files SET version_no = 1 WHERE id = 'file-1'"
                 )
+
+    def test_project_files_archive_contains_all_project_files_in_category_folder(self):
+        status, headers, body = self.request_raw(
+            "GET",
+            "/api/projects/project-1/files/archive",
+            user_id="editor-user",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/zip")
+        archive_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as archive_file:
+                archive_path = archive_file.name
+                archive_file.write(body)
+            with ZipFile(archive_path) as archive:
+                self.assertEqual(
+                    set(archive.namelist()),
+                    {"合同文件/one.pdf", "合同文件/big.pdf"},
+                )
+                self.assertEqual(archive.read("合同文件/one.pdf"), b"one")
+                self.assertEqual(archive.read("合同文件/big.pdf"), b"large-metadata-only")
+        finally:
+            if archive_path:
+                Path(archive_path).unlink(missing_ok=True)
 
     def test_out_of_scope_audit_attachment_sync_download_is_forbidden(self):
         self.enable_policy(

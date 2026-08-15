@@ -53,6 +53,7 @@ import {
 import { DesktopApiClient } from './sync/api-client.mjs'
 import { SyncEngine } from './sync/sync-engine.mjs'
 import { pathsOverlap } from './sync/path-policy.mjs'
+import { SyncScheduler } from './sync/sync-scheduler.mjs'
 import {
   desktopWindowTitle,
   installEnvironmentTitleGuard,
@@ -103,6 +104,7 @@ const config = loadDesktopConfig({
 const sessionPartition = 'desktop-erp-memory'
 const applicationDirectory = dirname(process.execPath)
 let desktopIpcController = null
+let desktopSyncScheduler = null
 let desktopUpdateController = null
 let mainWindow = null
 let splashWindow = null
@@ -260,7 +262,8 @@ async function selectDesktopSyncFolder() {
     return ''
   }
   try {
-    writeDesktopPreferences(app.getPath('userData'), { localRoot: selected })
+    const preferences = readDesktopPreferences(app.getPath('userData'))
+    writeDesktopPreferences(app.getPath('userData'), { ...preferences, localRoot: selected })
   } catch {
     // A selected folder remains usable for this session even if preferences
     // cannot be persisted because of an operating-system permission issue.
@@ -402,9 +405,17 @@ function registerDesktopBridge() {
     appVersion: app.getVersion(),
     releaseChannel: config.releaseChannel,
     controller: desktopIpcController,
+    syncScheduler: desktopSyncScheduler,
     updateController: desktopUpdateController,
     selectFolder: selectDesktopSyncFolder,
     openFolder: openDesktopSyncFolder,
+    onSyncStart: (request) => {
+      const preferences = readDesktopPreferences(app.getPath('userData'))
+      writeDesktopPreferences(app.getPath('userData'), {
+        ...preferences,
+        selectedProjectRefs: request.projectRefs,
+      })
+    },
     emitState: emitDesktopSyncState,
   })
   desktopIpcRegistered = true
@@ -423,6 +434,7 @@ function protectWebContents(window) {
     { urls: [`${config.origin}/api/auth/logout`] },
     (details, callback) => {
       if (details.method === 'POST' && desktopIpcController) {
+        desktopSyncScheduler?.stop()
         desktopIpcController.clearSession()
       }
       callback({})
@@ -683,6 +695,10 @@ if (!ownsSingleInstance) {
       installationDirectory: applicationDirectory,
     })
     desktopIpcController = createDesktopIpcController({ syncEngine })
+    desktopSyncScheduler = new SyncScheduler({
+      controller: desktopIpcController,
+      apiClient,
+    })
     desktopUpdateController = createDesktopUpdateController({
       currentVersion: app.getVersion(),
       enabled: (
@@ -702,6 +718,7 @@ if (!ownsSingleInstance) {
         // Ignore a stale or newly unsafe path and let the user select again.
       }
     }
+    desktopIpcController.setSelectedProjectRefs(preferences.selectedProjectRefs)
     registerDesktopBridge()
     mainWindow = await createMainWindow()
     installWindowsApplicationMenu(true)
@@ -736,6 +753,7 @@ if (!ownsSingleInstance) {
   })
 
   app.on('before-quit', () => {
+    if (desktopSyncScheduler) desktopSyncScheduler.stop()
     if (desktopIpcController) desktopIpcController.clearSession()
   })
 }
