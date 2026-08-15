@@ -301,6 +301,7 @@ function emptyForm(): WizardForm {
 
 watch(() => props.visible, (visible) => { if (visible) reset() })
 watch(() => form.projectId, (projectId) => { if (projectId) hydrateProject() })
+watch(() => form.paymentTerms, () => { if (paymentNodesSource.value === 'terms') paymentNodesSource.value = '' })
 watch(() => form.acceptanceStatus, (status) => { if (status !== 'accepted') clearAuditProgress() })
 watch(() => form.auditStatus, () => clearAuditFieldsAboveRank(auditRank.value))
 
@@ -331,7 +332,7 @@ function hydrateProject() {
   const draft = selectedRecord.value?.isDraft ? selectedRecord.value : null
   if (draft) {
     Object.assign(form, draft, { projectId: project?.id || draft.projectId || '', paymentNodes: (draft.paymentNodes || []).map((item) => ({ ...item })) })
-    paymentNodesSource.value = form.paymentNodes.length ? 'existing' : ''
+    paymentNodesSource.value = form.paymentNodes.length && !isPlaceholderPaymentNodes() ? 'existing' : ''
     return
   }
   if (!project) return
@@ -349,7 +350,12 @@ function hydrateProject() {
   form.auditStatus = auditMap[stage] || 'not_submitted'
   form.acceptanceStatus = ['completed_acceptance', 'pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(project.projectStatus) ? 'accepted' : 'not_completed'
 }
-function goToStep(index: number) { if (index <= maxReachedStep.value) stepIndex.value = index }
+function goToStep(index: number) {
+  if (index <= maxReachedStep.value) {
+    if (index >= 4 && (paymentNodesSource.value === '' || isPlaceholderPaymentNodes())) applyPaymentTermsSuggestion()
+    stepIndex.value = index
+  }
+}
 function showError(text: string) { messageType.value = 'error'; message.value = text }
 function validateCurrentStep() {
   if (stepKey.value === 'project') {
@@ -386,9 +392,15 @@ function validateCurrentStep() {
 }
 function next() {
   if (!validateCurrentStep()) return
-  if (stepKey.value === 'contract' && (paymentNodesSource.value === '' || paymentNodesSource.value === 'terms')) applyPaymentTermsSuggestion()
+  if (stepKey.value === 'contract' && (paymentNodesSource.value === '' || isPlaceholderPaymentNodes())) applyPaymentTermsSuggestion()
   stepIndex.value += 1
   maxReachedStep.value = Math.max(maxReachedStep.value, stepIndex.value)
+}
+function isPlaceholderPaymentNodes() {
+  return form.paymentTemplateId === 'CUSTOM'
+    && form.paymentNodes.length === 1
+    && Number(form.paymentNodes[0]?.paymentRatio || 0) <= 0
+    && (!form.paymentNodes[0]?.nodeName || /^付款节点\s*1$/.test(form.paymentNodes[0].nodeName))
 }
 function applyPaymentTermsSuggestion() {
   const suggestion = paymentTermsSuggestion.value
