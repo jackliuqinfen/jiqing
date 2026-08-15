@@ -33,7 +33,9 @@ def rows(conn):
             """
             SELECT v.relative_path AS source_relative_path,
                    v.mime_type, v.file_size, v.sha256,
-                   d.project_id
+                   d.project_id,
+                   v.id AS source_id,
+                   'document_versions' AS source_table
             FROM document_versions v
             JOIN documents d ON d.id = v.document_id
             """,
@@ -43,7 +45,9 @@ def rows(conn):
             """
             SELECT p.relative_path AS source_relative_path,
                    'image/png' AS mime_type, 0 AS file_size, '' AS sha256,
-                   d.project_id
+                   d.project_id,
+                   p.id AS source_id,
+                   'document_pages' AS source_table
             FROM document_pages p
             JOIN document_versions v ON v.id = p.document_version_id
             JOIN documents d ON d.id = v.document_id
@@ -54,7 +58,9 @@ def rows(conn):
             """
             SELECT relative_path AS source_relative_path,
                    mime_type, file_size, '' AS sha256,
-                   NULL AS project_id
+                   NULL AS project_id,
+                   id AS source_id,
+                   'project_files' AS source_table
             FROM project_files
             WHERE COALESCE(is_deleted, 0) = 0
             """,
@@ -64,7 +70,9 @@ def rows(conn):
             """
             SELECT relative_path AS source_relative_path,
                    mime_type, file_size, '' AS sha256,
-                   NULL AS project_id
+                   NULL AS project_id,
+                   id AS source_id,
+                   'audit_project_attachments' AS source_table
             FROM audit_project_attachments
             WHERE COALESCE(is_deleted, 0) = 0
             """,
@@ -84,6 +92,18 @@ def rows(conn):
                     str(row["project_id"] or "").strip(),
                 )
             yield row, source_relative_path, storage_relative_path
+
+
+def update_database_path(conn, row, storage_relative_path):
+    if storage_relative_path == row["source_relative_path"]:
+        return
+    table = row["source_table"]
+    if table not in {"document_versions", "document_pages"}:
+        return
+    conn.execute(
+        f"UPDATE {table} SET relative_path = ? WHERE id = ?",
+        (storage_relative_path, row["source_id"]),
+    )
 
 
 def sha256(path):
@@ -124,6 +144,8 @@ def main():
             if storage.exists(storage_relative_path):
                 print(f"EXISTS {storage_relative_path} size={source.stat().st_size}")
                 skipped += 1
+                if args.apply:
+                    update_database_path(conn, row, storage_relative_path)
                 continue
             print(f"UPLOAD {source_relative_path} -> {storage_relative_path} size={source.stat().st_size}")
             if args.apply:
@@ -134,6 +156,7 @@ def main():
                         content_type=row["mime_type"] or mimetypes.guess_type(source.name)[0] or "application/octet-stream",
                     )
                 uploaded += 1
+                update_database_path(conn, row, storage_relative_path)
         mode = "APPLY" if args.apply else "DRY_RUN"
         print(f"MIGRATION_{mode} total={total} uploaded={uploaded} missing={missing} skipped={skipped}")
 
