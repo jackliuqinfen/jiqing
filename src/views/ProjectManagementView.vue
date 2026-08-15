@@ -859,7 +859,6 @@
 
     <AModal
       :visible="projectDialog.visible"
-      :title="projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目'"
       :mask-closable="false"
       :esc-to-close="false"
       :width="projectDialog.mode === 'create' ? 'min(1480px, calc(100vw - 48px))' : 920"
@@ -868,6 +867,32 @@
       @confirm="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
       @cancel="requestCloseProjectDialog"
     >
+      <template #title>
+        <div class="project-form-modal__titlebar">
+          <strong>{{ projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目' }}</strong>
+          <div class="project-form-modal__title-actions">
+            <AButton
+              v-if="projectDialog.mode === 'create'"
+              size="small"
+              variant="outline"
+              :disabled="projectDialog.saving"
+              @click="saveManualProjectDraft"
+            >
+              保存草稿
+            </AButton>
+            <AButton size="small" variant="outline" :disabled="projectDialog.saving" @click="requestCloseProjectDialog">取消</AButton>
+            <AButton
+              size="small"
+              theme="primary"
+              :loading="projectDialog.saving"
+              @click="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
+            >
+              {{ projectDialog.mode === 'create' ? projectWizardConfirmText : '保存修改' }}
+            </AButton>
+          </div>
+        </div>
+      </template>
+
       <div
         v-if="projectDialog.mode === 'create'"
         class="project-create-shell"
@@ -1278,27 +1303,6 @@
         </div>
       </AForm>
 
-      <template #footer>
-        <div class="project-form-modal__footer">
-          <AButton
-            v-if="projectDialog.mode === 'create'"
-            variant="outline"
-            :disabled="projectDialog.saving"
-            @click="saveManualProjectDraft"
-          >
-            保存草稿
-          </AButton>
-          <span class="project-form-modal__footer-spacer" />
-          <AButton variant="outline" :disabled="projectDialog.saving" @click="requestCloseProjectDialog">取消</AButton>
-          <AButton
-            theme="primary"
-            :loading="projectDialog.saving"
-            @click="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
-          >
-            {{ projectDialog.mode === 'create' ? projectWizardConfirmText : '保存修改' }}
-          </AButton>
-        </div>
-      </template>
     </AModal>
 
     <AModal
@@ -6472,14 +6476,36 @@ watch(detailDialogVisible, (visible) => {
   border-top: 1px solid var(--border-color);
 }
 
-.project-form-modal__footer {
+.project-form-modal__titlebar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-4);
+}
+
+.project-form-modal__titlebar > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-form-modal__title-actions {
+  display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: var(--space-2);
 }
 
-.project-form-modal__footer-spacer {
-  flex: 1 1 auto;
+.project-form-modal__title-actions .arco-btn {
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: var(--text-xs);
 }
 
 .arco-project-form :deep(.arco-form-item) {
@@ -7067,6 +7093,18 @@ watch(detailDialogVisible, (visible) => {
 
 @media (max-width: 760px) {
   .project-management { padding: 12px; }
+  .project-form-modal :deep(.arco-modal-header) {
+    height: auto;
+    min-height: 48px;
+  }
+  .project-form-modal__titlebar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .project-form-modal__title-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
   .exception-grid { grid-template-columns: 1fr; }
   .ledger-card-grid { grid-template-columns: 1fr; }
   .panel-head__side { align-items: stretch; flex-direction: column; }
