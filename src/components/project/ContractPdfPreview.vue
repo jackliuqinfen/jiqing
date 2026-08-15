@@ -762,25 +762,25 @@ function formatFileSize(bytes: number) {
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--color-border-2);
 }
 
 .contract-pdf-preview__heading {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 1px;
 }
 
 .contract-pdf-preview__heading strong {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .contract-pdf-preview__heading span {
   overflow: hidden;
   color: var(--color-text-3);
-  font-size: 12px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -788,7 +788,13 @@ function formatFileSize(bytes: number) {
 .contract-pdf-preview__actions {
   display: flex;
   flex: 0 0 auto;
-  gap: 6px;
+  gap: 4px;
+}
+
+.contract-pdf-preview__header .contract-pdf-preview__actions button {
+  min-height: 26px;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .contract-pdf-preview button {

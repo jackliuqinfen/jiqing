@@ -253,3 +253,20 @@ test('preview floats navigation tools inside the bottom of the PDF surface', () 
   assert.match(source, /\.contract-pdf-preview__toolbar\s*\{[\s\S]*z-index:/)
   assert.match(source, /backdrop-filter:\s*blur\(/)
 })
+
+test('preview header stays compact so the PDF gets more vertical space', () => {
+  const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+
+  assert.match(
+    source,
+    /\.contract-pdf-preview__header\s*\{[\s\S]*padding:\s*8px\s+10px;/,
+  )
+  assert.match(
+    source,
+    /\.contract-pdf-preview__header\s+\.contract-pdf-preview__actions\s+button\s*\{[\s\S]*min-height:\s*26px;/,
+  )
+  assert.match(
+    source,
+    /\.contract-pdf-preview__header\s+\.contract-pdf-preview__actions\s+button\s*\{[\s\S]*padding:\s*3px\s+8px;/,
+  )
+})
