@@ -143,6 +143,7 @@ test('manual project wizard keeps draft and navigation actions in the title bar'
   const source = readFileSync(new URL('../src/views/ProjectManagementView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /<template #title>[\s\S]*project-form-modal__title-actions[\s\S]*保存草稿[\s\S]*projectWizardConfirmText/)
+  assert.match(source, /<AModal\s*[\s\S]*:footer="false"[\s\S]*project-form-modal/)
   assert.doesNotMatch(source, /<template #footer>[\s\S]*保存草稿/)
   assert.match(source, /async function saveManualProjectDraft\s*\([\s\S]*?await flushSave\(\)/)
   assert.match(source, /async function openProjectForm\s*\(\s*record\?: ProjectRecord \| null,\s*options: \{ restoreLatestDraft\?: boolean \} = \{\},\s*\)/)

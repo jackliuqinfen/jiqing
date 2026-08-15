@@ -859,6 +859,7 @@
 
     <AModal
       :visible="projectDialog.visible"
+      :footer="false"
       :mask-closable="false"
       :esc-to-close="false"
       :width="projectDialog.mode === 'create' ? 'min(1480px, calc(100vw - 48px))' : 920"
