@@ -860,8 +860,6 @@
     <AModal
       :visible="projectDialog.visible"
       :title="projectDialog.mode === 'create' ? '新建项目向导' : '编辑项目'"
-      :confirm-btn="{ content: projectDialog.mode === 'create' ? projectWizardConfirmText : '保存修改', loading: projectDialog.saving }"
-      cancel-text="取消"
       :mask-closable="false"
       :esc-to-close="false"
       :width="projectDialog.mode === 'create' ? 'min(1480px, calc(100vw - 48px))' : 920"
@@ -1279,6 +1277,28 @@
           </AFormItem>
         </div>
       </AForm>
+
+      <template #footer>
+        <div class="project-form-modal__footer">
+          <AButton
+            v-if="projectDialog.mode === 'create'"
+            variant="outline"
+            :disabled="projectDialog.saving"
+            @click="saveManualProjectDraft"
+          >
+            保存草稿
+          </AButton>
+          <span class="project-form-modal__footer-spacer" />
+          <AButton variant="outline" :disabled="projectDialog.saving" @click="requestCloseProjectDialog">取消</AButton>
+          <AButton
+            theme="primary"
+            :loading="projectDialog.saving"
+            @click="projectDialog.mode === 'create' ? handleProjectWizardConfirm() : saveProject()"
+          >
+            {{ projectDialog.mode === 'create' ? projectWizardConfirmText : '保存修改' }}
+          </AButton>
+        </div>
+      </template>
     </AModal>
 
     <AModal
@@ -2658,6 +2678,21 @@ function prevProjectWizardStep() {
   if (projectWizardStepIndex.value > 0) projectWizardStepIndex.value -= 1
 }
 
+async function saveManualProjectDraft() {
+  if (projectDialog.mode !== 'create' || projectDialog.saving) return
+  if (!requireEditorAccess('保存项目草稿')) return
+  projectDialog.saving = true
+  try {
+    if (!await flushSave()) return
+    closeProjectDialog(true)
+    MessagePlugin.success('草稿已保存，下次打开新建项目将自动恢复')
+  } catch (error) {
+    MessagePlugin.error(friendlyErrorMessage(error, '项目草稿保存失败，请稍后重试。'))
+  } finally {
+    projectDialog.saving = false
+  }
+}
+
 async function handleProjectWizardConfirm() {
   if (!validateProjectWizardStep()) {
     MessagePlugin.error('请先完善当前步骤中的提示项')
@@ -3576,7 +3611,10 @@ function changePage(nextPage: number) {
   loadRecords()
 }
 
-async function openProjectForm(record?: ProjectRecord | null) {
+async function openProjectForm(
+  record?: ProjectRecord | null,
+  options: { restoreLatestDraft?: boolean } = {},
+) {
   if (!requireEditorAccess(record ? '编辑项目' : '创建项目')) return
   if (!record) {
     projectDialog.mode = 'create'
@@ -3591,6 +3629,13 @@ async function openProjectForm(record?: ProjectRecord | null) {
     projectDialog.initialSnapshot = projectFormSnapshot()
     projectDialog.visible = true
     await loadDrafts()
+    if (options.restoreLatestDraft !== false && manualDrafts.value[0]) {
+      const restored = await resumeManualDraft(
+        manualDrafts.value[0],
+        () => projectDialog.visible && projectDialog.mode === 'create',
+      )
+      if (restored) MessagePlugin.info('已自动恢复最近一次项目草稿')
+    }
     return
   }
   projectDialog.mode = 'edit'
@@ -3606,7 +3651,9 @@ async function openManualIntakeFromRoute() {
   const versionId = String(route.query.intakeDocumentVersionId || '').trim()
   const routeRequest = beginManualIntakeRoute(versionId)
   if (!versionId || !authStore.isEditor) return false
-  if (!projectDialog.visible || projectDialog.mode !== 'create') await openProjectForm()
+  if (!projectDialog.visible || projectDialog.mode !== 'create') {
+    await openProjectForm(null, { restoreLatestDraft: false })
+  }
   if (!routeRequest.isCurrent()) return false
   const matchingDraft = manualDrafts.value.find((draft) => draft.documentVersionId === versionId)
   if (matchingDraft) {
@@ -6423,6 +6470,16 @@ watch(detailDialogVisible, (visible) => {
 .project-form-modal :deep(.arco-modal-footer) {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-color);
+}
+
+.project-form-modal__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.project-form-modal__footer-spacer {
+  flex: 1 1 auto;
 }
 
 .arco-project-form :deep(.arco-form-item) {

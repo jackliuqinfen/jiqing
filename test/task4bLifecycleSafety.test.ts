@@ -138,3 +138,13 @@ test('new project actions restore the existing wizard with protected contract co
   assert.match(source, /label="付款条款"[\s\S]*?required/)
   assert.match(source, /buildProjectMutationPayload\('edit'/)
 })
+
+test('manual project wizard saves from the footer and restores the latest draft on open', () => {
+  const source = readFileSync(new URL('../src/views/ProjectManagementView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<template #footer>[\s\S]*保存草稿[\s\S]*projectWizardConfirmText/)
+  assert.match(source, /async function saveManualProjectDraft\s*\([\s\S]*?await flushSave\(\)/)
+  assert.match(source, /async function openProjectForm\s*\(\s*record\?: ProjectRecord \| null,\s*options: \{ restoreLatestDraft\?: boolean \} = \{\},\s*\)/)
+  assert.match(source, /await loadDrafts\(\)[\s\S]*options\.restoreLatestDraft !== false[\s\S]*manualDrafts\.value\[0\][\s\S]*resumeManualDraft/)
+  assert.match(source, /openProjectForm\(null,\s*\{ restoreLatestDraft: false \}\)/)
+})
