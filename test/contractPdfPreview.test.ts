@@ -136,14 +136,15 @@ test('PDF.js stays exactly pinned and is split before the generic vendor chunk',
   assert.ok(viteConfig.indexOf("id.includes('pdfjs-dist')") < viteConfig.indexOf("id.includes('node_modules')"))
 })
 
-test('preview loads the authenticated original with bounded Range requests and a worker URL', () => {
+test('preview prefers a signed COS URL, keeps Range loading, and retains the authenticated fallback', () => {
   const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
 
   assert.match(source, /pdf\.worker\.min\.mjs\?url/)
+  assert.match(source, /previewPdfRequest\(props\.document\.versionId\)/)
   assert.match(source, /originalPdfRequest\(props\.document\.versionId\)/)
-  assert.match(source, /rangeChunkSize:\s*256\s*\*\s*1024/)
-  assert.match(source, /disableAutoFetch:\s*true/)
-  assert.match(source, /disableStream:\s*true/)
+  assert.match(source, /rangeChunkSize:\s*512\s*\*\s*1024/)
+  assert.match(source, /disableAutoFetch:\s*false/)
+  assert.match(source, /disableStream:\s*false/)
 })
 
 test('preview replacement, download, idle prefetch, cleanup and drawer behavior stay local', () => {

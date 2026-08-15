@@ -379,6 +379,7 @@ class DocumentApiContractTests(unittest.TestCase):
             ("POST", "/api/documents/uploads"),
             ("GET", "/api/documents/document-id"),
             ("GET", "/api/document-versions/version-id/pages/1/image"),
+            ("GET", "/api/document-versions/version-id/preview-url"),
             ("GET", "/api/document-versions/version-id"),
             ("GET", "/api/document-versions/version-id/original"),
             ("POST", "/api/document-recognition-jobs"),
@@ -488,6 +489,16 @@ class DocumentApiContractTests(unittest.TestCase):
                         headers["Content-Range"], f"bytes */{len(original)}"
                     )
             render.assert_not_called()
+
+    def test_preview_url_returns_no_direct_url_for_local_storage(self):
+        created = self.create_document(content=b"%PDF-1.7\npreview-url")
+        path = f"/api/document-versions/{created['version']['id']}/preview-url"
+
+        status, _headers, payload = self.request("GET", path, user_id="viewer-user")
+
+        self.assertEqual(status, 200, payload)
+        self.assertIsNone(payload["data"]["url"])
+        self.assertEqual(payload["data"]["expiresIn"], 0)
 
         with audit_api.connect() as conn:
             conn.execute(

@@ -232,6 +232,7 @@ export interface DocumentVersionMetadata {
 export interface OriginalPdfRequest {
   url: string
   httpHeaders: Record<string, string>
+  direct?: boolean
 }
 
 export interface ManualProjectConfirmationRequest {

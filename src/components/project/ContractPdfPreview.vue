@@ -161,7 +161,12 @@ import {
 } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { downloadOriginalPdf, originalPdfRequest, uploadDocument } from '@/api/documentReview'
+import {
+  downloadOriginalPdf,
+  originalPdfRequest,
+  previewPdfRequest,
+  uploadDocument,
+} from '@/api/documentReview'
 import {
   clampPage,
   clampScale,
@@ -455,15 +460,32 @@ async function loadDocument() {
   }
 
   localLoading.value = true
-  const task = getDocument({
-    ...originalPdfRequest(props.document.versionId),
-    rangeChunkSize: 256 * 1024,
-    disableAutoFetch: true,
-    disableStream: true,
+  let request = await previewPdfRequest(props.document.versionId)
+  if (generation !== documentGeneration) return
+  const createLoadingTask = () => getDocument({
+    ...request,
+    rangeChunkSize: 512 * 1024,
+    disableAutoFetch: false,
+    disableStream: false,
   })
+  let task = createLoadingTask()
   loadingTask = task
   try {
-    const loaded = await task.promise
+    let loaded: PDFDocumentProxy
+    try {
+      loaded = await task.promise
+    } catch (error) {
+      if (!request.direct || generation !== documentGeneration || isCancellation(error)) throw error
+      try {
+        await task.destroy()
+      } catch {
+        // The failed direct task may already be settled.
+      }
+      request = originalPdfRequest(props.document.versionId)
+      task = createLoadingTask()
+      loadingTask = task
+      loaded = await task.promise
+    }
     if (generation !== documentGeneration) {
       if (loadingTask === task) loadingTask = null
       try {

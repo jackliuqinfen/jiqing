@@ -260,7 +260,21 @@ export function originalPdfRequest(versionId: string): OriginalPdfRequest {
   return {
     url: `${API_BASE}/document-versions/${encodeURIComponent(versionId)}/original`,
     httpHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+    direct: false,
   }
+}
+
+export async function previewPdfRequest(versionId: string): Promise<OriginalPdfRequest> {
+  try {
+    const result = await request<{ url?: string | null }>(
+      `/document-versions/${encodeURIComponent(versionId)}/preview-url`,
+    )
+    if (result.url) return { url: result.url, httpHeaders: {}, direct: true }
+  } catch {
+    // Keep the authenticated application endpoint as a safe fallback while
+    // older deployments or local development do not expose signed URLs.
+  }
+  return originalPdfRequest(versionId)
 }
 
 export async function downloadOriginalPdf(versionId: string): Promise<Blob> {

@@ -83,6 +83,9 @@ class LocalFileStorage:
     def exists(self, relative_path):
         return self._resolve(relative_path).is_file()
 
+    def presigned_download_url(self, relative_path, *, expires=300):
+        return None
+
     def size(self, relative_path):
         return self._resolve(relative_path).stat().st_size
 
@@ -180,6 +183,13 @@ class TencentCosFileStorage:
             if _is_cos_not_found(exc):
                 return False
             raise
+
+    def presigned_download_url(self, relative_path, *, expires=300):
+        return self.client.get_presigned_download_url(
+            Bucket=self.bucket,
+            Key=self._key(relative_path),
+            Expired=max(60, min(int(expires), 900)),
+        )
 
     def size(self, relative_path):
         response = self.client.head_object(Bucket=self.bucket, Key=self._key(relative_path))

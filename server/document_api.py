@@ -83,6 +83,7 @@ class DocumentApi:
     _GET_ROUTES = (
         re.compile(r"^/api/documents/([^/]+)$"),
         re.compile(r"^/api/document-versions/([^/]+)/pages/([1-9][0-9]*)/image$"),
+        re.compile(r"^/api/document-versions/([^/]+)/preview-url$"),
         re.compile(r"^/api/document-versions/([^/]+)/original$"),
         re.compile(r"^/api/document-versions/([^/]+)$"),
         re.compile(r"^/api/document-recognition-jobs/([^/]+)$"),
@@ -227,28 +228,32 @@ class DocumentApi:
             return True
         match = self._GET_ROUTES[2].fullmatch(path)
         if match:
-            self._get_original_version(match.group(1))
+            self._get_preview_url(match.group(1))
             return True
         match = self._GET_ROUTES[3].fullmatch(path)
         if match:
-            self._get_version(match.group(1))
+            self._get_original_version(match.group(1))
             return True
         match = self._GET_ROUTES[4].fullmatch(path)
         if match:
-            self._get_recognition_job(match.group(1))
+            self._get_version(match.group(1))
             return True
         match = self._GET_ROUTES[5].fullmatch(path)
         if match:
+            self._get_recognition_job(match.group(1))
+            return True
+        match = self._GET_ROUTES[6].fullmatch(path)
+        if match:
             self._get_review(match.group(1))
             return True
-        if self._GET_ROUTES[6].fullmatch(path):
+        if self._GET_ROUTES[7].fullmatch(path):
             self._list_intake_drafts()
             return True
-        match = self._GET_ROUTES[7].fullmatch(path)
+        match = self._GET_ROUTES[8].fullmatch(path)
         if match:
             self._list_intake_drafts(mine_only=True)
             return True
-        match = self._GET_ROUTES[8].fullmatch(path)
+        match = self._GET_ROUTES[9].fullmatch(path)
         if match:
             self._get_intake_draft(match.group(1))
             return True
@@ -443,6 +448,25 @@ class DocumentApi:
     def _get_version(self, version_id):
         source = self._version_source(version_id)
         self._success(200, _map_version_metadata(source))
+
+    def _get_preview_url(self, version_id):
+        source = self._version_source(version_id)
+        mime_type = str(source.get("mime_type") or "").lower().split(";", 1)[0].strip()
+        if mime_type != "application/pdf":
+            raise DocumentApiError(
+                422,
+                "document_original_not_pdf",
+                "合同原文在线预览仅支持 PDF 文件。",
+            )
+        signer = getattr(self.storage.file_storage, "presigned_download_url", None)
+        url = signer(source["relative_path"], expires=300) if signer else None
+        self._success(
+            200,
+            {
+                "url": url,
+                "expiresIn": 300 if url else 0,
+            },
+        )
 
     def _get_original_version(self, version_id):
         source = self._version_source(version_id)
