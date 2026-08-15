@@ -179,7 +179,11 @@ import {
 } from '@/utils/contractPdfPreview'
 import { friendlyErrorMessage } from '@/utils/errors'
 
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+// The worker is served as an immutable hashed asset. Bump this query version
+// when its response headers change so browsers do not reuse a cached worker
+// response with the old MIME type.
+const pdfWorkerVersionedUrl = `${pdfWorkerUrl}${pdfWorkerUrl.includes('?') ? '&' : '?'}v=2`
+GlobalWorkerOptions.workerSrc = pdfWorkerVersionedUrl
 
 export type ContractDocumentRef = {
   documentId: string

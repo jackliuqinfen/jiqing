@@ -140,6 +140,7 @@ test('preview prefers a signed COS URL, keeps Range loading, and retains the aut
   const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
 
   assert.match(source, /pdf\.worker\.min\.mjs\?url/)
+  assert.match(source, /pdfWorkerVersionedUrl/)
   assert.match(source, /previewPdfRequest\(props\.document\.versionId\)/)
   assert.match(source, /originalPdfRequest\(props\.document\.versionId\)/)
   assert.match(source, /rangeChunkSize:\s*512\s*\*\s*1024/)
