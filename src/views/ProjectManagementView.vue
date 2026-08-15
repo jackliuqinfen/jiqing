@@ -1,15 +1,12 @@
 ﻿<template>
   <div class="project-management">
     <PageHeader
-      title="项目管理"
-      description="统一管理项目主数据、资料台账、合同付款条款、付款结算和变更签证，并为审计看板预留联动入口。"
+      :title="activeWorkspaceViewMeta.label"
+      :description="activeWorkspaceViewMeta.description"
     >
       <template #meta>
-        <ATag variant="light" theme="primary">主数据源</ATag>
-        <ATag variant="light">资料工作台闭环</ATag>
-        <ATag variant="light" :theme="summary.auditLinkedProjects ? 'success' : 'warning'">
-          {{ summary.auditLinkedProjects ? `已联动 ${summary.auditLinkedProjects} 个审计项目` : '待联动审计项目' }}
-        </ATag>
+        <span class="view-path">项目管理 / {{ activeWorkspaceViewMeta.section }}</span>
+        <ATag variant="light" theme="primary">{{ displayRecords.length }} 个项目</ATag>
       </template>
       <template #actions>
         <AButton variant="outline" :loading="loading" @click="loadAll">
@@ -18,39 +15,104 @@
         </AButton>
         <AButton v-if="authStore.isEditor" theme="primary" @click="openProjectForm()">
           <template #icon><AIcon name="add" /></template>
-          手工创建项目
+          新建项目
         </AButton>
       </template>
     </PageHeader>
 
-    <section class="toolbar">
-      <AInput v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
-        <template #prefix-icon><AIcon name="search" /></template>
-      </AInput>
-      <ASelect v-model="filters.projectStatus" clearable placeholder="项目状态" :options="projectStatusOptions" @change="applyToolbarFilters" />
-      <ASelect v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="settlementStatusOptions" @change="applyToolbarFilters" />
-      <AInput v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="applyToolbarFilters" />
-      <ACheckbox v-model="filters.onlyMissingDocuments" class="toolbar-check" @change="applyToolbarFilters">
-        仅看资料不齐
-      </ACheckbox>
-      <ASelect v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
-      <AButton theme="primary" @click="applyToolbarFilters">查询</AButton>
-      <AButton variant="outline" @click="resetFilters">重置</AButton>
+    <section class="toolbar view-toolbar" :class="{ 'view-toolbar--ledger': activeWorkspaceView === 'ledger' }">
+      <div v-if="activeWorkspaceView === 'ledger'" class="ledger-command-row">
+        <AInput v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
+          <template #prefix-icon><AIcon name="search" /></template>
+        </AInput>
+        <button
+          type="button"
+          class="ledger-filter-trigger"
+          :class="{ active: advancedFiltersVisible || advancedFilterCount > 0 }"
+          :aria-expanded="advancedFiltersVisible"
+          @click="advancedFiltersVisible = !advancedFiltersVisible"
+        >
+          <AIcon name="filter" />
+          <span>筛选</span>
+          <b v-if="advancedFilterCount">{{ advancedFilterCount }}</b>
+        </button>
+        <div class="ledger-sort-control">
+          <AIcon name="sort" />
+          <ASelect v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
+        </div>
+        <AButton theme="primary" @click="applyToolbarFilters">查询</AButton>
+      </div>
+
+      <div v-else class="view-toolbar__filters">
+        <AInput v-model="filters.keyword" class="project-keyword-input" clearable placeholder="搜索项目名称、编号、施工单位、负责人" @keyup.enter="applyToolbarFilters">
+          <template #prefix-icon><AIcon name="search" /></template>
+        </AInput>
+        <ASelect v-model="filters.projectStatus" clearable placeholder="项目状态" :options="projectStatusOptions" @change="applyToolbarFilters" />
+        <ASelect v-model="filters.settlementStatus" clearable placeholder="结算状态" :options="settlementStatusOptions" @change="applyToolbarFilters" />
+        <AInput v-model="filters.managerName" clearable placeholder="负责人" @keyup.enter="applyToolbarFilters" />
+        <ASelect v-model="filters.sort" :options="sortOptions" placeholder="排序" @change="applyToolbarFilters" />
+        <AButton theme="primary" @click="applyToolbarFilters">查询</AButton>
+        <AButton variant="outline" @click="resetFilters">重置</AButton>
+        <AButton size="small" variant="text" @click="saveCurrentFilterView">保存视图</AButton>
+      </div>
+
+      <div v-if="activeWorkspaceView === 'ledger' && advancedFiltersVisible" class="ledger-advanced-filters">
+        <label>
+          <span>项目状态</span>
+          <ASelect v-model="filters.projectStatus" clearable placeholder="全部状态" :options="projectStatusOptions" />
+        </label>
+        <label>
+          <span>结算状态</span>
+          <ASelect v-model="filters.settlementStatus" clearable placeholder="全部状态" :options="settlementStatusOptions" />
+        </label>
+        <label>
+          <span>项目经理</span>
+          <AInput v-model="filters.managerName" clearable placeholder="输入姓名" @keyup.enter="applyToolbarFilters" />
+        </label>
+        <button type="button" class="ledger-clear-filters" :disabled="advancedFilterCount === 0" @click="resetFilters">清除筛选</button>
+      </div>
+
+      <div v-if="activeWorkspaceView === 'ledger'" class="view-toolbar__utilities" :class="{ 'is-selection-mode': selectedRecords.length > 0 }">
+        <template v-if="selectedRecords.length">
+          <div class="ledger-selection-context" role="status">
+            <span class="ledger-selection-context__count"><AIcon name="task" />已选 <strong>{{ selectedRecords.length }}</strong> 项</span>
+            <button type="button" @click="selectCurrentPage">选择当前页</button>
+            <button type="button" @click="batchMarkFocus">标记关注</button>
+            <button v-if="authStore.isEditor" type="button" class="primary" :disabled="batchAuditing" @click="batchStartAudit">{{ batchAuditing ? '正在发起审计' : '发起审计' }}</button>
+            <button type="button" @click="clearProjectSelection">清空选择</button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="saved-views" aria-label="快捷筛选">
+            <button type="button" :class="{ active: activeSavedView === 'all' }" @click="applySavedProjectView('all')">全部项目</button>
+            <button type="button" :class="{ active: activeSavedView === 'risk' }" @click="applySavedProjectView('risk')">风险优先</button>
+            <button type="button" :class="{ active: activeSavedView === 'audit' }" @click="applySavedProjectView('audit')">已进审计</button>
+          </div>
+          <div v-if="savedFilterViews.length" class="custom-views" aria-label="我的筛选方案">
+            <span
+              v-for="view in savedFilterViews"
+              :key="view.id"
+              class="custom-view-chip"
+              :class="{ active: activeCustomFilterId === view.id }"
+            >
+              <button type="button" @click="applySavedFilterView(view)">{{ view.name }}</button>
+              <button type="button" aria-label="删除筛选方案" @click="deleteSavedFilterView(view)">×</button>
+            </span>
+          </div>
+          <div class="ledger-view-actions">
+            <div class="ledger-group-control">
+              <AIcon name="list" />
+              <ASelect v-model="groupBy" :options="projectGroupOptions" size="small" />
+            </div>
+            <button type="button" class="ledger-save-view" @click="saveCurrentFilterView"><AIcon name="save" />保存当前视图</button>
+          </div>
+        </template>
+      </div>
     </section>
 
-    <section class="summary-grid">
-      <button
-        v-for="card in summaryCards"
-        :key="card.key"
-        type="button"
-        class="summary-card"
-        :class="{ 'summary-card--active': activeSummaryKey === card.key }"
-        @click="applySummaryFilter(card.key)"
-      >
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-        <em>{{ card.hint }}</em>
-      </button>
+    <section v-if="savedFilterViews.length && activeWorkspaceView !== 'ledger'" class="personal-view-strip" aria-label="我的视图">
+      <span>我的视图</span>
+      <button v-for="view in savedFilterViews" :key="view.id" type="button" :class="{ active: activeCustomFilterId === view.id }" @click="applySavedFilterView(view)">{{ view.name }}</button>
     </section>
 
     <section v-if="showProjectEmptyOnboarding" class="project-empty-onboarding">
@@ -62,7 +124,7 @@
       <AButton v-if="authStore.isEditor" type="primary" @click="openProjectForm()">手工创建第一个项目</AButton>
     </section>
 
-    <section v-if="activeFilterChips.length" class="active-filter-strip" aria-label="已应用筛选">
+    <section v-if="activeFilterChips.length && activeWorkspaceView !== 'ledger'" class="active-filter-strip" aria-label="已应用筛选">
       <span>已应用筛选</span>
       <button v-for="chip in activeFilterChips" :key="chip.key" type="button" @click="clearActiveFilterChip(chip.key)">
         {{ chip.label }}：{{ chip.value }}
@@ -103,19 +165,76 @@
     </StatePanel>
 
     <section v-else class="workspace">
-      <div class="ledger-panel">
+      <div v-if="activeWorkspaceView === 'work'" class="workspace-panel work-queue">
+        <div class="surface-heading">
+          <div><strong>需要我处理</strong><span>按风险和到期时间排序，直接进入原项目详情继续处理。</span></div>
+          <em>{{ workQueueItems.length }} 项</em>
+        </div>
+        <button v-for="item in workQueueItems" :key="item.id" type="button" class="work-queue-row" :data-level="item.level" @click="selectProject(item.project)">
+          <span class="work-queue-row__level">{{ item.levelLabel }}</span>
+          <div><strong>{{ item.title }}</strong><span>{{ item.project.projectName }} · {{ item.description }}</span></div>
+          <span>{{ item.project.managerName || '未分配负责人' }}</span>
+          <time>{{ item.dueText }}</time>
+          <em>{{ item.actionLabel }}</em>
+        </button>
+      </div>
+
+      <div v-else-if="activeWorkspaceView === 'lifecycle'" class="workspace-panel lifecycle-board-wrap">
+        <div class="surface-heading">
+          <div><strong>项目生命周期</strong><span>按业务阶段分组，点击项目继续使用原详情弹窗。</span></div>
+          <em>{{ displayRecords.length }} 个项目</em>
+        </div>
+        <div class="lifecycle-board">
+          <section v-for="column in lifecycleColumns" :key="column.key" class="lifecycle-column">
+            <header><span :data-tone="column.tone" /><strong>{{ column.label }}</strong><em>{{ column.records.length }}</em></header>
+            <div class="lifecycle-column__body">
+              <button v-for="project in column.records" :key="project.id" type="button" class="lifecycle-card" @click="selectProject(project)">
+                <strong>{{ project.projectName }}</strong>
+                <span>{{ projectStatusLabel(project.projectStatus) }} · {{ project.managerName || '未分配负责人' }}</span>
+                <div><em :class="{ warning: project.missingRequiredCount > 0 }">{{ project.missingRequiredCount > 0 ? `缺 ${project.missingRequiredCount} 类资料` : '资料齐全' }}</em><time>{{ shortDate(project.plannedEndDate) }}</time></div>
+                <p>{{ nextActionForProject(project).label }}</p>
+              </button>
+              <span v-if="column.records.length === 0" class="lifecycle-column__empty">暂无项目</span>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div v-else-if="activeWorkspaceView === 'exceptions'" class="workspace-panel exception-workspace">
+        <div class="surface-heading">
+          <div><strong>异常项目</strong><span>只保留异常原因、责任人和下一步动作。</span></div>
+          <em>{{ displayRecords.length }} 个项目</em>
+        </div>
+        <div class="exception-grid">
+          <button v-for="project in displayRecords" :key="project.id" type="button" class="exception-card" @click="selectProject(project)">
+            <div><ATag variant="light" theme="danger">{{ exceptionReason(project) }}</ATag><span>{{ projectStatusLabel(project.projectStatus) }}</span></div>
+            <strong>{{ project.projectName }}</strong>
+            <p>{{ exceptionDescription(project) }}</p>
+            <footer><span>{{ project.managerName || '未分配负责人' }}</span><em>{{ nextActionForProject(project).label }}</em></footer>
+          </button>
+        </div>
+      </div>
+
+      <div v-else class="ledger-panel">
         <div class="panel-head">
           <div>
-            <h3>项目台账</h3>
-            <p>点击项目名称查看资料、结算和签证详情。</p>
+            <h3>{{ activeWorkspaceViewMeta.tableTitle }}</h3>
+            <p>{{ activeWorkspaceViewMeta.tableHint }}</p>
           </div>
-          <div class="panel-head__meta">
-            <span>当前显示 {{ displayRecords.length }} 条 / 共 {{ total }} 条</span>
-            <span>第 {{ page }} / {{ totalPages }} 页</span>
+          <div class="panel-head__side">
+            <div v-if="activeWorkspaceView === 'ledger'" class="ledger-layout-switch" role="group" aria-label="项目台账排版方式">
+              <button type="button" :class="{ active: ledgerLayout === 'info' }" @click="ledgerLayout = 'info'">信息表</button>
+              <button type="button" :class="{ active: ledgerLayout === 'compact' }" @click="ledgerLayout = 'compact'">紧凑表</button>
+              <button type="button" :class="{ active: ledgerLayout === 'cards' }" @click="ledgerLayout = 'cards'">项目卡片</button>
+            </div>
+            <div class="panel-head__meta">
+              <span>当前显示 {{ displayRecords.length }} 条 / 共 {{ total }} 条</span>
+              <span>第 {{ page }} / {{ totalPages }} 页</span>
+            </div>
           </div>
         </div>
 
-        <div class="list-utility-bar">
+        <div v-if="activeWorkspaceView !== 'ledger'" class="list-utility-bar">
           <div class="saved-views" aria-label="保存的筛选方案">
             <button type="button" :class="{ active: activeSavedView === 'all' }" @click="applySavedProjectView('all')">全部项目</button>
             <button type="button" :class="{ active: activeSavedView === 'risk' }" @click="applySavedProjectView('risk')">风险优先</button>
@@ -154,7 +273,7 @@
           </div>
         </div>
 
-        <div v-if="columnSettingsVisible" class="column-settings-panel">
+        <div v-if="columnSettingsVisible && activeWorkspaceView !== 'ledger'" class="column-settings-panel">
           <ACheckbox
             v-for="column in configurableColumns"
             :key="column.colKey"
@@ -173,7 +292,38 @@
           description="可以调整筛选条件，或切换到全部项目查看完整台账。"
         />
 
-        <div v-else class="project-table-groups" :class="{ 'project-table-groups--plain': groupBy === 'none' }">
+        <div v-else-if="activeWorkspaceView === 'ledger' && ledgerLayout === 'cards'" class="project-card-groups">
+          <section v-for="group in groupedDisplayRecords" :key="group.key" class="project-card-group">
+            <header v-if="groupBy !== 'none'" class="project-table-group__head">
+              <div><strong>{{ group.label }}</strong><span>{{ group.hint }}</span></div>
+              <em>{{ group.records.length }} 项</em>
+            </header>
+            <div class="ledger-card-grid">
+              <button v-for="project in group.records" :key="project.id" type="button" class="ledger-project-card" @click="selectProject(project)">
+                <header>
+                  <div><span>{{ project.projectCode }}</span><strong>{{ project.projectName }}</strong></div>
+                  <ATag variant="light" :theme="statusTheme(project.projectStatus)">{{ projectStatusLabel(project.projectStatus) }}</ATag>
+                </header>
+                <dl>
+                  <div><dt>施工单位</dt><dd>{{ project.constructionUnit || '未填写' }}</dd></div>
+                  <div><dt>项目经理</dt><dd>{{ project.managerName || '未分配' }}</dd></div>
+                  <div><dt>当前进度</dt><dd>{{ projectStatusLabel(project.projectStatus) }}</dd></div>
+                  <div><dt>资料状态</dt><dd :class="{ warning: project.missingRequiredCount > 0 }">{{ project.missingRequiredCount > 0 ? `缺 ${project.missingRequiredCount} 类（${project.documentCompletion}%）` : `资料完整（${project.documentCompletion}%）` }}</dd></div>
+                </dl>
+                <div class="ledger-project-card__amount">
+                  <span>合同金额</span>
+                  <MoneyDisplay :value="project.contractAmount || project.submittedAmount || 0" mode="compact" />
+                </div>
+                <footer>
+                  <span :class="{ paid: hasPayment(project) }">{{ hasPayment(project) ? `已付款 ${formatWan(project.paidAmount)}` : '未付款' }}</span>
+                  <em>查看详情</em>
+                </footer>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div v-else class="project-table-groups" :class="{ 'project-table-groups--plain': groupBy === 'none', 'project-table-groups--compact': activeWorkspaceView === 'ledger' && ledgerLayout === 'compact' }">
           <section v-for="group in groupedDisplayRecords" :key="group.key" class="project-table-group">
             <header v-if="groupBy !== 'none'" class="project-table-group__head">
               <div>
@@ -202,8 +352,26 @@
               <template #project="{ row }">
                 <button class="project-link" type="button" @click="selectProject(row)">
                   <strong>{{ row.projectName }}</strong>
-                  <span>{{ row.projectCode }} · {{ row.managerName || row.contractorName }}</span>
+                  <span>{{ ledgerLayout === 'compact' && activeWorkspaceView === 'ledger' ? `${row.projectCode} · ${row.constructionUnit || row.ownerUnit || '未填写施工单位'}` : row.projectCode }}</span>
                 </button>
+              </template>
+              <template #constructionUnit="{ row }">
+                <div class="construction-unit-cell">
+                  <strong>{{ row.constructionUnit || '未填写' }}</strong>
+                  <span>{{ row.ownerUnit ? `建设单位：${row.ownerUnit}` : '建设单位未填写' }}</span>
+                </div>
+              </template>
+              <template #stage="{ row }">
+                <div class="status-stack">
+                  <ATag variant="light" :theme="statusTheme(row.projectStatus)">{{ projectStatusLabel(row.projectStatus) }}</ATag>
+                  <span>{{ shortDate(row.plannedEndDate) }} 前</span>
+                </div>
+              </template>
+              <template #owner="{ row }">
+                <div class="owner-table-cell">
+                  <span>{{ ownerInitial(row) }}</span>
+                  <div><strong>{{ row.managerName || '未分配' }}</strong><em>{{ row.companyRole || '项目负责人' }}</em></div>
+                </div>
               </template>
               <template #status="{ row }">
                 <div class="status-stack">
@@ -220,7 +388,38 @@
               <template #amount="{ row }">
                 <div class="amount-cell">
                   <MoneyDisplay :value="row.contractAmount || row.submittedAmount || 0" mode="compact" />
-                  <span>合同 / 送审</span>
+                  <span v-if="activeWorkspaceView === 'ledger' && ledgerLayout === 'compact'" class="amount-payment-hint">{{ hasPayment(row) ? `已付款 · ${paymentRatio(row)}%` : '未付款' }}</span>
+                </div>
+              </template>
+              <template #payment="{ row }">
+                <div class="payment-cell">
+                  <ATag variant="light" :theme="hasPayment(row) ? 'success' : 'default'">{{ hasPayment(row) ? '已有付款' : '尚未付款' }}</ATag>
+                  <strong v-if="hasPayment(row)">{{ formatWan(row.paidAmount) }}</strong>
+                  <span>{{ hasPayment(row) ? `合同付款比例 ${paymentRatio(row)}%` : '暂无付款记录' }}</span>
+                </div>
+              </template>
+              <template #auditStage="{ row }">
+                <div class="audit-cell">
+                  <strong>{{ auditStageLabel(row.auditStage) }}</strong>
+                  <span>{{ row.auditProjectId ? '已进入审计流程' : '尚未发起审计' }}</span>
+                </div>
+              </template>
+              <template #settlement="{ row }">
+                <div class="status-stack">
+                  <ATag variant="light" :theme="settlementTheme(row.settlementStatus)">{{ settlementStatusLabel(row.settlementStatus) }}</ATag>
+                  <span>已付 {{ paymentRatio(row) }}%</span>
+                </div>
+              </template>
+              <template #next="{ row }">
+                <div class="next-action-cell">
+                  <strong>{{ nextActionForProject(row).label }}</strong>
+                  <span>{{ nextActionForProject(row).hint }}</span>
+                </div>
+              </template>
+              <template #updated="{ row }">
+                <div class="updated-cell">
+                  <strong>{{ shortDate(row.updatedAt) }}</strong>
+                  <span>{{ isProjectOverdue(row) ? '计划已逾期' : '最近更新' }}</span>
                 </div>
               </template>
               <template #audit="{ row }">
@@ -1318,6 +1517,7 @@ import { useAuthStore } from '@/store/auth'
 import {
   businessColor,
   businessLabel,
+  auditStageOptions as auditStageDict,
   materialStatusOptions as materialStatusDict,
   projectStatusOptions as projectStatusDict,
   settlementStatusOptions as settlementStatusDict,
@@ -1357,6 +1557,8 @@ const authStore = useAuthStore()
 type DetailTab = 'overview' | 'files' | 'settlements' | 'variations' | 'logs'
 type BuiltInProjectView = 'all' | 'risk' | 'audit'
 type ProjectGroupBy = 'none' | 'status' | 'owner' | 'audit'
+type ProjectWorkspaceView = 'work' | 'ledger' | 'lifecycle' | 'documents' | 'audit' | 'settlement' | 'exceptions'
+type LedgerLayout = 'info' | 'compact' | 'cards'
 type ProjectWizardStepKey = 'base' | 'stage' | 'materials' | 'confirm'
 type ProjectLifecycleStepKey = 'base' | 'documents' | 'audit' | 'settlement' | 'archive'
 type ProjectLifecycleStep = {
@@ -1379,16 +1581,30 @@ type SavedProjectFilterView = {
 
 const SAVED_PROJECT_FILTERS_KEY = 'project-management-saved-filters'
 const PROJECT_WORKSPACE_STATE_KEY = 'project-management-workspace-state-v1'
+const LEDGER_LAYOUT_KEY = 'project-management-ledger-layout-v1'
 
 const baseTableColumns = [
-  { colKey: 'select', title: '选择', width: 64, fixed: 'left' as const },
-  { colKey: 'project', title: '项目', width: 320, fixed: 'left' as const },
-  { colKey: 'status', title: '状态', width: 170 },
-  { colKey: 'docs', title: '资料', width: 110 },
-  { colKey: 'amount', title: '金额', width: 140 },
-  { colKey: 'audit', title: '审计联动', width: 170 },
-  { colKey: 'actions', title: '操作', width: 160, fixed: 'right' as const },
+  { colKey: 'select', title: '选择', width: 52, fixed: 'left' as const },
+  { colKey: 'project', title: '项目名称 / 编号', width: 250, fixed: 'left' as const },
+  { colKey: 'constructionUnit', title: '施工单位', width: 170 },
+  { colKey: 'stage', title: '当前阶段', width: 120 },
+  { colKey: 'owner', title: '项目经理', width: 110 },
+  { colKey: 'docs', title: '资料完整度', width: 110 },
+  { colKey: 'amount', title: '合同金额（小写 / 中文大写）', width: 190 },
+  { colKey: 'payment', title: '付款情况', width: 130 },
+  { colKey: 'auditStage', title: '审计进度', width: 160 },
+  { colKey: 'settlement', title: '结算状态', width: 180 },
+  { colKey: 'next', title: '下一步动作', width: 210 },
+  { colKey: 'updated', title: '最近更新', width: 120 },
+  { colKey: 'actions', title: '操作', width: 88, fixed: 'right' as const },
 ]
+
+const viewColumnKeys: Record<Exclude<ProjectWorkspaceView, 'work' | 'lifecycle' | 'exceptions'>, string[]> = {
+  ledger: ['select', 'project', 'constructionUnit', 'owner', 'stage', 'docs', 'amount', 'payment', 'actions'],
+  documents: ['select', 'project', 'stage', 'owner', 'docs', 'next', 'actions'],
+  audit: ['select', 'project', 'stage', 'auditStage', 'owner', 'docs', 'next', 'actions'],
+  settlement: ['select', 'project', 'stage', 'owner', 'amount', 'settlement', 'next', 'actions'],
+}
 
 const fileColumns = [
   { colKey: 'name', title: '资料名称', width: 260 },
@@ -1558,12 +1774,14 @@ const auditStarting = ref(false)
 const batchAuditing = ref(false)
 const error = ref('')
 const columnSettingsVisible = ref(false)
+const advancedFiltersVisible = ref(false)
 const selectedProjectIds = ref<string[]>([])
 const activeSavedView = ref<BuiltInProjectView>('all')
 const activeCustomFilterId = ref('')
 const savedFilterViews = ref<SavedProjectFilterView[]>([])
 const groupBy = ref<ProjectGroupBy>('none')
-const visibleProjectColumnKeys = ref(['select', 'project', 'status', 'docs', 'amount', 'audit', 'actions'])
+const ledgerLayout = ref<LedgerLayout>('info')
+const visibleProjectColumnKeys = ref(baseTableColumns.map((column) => String(column.colKey)))
 const workItems = ref<WorkItem[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -1797,9 +2015,58 @@ const projectInitialDirectories = computed(() => {
   ]
   return base
 })
-const tableColumns = computed(() => baseTableColumns.filter((column) => visibleProjectColumnKeys.value.includes(String(column.colKey))))
-const configurableColumns = computed(() => baseTableColumns.filter((column) => !['select', 'project', 'actions'].includes(String(column.colKey))))
-const displayRecords = computed(() => records.value)
+const activeWorkspaceView = computed<ProjectWorkspaceView>(() => {
+  const view = String(route.query.view || 'work')
+  if (view === 'risk') return 'exceptions'
+  if (['work', 'ledger', 'lifecycle', 'documents', 'audit', 'settlement', 'exceptions'].includes(view)) return view as ProjectWorkspaceView
+  return 'ledger'
+})
+const workspaceViewMeta: Record<ProjectWorkspaceView, { label: string; section: string; description: string; tableTitle: string; tableHint: string }> = {
+  work: { label: '我的工作', section: '工作视图', description: '集中查看需要我处理的到期事项、资料缺口和异常项目。', tableTitle: '需要我处理', tableHint: '按风险和到期时间排序。' },
+  ledger: { label: '项目台账', section: '工作视图', description: '在同一张项目主表中筛选、分组和配置字段。', tableTitle: '项目主数据表', tableHint: '点击项目名称进入原项目详情，继续处理资料、审计和结算。' },
+  lifecycle: { label: '生命周期看板', section: '工作视图', description: '按建档签约、施工验收、报审、审计定案和归档查看项目。', tableTitle: '项目生命周期', tableHint: '按业务阶段分组。' },
+  documents: { label: '资料缺口', section: '专项视角', description: '聚焦仍缺关键资料的项目，明确负责人和补齐动作。', tableTitle: '待补资料项目', tableHint: '仅显示资料不齐的项目，并突出缺口与下一步动作。' },
+  audit: { label: '审计进度', section: '专项视角', description: '查看已进入审计流程的项目、当前审计阶段和资料准备情况。', tableTitle: '审计项目跟进表', tableHint: '审计阶段已全部转换为中文业务名称。' },
+  settlement: { label: '结算跟进', section: '专项视角', description: '集中查看合同金额、付款比例、结算状态和下一办理条件。', tableTitle: '结算跟进表', tableHint: '未结清项目优先展示。' },
+  exceptions: { label: '异常项目', section: '专项视角', description: '聚焦计划逾期、关键资料缺失或付款未结清的项目。', tableTitle: '异常项目', tableHint: '按风险优先级排列。' },
+}
+const activeWorkspaceViewMeta = computed(() => workspaceViewMeta[activeWorkspaceView.value])
+const tableWorkspaceView = computed(() => ['ledger', 'documents', 'audit', 'settlement'].includes(activeWorkspaceView.value))
+const activeViewColumnKeys = computed(() => {
+  if (activeWorkspaceView.value === 'ledger' && ledgerLayout.value === 'compact') {
+    return ['select', 'project', 'owner', 'stage', 'docs', 'amount', 'actions']
+  }
+  return tableWorkspaceView.value
+    ? viewColumnKeys[activeWorkspaceView.value as keyof typeof viewColumnKeys]
+    : viewColumnKeys.ledger
+})
+const tableColumns = computed(() => baseTableColumns.filter((column) => {
+  const key = String(column.colKey)
+  if (!activeViewColumnKeys.value.includes(key)) return false
+  if (activeWorkspaceView.value === 'ledger') return true
+  return visibleProjectColumnKeys.value.includes(key)
+}))
+const configurableColumns = computed(() => baseTableColumns.filter((column) => (
+  activeViewColumnKeys.value.includes(String(column.colKey))
+  && !['select', 'project', 'actions'].includes(String(column.colKey))
+)))
+const displayRecords = computed(() => {
+  const keyword = filters.keyword.trim().toLowerCase()
+  let next = records.value.filter((record) => {
+    if (keyword && ![record.projectName, record.projectCode, record.constructionUnit, record.ownerUnit, record.managerName].some((value) => String(value || '').toLowerCase().includes(keyword))) return false
+    if (filters.projectStatus && record.projectStatus !== filters.projectStatus) return false
+    if (filters.settlementStatus && record.settlementStatus !== filters.settlementStatus) return false
+    if (filters.managerName && !String(record.managerName || '').includes(filters.managerName)) return false
+    if (activeWorkspaceView.value === 'documents' && record.missingRequiredCount <= 0) return false
+    if (activeWorkspaceView.value === 'audit' && !record.auditProjectId && ['not_linked', ''].includes(record.auditStage || '')) return false
+    if (activeWorkspaceView.value === 'settlement' && record.settlementStatus === 'settled') return false
+    if (activeWorkspaceView.value === 'exceptions' && !isProjectRisk(record)) return false
+    return true
+  })
+  if (activeWorkspaceView.value === 'exceptions') next = [...next].sort((a, b) => exceptionScore(b) - exceptionScore(a))
+  if (activeWorkspaceView.value === 'settlement') next = [...next].sort((a, b) => paymentRatio(a) - paymentRatio(b))
+  return next
+})
 const activeFilterChips = computed<ProjectFilterChip[]>(() => {
   const chips: ProjectFilterChip[] = []
   if (filters.keyword) chips.push({ key: 'keyword', label: '关键词', value: filters.keyword })
@@ -1816,6 +2083,11 @@ const activeFilterChips = computed<ProjectFilterChip[]>(() => {
   }
   return chips
 })
+const advancedFilterCount = computed(() => [
+  filters.projectStatus,
+  filters.settlementStatus,
+  filters.managerName,
+].filter(Boolean).length)
 
 const projectContextMenuItems = computed<ObjectContextMenuItem[]>(() => {
   const record = projectContextMenu.record
@@ -2020,6 +2292,38 @@ const riskProjects = computed(() => records.value.filter((record) => {
   return record.missingRequiredCount > 0 || isProjectOverdue(record) || record.settlementStatus === 'partially_paid'
 }))
 
+const lifecycleColumns = computed(() => [
+  { key: 'contract', label: '建档签约', tone: 'blue', statuses: ['awarded', 'contract_signed'] },
+  { key: 'construction', label: '施工验收', tone: 'cyan', statuses: ['under_construction', 'completed_acceptance'] },
+  { key: 'submission', label: '报审准备', tone: 'amber', statuses: ['pending_submission'] },
+  { key: 'audit', label: '审计定案', tone: 'purple', statuses: ['first_audit', 'second_audit', 'conclusion'] },
+  { key: 'archive', label: '归档闭环', tone: 'green', statuses: ['archived'] },
+].map((column) => ({
+  ...column,
+  records: displayRecords.value.filter((record) => column.statuses.includes(record.projectStatus)),
+})))
+
+const workQueueItems = computed(() => displayRecords.value
+  .filter((project) => project.projectStatus !== 'archived')
+  .map((project) => {
+    const action = nextActionForProject(project)
+    const overdue = isProjectOverdue(project)
+    const level = overdue ? 'danger' : project.missingRequiredCount > 0 ? 'warning' : 'primary'
+    return {
+      id: `work-${project.id}`,
+      project,
+      title: action.label,
+      description: action.hint,
+      actionLabel: '打开项目',
+      level,
+      levelLabel: overdue ? '已逾期' : project.missingRequiredCount > 0 ? '缺资料' : '待推进',
+      dueText: project.plannedEndDate ? `${shortDate(project.plannedEndDate)} 前` : '未设置期限',
+      score: overdue ? 3 : project.missingRequiredCount > 0 ? 2 : 1,
+    }
+  })
+  .sort((a, b) => b.score - a.score || String(a.project.plannedEndDate || '').localeCompare(String(b.project.plannedEndDate || '')))
+  .slice(0, 14))
+
 const projectWorkItems = computed(() => workItems.value.filter((item) => item.projectId || item.auditProjectId).slice(0, 4))
 
 const ownerDistribution = computed(() => {
@@ -2058,6 +2362,58 @@ function projectStatusLabel(value: string) {
 
 function settlementStatusLabel(value: string) {
   return settlementStatusOptions.value.find((item) => item.value === value)?.label || businessLabel(settlementStatusDict, value)
+}
+
+function auditStageLabel(value: string) {
+  if (!value || value === 'not_linked') return '未进入审计'
+  return meta.auditStages.find((item) => item.value === value)?.label || businessLabel(auditStageDict, value, '待确认审计阶段')
+}
+
+function ownerInitial(record: ProjectRecord) {
+  return String(record.managerName || '待').trim().slice(0, 1)
+}
+
+function paymentRatio(record: ProjectRecord) {
+  const base = Number(record.contractAmount || record.submittedAmount || 0)
+  if (!base) return 0
+  return Math.min(100, Math.max(0, Math.round(Number(record.paidAmount || 0) / base * 100)))
+}
+
+function hasPayment(record: ProjectRecord) {
+  return Number(record.paidAmount || 0) > 0
+}
+
+function isProjectRisk(record: ProjectRecord) {
+  return record.missingRequiredCount > 0 || isProjectOverdue(record) || record.settlementStatus === 'partially_paid'
+}
+
+function exceptionScore(record: ProjectRecord) {
+  return (isProjectOverdue(record) ? 4 : 0) + Math.min(3, Number(record.missingRequiredCount || 0)) + (record.settlementStatus === 'partially_paid' ? 2 : 0)
+}
+
+function exceptionReason(record: ProjectRecord) {
+  if (isProjectOverdue(record)) return '计划逾期'
+  if (record.missingRequiredCount > 0) return '关键资料缺失'
+  if (record.settlementStatus === 'partially_paid') return '付款未结清'
+  return '需要关注'
+}
+
+function exceptionDescription(record: ProjectRecord) {
+  const items: string[] = []
+  if (isProjectOverdue(record)) items.push(`计划完成日期为 ${shortDate(record.plannedEndDate)}`)
+  if (record.missingRequiredCount > 0) items.push(`仍缺 ${record.missingRequiredCount} 类必需资料`)
+  if (record.settlementStatus === 'partially_paid') items.push(`当前${settlementStatusLabel(record.settlementStatus)}`)
+  return items.join('；') || '建议核对项目当前状态。'
+}
+
+function nextActionForProject(record: ProjectRecord) {
+  if (isProjectOverdue(record)) return { label: '更新计划并确认责任人', hint: `原计划 ${shortDate(record.plannedEndDate)} 完成` }
+  if (record.missingRequiredCount > 0) return { label: '补齐关键资料', hint: `仍缺 ${record.missingRequiredCount} 类，当前完整度 ${record.documentCompletion}%` }
+  if (record.settlementStatus === 'partially_paid') return { label: '核对未结清款项', hint: `当前付款比例 ${paymentRatio(record)}%` }
+  if (record.auditProjectId) return { label: '跟进审计进度', hint: `当前为${auditStageLabel(record.auditStage)}` }
+  if (['completed_acceptance', 'pending_submission'].includes(record.projectStatus)) return { label: '准备并发起报审', hint: '资料齐备后进入审计流程' }
+  if (record.projectStatus === 'conclusion') return { label: '办理结算与归档', hint: '核对定案金额和结算条件' }
+  return { label: '推进下一业务阶段', hint: projectStatusHint(record.projectStatus) }
 }
 
 function variationStatusLabel(value: string) {
@@ -2908,12 +3264,6 @@ function applyRouteFilters() {
     activeCustomFilterId.value = ''
     filters.onlyRisk = true
     filters.sort = 'plannedEndDate'
-  } else if (view === 'audit') {
-    applied = true
-    activeSummaryKey.value = 'audit'
-    activeSavedView.value = 'audit'
-    activeCustomFilterId.value = ''
-    filters.onlyAuditLinked = true
   } else if (view === 'due') {
     applied = true
     activeSummaryKey.value = 'due'
@@ -2973,6 +3323,7 @@ function applySummaryFilter(key: string) {
 }
 
 function applyToolbarFilters() {
+  advancedFiltersVisible.value = false
   activeSavedView.value = 'all'
   activeCustomFilterId.value = ''
   activeSummaryKey.value = filters.onlyMissingDocuments ? 'missing' : ''
@@ -3225,6 +3576,7 @@ async function openProjectWorkItem(item: WorkItem) {
 }
 
 function resetFilters() {
+  advancedFiltersVisible.value = false
   activeSummaryKey.value = ''
   activeSavedView.value = 'all'
   activeCustomFilterId.value = ''
@@ -3619,7 +3971,7 @@ function closeProjectDetail() {
   activeTab.value = 'overview'
   closeFilePreview()
   if (route.path === '/project-management' && route.query.projectId) {
-    router.push({ path: '/project-management', query: { view: 'ledger' } })
+    router.push({ path: '/project-management', query: { view: activeWorkspaceView.value } })
   }
 }
 
@@ -3889,10 +4241,13 @@ function goAudit(id: string) {
 function handleSidebarAction(event: Event) {
   const action = (event as CustomEvent<{ action?: string }>).detail?.action
   if (action === 'project:create') openProjectForm()
+  if (action === 'project:save-view') saveCurrentFilterView()
 }
 
 onMounted(async () => {
   loadSavedFilterViews()
+  const savedLedgerLayout = window.localStorage.getItem(LEDGER_LAYOUT_KEY)
+  if (savedLedgerLayout === 'info' || savedLedgerLayout === 'compact' || savedLedgerLayout === 'cards') ledgerLayout.value = savedLedgerLayout
   const restoredScrollTop = restoreProjectWorkspaceState()
   window.addEventListener('keydown', handleProjectKeyboard)
   window.addEventListener('jiqing-sidebar-action', handleSidebarAction)
@@ -3923,6 +4278,11 @@ watch(
     await openProjectFromRoute()
   },
 )
+
+watch(ledgerLayout, (layout) => {
+  window.localStorage.setItem(LEDGER_LAYOUT_KEY, layout)
+  if (layout === 'cards') columnSettingsVisible.value = false
+})
 
 watch(
   () => route.query.intakeDocumentVersionId,
@@ -3959,7 +4319,7 @@ watch(detailDialogVisible, (visible) => {
     activeTab.value = 'overview'
     closeFilePreview()
     if (route.path === '/project-management' && route.query.projectId) {
-      router.push({ path: '/project-management', query: { view: 'ledger' } })
+      router.push({ path: '/project-management', query: { view: activeWorkspaceView.value } })
     }
   }
 })
@@ -3968,9 +4328,265 @@ watch(detailDialogVisible, (visible) => {
 <style scoped>
 .project-management {
   display: grid;
-  gap: var(--space-2);
+  gap: 12px;
   min-height: 100%;
-  background: #F7F8FA;
+  padding: 18px 20px 28px;
+  background: #f7f9fc;
+}
+
+.view-path {
+  color: #8793a7;
+  font-size: 12px;
+}
+
+.personal-view-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 4px;
+  overflow-x: auto;
+}
+
+.personal-view-strip > span {
+  flex: 0 0 auto;
+  color: #8a96a8;
+  font-size: 12px;
+}
+
+.personal-view-strip button {
+  min-height: 28px;
+  padding: 0 10px;
+  color: #66758d;
+  background: #fff;
+  border: 1px solid #e1e7f0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.personal-view-strip button.active,
+.personal-view-strip button:hover {
+  color: #165dff;
+  border-color: #b9cdf5;
+  background: #f3f7ff;
+}
+
+.workspace-panel {
+  min-width: 0;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #e3e9f2;
+  border-radius: 10px;
+  box-shadow: 0 7px 24px rgba(35, 63, 105, .045);
+}
+
+.surface-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.surface-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.surface-heading strong {
+  color: #263650;
+  font-size: 15px;
+}
+
+.surface-heading span,
+.surface-heading em {
+  color: #8b97a9;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.work-queue {
+  display: grid;
+}
+
+.work-queue-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 62px minmax(260px, 1fr) 110px 110px 78px;
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 9px 12px;
+  color: #64738a;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #edf1f6;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.work-queue-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 3px;
+  background: #6e9bed;
+}
+
+.work-queue-row[data-level='danger']::before { background: #e85b62; }
+.work-queue-row[data-level='warning']::before { background: #e5a33c; }
+.work-queue-row:hover { background: #f8fbff; }
+.work-queue-row > div { display: grid; gap: 4px; min-width: 0; }
+.work-queue-row > div strong { overflow: hidden; color: #32415b; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.work-queue-row > div span, .work-queue-row > span, .work-queue-row time { color: #8793a6; font-size: 11px; }
+.work-queue-row > em { color: #165dff; font-size: 12px; font-style: normal; text-align: right; }
+
+.work-queue-row__level {
+  justify-self: start;
+  padding: 4px 7px;
+  color: #596d8c !important;
+  background: #eff4fb;
+  border-radius: 5px;
+}
+
+.work-queue-row[data-level='danger'] .work-queue-row__level { color: #ba5157 !important; background: #fff0f0; }
+.work-queue-row[data-level='warning'] .work-queue-row__level { color: #a86f18 !important; background: #fff6e7; }
+
+.lifecycle-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.lifecycle-column {
+  min-width: 220px;
+  overflow: hidden;
+  background: #f7f9fc;
+  border: 1px solid #e5eaf2;
+  border-radius: 8px;
+}
+
+.lifecycle-column > header {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 11px;
+  border-bottom: 1px solid #e8edf4;
+}
+
+.lifecycle-column > header > span { width: 7px; height: 7px; border-radius: 50%; background: #5d8ee6; }
+.lifecycle-column > header > span[data-tone='cyan'] { background: #37aeb1; }
+.lifecycle-column > header > span[data-tone='amber'] { background: #dda13c; }
+.lifecycle-column > header > span[data-tone='purple'] { background: #8a6fd0; }
+.lifecycle-column > header > span[data-tone='green'] { background: #43a876; }
+.lifecycle-column > header strong { color: #45546c; font-size: 12px; }
+.lifecycle-column > header em { min-width: 22px; padding: 2px 6px; color: #71819b; background: #e9eef6; border-radius: 10px; font-size: 10px; font-style: normal; text-align: center; }
+.lifecycle-column__body { display: grid; gap: 8px; max-height: 620px; padding: 9px; overflow-y: auto; }
+.lifecycle-column__empty { padding: 24px 8px; color: #a1abba; font-size: 11px; text-align: center; }
+
+.lifecycle-card {
+  display: grid;
+  gap: 7px;
+  padding: 11px;
+  color: #718098;
+  background: #fff;
+  border: 1px solid #e4eaf2;
+  border-radius: 7px;
+  box-shadow: 0 3px 10px rgba(38, 63, 102, .035);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.lifecycle-card:hover { border-color: #b9cdf4; box-shadow: 0 7px 17px rgba(48, 86, 148, .08); }
+.lifecycle-card > strong { overflow: hidden; color: #34435c; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.lifecycle-card > span, .lifecycle-card time { font-size: 10px; }
+.lifecycle-card > div { display: flex; justify-content: space-between; gap: 8px; }
+.lifecycle-card > div em { color: #4b866b; font-size: 10px; font-style: normal; }
+.lifecycle-card > div em.warning { color: #b67a1d; }
+.lifecycle-card p { margin: 0; padding-top: 7px; color: #426cb6; border-top: 1px solid #eef2f6; font-size: 11px; }
+
+.exception-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.exception-card {
+  display: grid;
+  gap: 10px;
+  min-height: 166px;
+  padding: 15px;
+  color: #718098;
+  background: #fff;
+  border: 1px solid #e6eaf1;
+  border-top: 3px solid #e36a70;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.exception-card:hover { border-color: #e7aeb1; box-shadow: 0 8px 20px rgba(132, 61, 66, .07); }
+.exception-card > div, .exception-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.exception-card > div > span { color: #8d99aa; font-size: 11px; }
+.exception-card > strong { color: #34435b; font-size: 14px; }
+.exception-card p { margin: 0; color: #77859a; font-size: 12px; line-height: 1.6; }
+.exception-card footer { margin-top: auto; padding-top: 9px; border-top: 1px solid #eef1f5; }
+.exception-card footer span { font-size: 11px; }
+.exception-card footer em { color: #165dff; font-size: 11px; font-style: normal; }
+
+.owner-table-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.owner-table-cell > span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #416ebc;
+  background: #eaf1ff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.owner-table-cell > div,
+.updated-cell,
+.next-action-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.owner-table-cell strong,
+.audit-cell strong,
+.updated-cell strong,
+.next-action-cell strong { color: #41516b; font-size: 12px; }
+.owner-table-cell em,
+.updated-cell span,
+.next-action-cell span,
+.status-stack > span { color: #929dac; font-size: 10px; font-style: normal; }
+
+.ledger-panel {
+  border-radius: 10px;
+  box-shadow: 0 7px 24px rgba(35, 63, 105, .045);
 }
 
 .project-management :deep(.page-header) {
@@ -4315,38 +4931,50 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: var(--space-2);
-  align-items: center;
   padding: var(--space-2);
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
 }
 
-.toolbar > * {
+.view-toolbar__filters,
+.view-toolbar__utilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   min-width: 0;
 }
 
-.toolbar > .project-keyword-input {
+.view-toolbar__utilities {
+  justify-content: space-between;
+  padding-top: var(--space-2);
+  border-top: 1px solid #edf1f6;
+}
+
+.view-toolbar__filters > * {
+  min-width: 0;
+}
+
+.view-toolbar__filters > .project-keyword-input {
   flex: 1 1 260px;
 }
 
-.toolbar > .arco-select-view,
-.toolbar > .arco-input-wrapper:not(.project-keyword-input),
-.toolbar > .arco-select-view,
-.toolbar > .arco-input-wrapper {
+.view-toolbar__filters > .arco-select-view,
+.view-toolbar__filters > .arco-input-wrapper:not(.project-keyword-input),
+.view-toolbar__filters > .arco-input-wrapper {
   flex: 0 1 132px;
   width: auto;
 }
 
-.toolbar :deep(.arco-select-view) {
+.view-toolbar__filters :deep(.arco-select-view) {
   flex: 0 1 132px;
   width: auto;
 }
 
-.toolbar :deep(.arco-input-wrapper:not(.project-keyword-input)) {
+.view-toolbar__filters :deep(.arco-input-wrapper:not(.project-keyword-input)) {
   flex: 0 1 132px;
   width: auto;
 }
@@ -4355,9 +4983,304 @@ watch(detailDialogVisible, (visible) => {
   flex: 0 0 auto;
 }
 
-.toolbar > .arco-btn,
-.toolbar > .arco-btn {
+.view-toolbar__filters > .arco-btn {
   flex: 0 0 76px;
+}
+
+.view-toolbar--ledger {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: #dfe6f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ledger-command-row {
+  display: grid;
+  grid-template-columns: minmax(360px, 520px) 108px 162px 82px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.ledger-command-row > * {
+  min-width: 0;
+}
+
+.ledger-command-row :deep(.arco-input-wrapper),
+.ledger-command-row :deep(.arco-select-view) {
+  height: 40px;
+  border-color: #dfe6f0;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.ledger-command-row :deep(.arco-input-wrapper:hover),
+.ledger-command-row :deep(.arco-select-view:hover) {
+  border-color: #b9c8dc;
+}
+
+.ledger-command-row :deep(.arco-input-wrapper-focus),
+.ledger-command-row :deep(.arco-select-view-focus) {
+  border-color: #7aa5f8;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, .08);
+}
+
+.ledger-command-row > .arco-btn {
+  height: 40px;
+  border-radius: 7px;
+  font-size: 14px;
+}
+
+.ledger-filter-trigger,
+.ledger-clear-filters,
+.ledger-view-actions button,
+.ledger-selection-context button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ledger-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 12px;
+  color: #4d5f78;
+  border: 1px solid #dfe6f0;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.ledger-filter-trigger:hover,
+.ledger-filter-trigger.active {
+  color: #165dff;
+  border-color: #9ab9f5;
+  background: #f6f9ff;
+}
+
+.ledger-filter-trigger:focus {
+  outline: none;
+}
+
+.ledger-filter-trigger:focus-visible {
+  border-color: #7aa5f8;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, .12);
+}
+
+.ledger-filter-trigger b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  color: #fff;
+  border-radius: 10px;
+  background: #165dff;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.ledger-sort-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ledger-sort-control > .arco-icon {
+  position: absolute;
+  z-index: 1;
+  left: 11px;
+  color: #718099;
+  pointer-events: none;
+}
+
+.ledger-sort-control :deep(.arco-select-view) {
+  width: 100%;
+  padding-left: 30px;
+}
+
+.ledger-advanced-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 220px)) 1fr;
+  align-items: end;
+  gap: 14px;
+  padding: 14px 12px;
+  border-top: 1px solid #edf1f6;
+  background: #fafbfd;
+}
+
+.ledger-advanced-filters label {
+  display: grid;
+  gap: 6px;
+  color: #5e6d84;
+  font-size: 12px;
+}
+
+.ledger-advanced-filters :deep(.arco-select-view),
+.ledger-advanced-filters :deep(.arco-input-wrapper) {
+  width: 100%;
+  height: 36px;
+  border-color: #dfe6f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ledger-clear-filters {
+  justify-self: end;
+  min-height: 36px;
+  padding: 0 10px;
+  color: #566985;
+  font-size: 13px;
+}
+
+.ledger-clear-filters:hover:not(:disabled) {
+  color: #165dff;
+}
+
+.ledger-clear-filters:disabled {
+  color: #b9c2d0;
+  cursor: not-allowed;
+}
+
+.view-toolbar--ledger .view-toolbar__utilities {
+  min-height: 46px;
+  padding: 0 12px;
+  border-top: 1px solid #edf1f6;
+}
+
+.view-toolbar--ledger .view-toolbar__utilities.is-selection-mode {
+  background: #f3f7ff;
+  border-top-color: #dce8ff;
+}
+
+.view-toolbar--ledger .saved-views {
+  align-self: stretch;
+  flex-wrap: nowrap;
+  gap: 26px;
+}
+
+.view-toolbar--ledger .saved-views button {
+  position: relative;
+  min-height: 45px;
+  padding: 0 2px;
+  border: 0;
+  color: #5f6f86;
+  background: transparent;
+  font-size: 13px;
+}
+
+.view-toolbar--ledger .saved-views button::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: transparent;
+  content: '';
+}
+
+.view-toolbar--ledger .saved-views button:hover,
+.view-toolbar--ledger .saved-views button.active {
+  color: #165dff;
+  background: transparent;
+}
+
+.view-toolbar--ledger .saved-views button.active::after {
+  background: #165dff;
+}
+
+.view-toolbar--ledger .custom-views {
+  flex: 1 1 auto;
+  padding-left: 4px;
+}
+
+.ledger-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.ledger-view-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 2px;
+  color: #5d6e86;
+  font-size: 13px;
+}
+
+.ledger-view-actions button:hover:not(:disabled) {
+  color: #165dff;
+}
+
+.ledger-view-actions button:disabled {
+  color: #b8c1ce;
+  cursor: not-allowed;
+}
+
+.ledger-group-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #66778f;
+}
+
+.ledger-group-control :deep(.arco-select-view) {
+  width: 104px;
+  min-height: 32px;
+  padding-left: 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ledger-selection-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 45px;
+  color: #3e5f91;
+  font-size: 13px;
+}
+
+.ledger-selection-context__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+  color: #254f91;
+}
+
+.ledger-selection-context button {
+  min-height: 30px;
+  padding: 0 10px;
+  color: #315f9f;
+  border-radius: 5px;
+}
+
+.ledger-selection-context button:hover {
+  background: #edf4ff;
+}
+
+.ledger-selection-context button.primary {
+  color: #fff;
+  background: #165dff;
+}
+
+.ledger-selection-context button.primary:disabled {
+  opacity: .6;
+  cursor: wait;
 }
 
 .toolbar-check {
@@ -4510,6 +5433,40 @@ watch(detailDialogVisible, (visible) => {
   font-size: var(--text-xs);
 }
 
+.panel-head__side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ledger-layout-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  background: #f1f4f8;
+  border: 1px solid #e2e7ef;
+  border-radius: 7px;
+}
+
+.ledger-layout-switch button {
+  min-height: 28px;
+  padding: 0 10px;
+  color: #77859a;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.ledger-layout-switch button:hover,
+.ledger-layout-switch button.active {
+  color: #165dff;
+  background: #fff;
+  box-shadow: 0 2px 7px rgba(40, 69, 114, .08);
+}
+
 .list-utility-bar {
   display: flex;
   align-items: center;
@@ -4627,6 +5584,12 @@ watch(detailDialogVisible, (visible) => {
   gap: 0;
 }
 
+.project-table-groups--compact :deep(.arco-table-th),
+.project-table-groups--compact :deep(.arco-table-td) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
 .project-table-group {
   min-width: 0;
   border: 1px solid var(--border-color);
@@ -4678,6 +5641,184 @@ watch(detailDialogVisible, (visible) => {
 
 .project-link strong { font-size: var(--text-sm); color: var(--text-primary); }
 .project-link span { color: var(--text-secondary); font-size: var(--text-xs); }
+
+.construction-unit-cell,
+.payment-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.construction-unit-cell strong,
+.payment-cell strong {
+  overflow: hidden;
+  color: #41516b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.construction-unit-cell span,
+.payment-cell span,
+.amount-payment-hint {
+  overflow: hidden;
+  color: #929dac;
+  font-size: 10px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payment-cell :deep(.arco-tag) {
+  justify-self: start;
+}
+
+.project-card-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.project-card-group {
+  min-width: 0;
+}
+
+.ledger-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.project-card-group > .project-table-group__head {
+  margin-bottom: 10px;
+  border: 1px solid #e5eaf2;
+  border-radius: 7px;
+}
+
+.ledger-project-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  min-height: 286px;
+  padding: 16px;
+  color: #718098;
+  background: #fff;
+  border: 1px solid #e3e9f1;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(38, 65, 108, .04);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.ledger-project-card:hover {
+  border-color: #aec5f2;
+  box-shadow: 0 10px 24px rgba(43, 78, 135, .09);
+  transform: translateY(-1px);
+}
+
+.ledger-project-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ledger-project-card > header > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ledger-project-card > header span {
+  color: #93a0b2;
+  font-size: 10px;
+}
+
+.ledger-project-card > header strong {
+  overflow: hidden;
+  color: #2f405d;
+  font-size: 14px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-project-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin: 0;
+}
+
+.ledger-project-card dl > div {
+  min-width: 0;
+}
+
+.ledger-project-card dt,
+.ledger-project-card dd {
+  margin: 0;
+}
+
+.ledger-project-card dt {
+  color: #9aa5b5;
+  font-size: 10px;
+}
+
+.ledger-project-card dd {
+  margin-top: 4px;
+  overflow: hidden;
+  color: #52627b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-project-card dd.warning {
+  color: #b4761a;
+}
+
+.ledger-project-card__amount {
+  display: grid;
+  gap: 6px;
+  padding: 11px 12px;
+  background: #f7f9fc;
+  border: 1px solid #e9edf3;
+  border-radius: 7px;
+}
+
+.ledger-project-card__amount > span {
+  color: #9aa5b5;
+  font-size: 10px;
+}
+
+.ledger-project-card__amount :deep(.money-display--compact span) {
+  white-space: normal;
+}
+
+.ledger-project-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 11px;
+  border-top: 1px solid #edf1f5;
+}
+
+.ledger-project-card > footer span {
+  color: #8996a8;
+  font-size: 11px;
+}
+
+.ledger-project-card > footer span.paid {
+  color: #2d8b61;
+}
+
+.ledger-project-card > footer em {
+  color: #165dff;
+  font-size: 11px;
+  font-style: normal;
+}
 
 .status-stack,
 .audit-cell,
@@ -5853,6 +6994,10 @@ watch(detailDialogVisible, (visible) => {
 }
 
 @media (max-width: 1080px) {
+  .exception-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ledger-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .work-queue-row { grid-template-columns: 62px minmax(220px, 1fr) 100px 78px; }
+  .work-queue-row > time { display: none; }
   .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .project-dashboard { grid-template-columns: 1fr; }
   .project-dashboard--secondary {
@@ -5873,9 +7018,15 @@ watch(detailDialogVisible, (visible) => {
     grid-template-columns: minmax(0, 1fr);
   }
   .business-flow-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .toolbar { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .toolbar:not(.view-toolbar--ledger) { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .ledger-command-row { grid-template-columns: minmax(280px, 1fr) 104px 152px 78px; }
+  .ledger-view-actions { gap: 10px; }
   .workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
+}
+
+@media (max-width: 1280px) {
+  .ledger-command-row { grid-template-columns: minmax(280px, 1fr) 104px 152px 78px; }
 }
 
 @media (max-width: 960px) {
@@ -5890,6 +7041,15 @@ watch(detailDialogVisible, (visible) => {
 }
 
 @media (max-width: 760px) {
+  .project-management { padding: 12px; }
+  .exception-grid { grid-template-columns: 1fr; }
+  .ledger-card-grid { grid-template-columns: 1fr; }
+  .panel-head__side { align-items: stretch; flex-direction: column; }
+  .ledger-layout-switch { width: 100%; }
+  .ledger-layout-switch button { flex: 1; }
+  .work-queue-row { grid-template-columns: 58px minmax(0, 1fr) 70px; }
+  .work-queue-row > span:not(.work-queue-row__level) { display: none; }
+  .lifecycle-board { grid-template-columns: repeat(5, 220px); }
   .summary-grid,
   .document-grid,
   .detail-metrics,
@@ -5913,8 +7073,50 @@ watch(detailDialogVisible, (visible) => {
   }
   .dialog-span-2,
   .dialog-hint { grid-column: span 1; }
-  .toolbar {
+  .toolbar:not(.view-toolbar--ledger) {
     grid-template-columns: 1fr;
+  }
+  .ledger-command-row {
+    grid-template-columns: 100px minmax(120px, 1fr) 80px;
+  }
+  .ledger-command-row > .project-keyword-input {
+    grid-column: 1 / -1;
+  }
+  .ledger-advanced-filters {
+    grid-template-columns: 1fr;
+  }
+  .ledger-clear-filters {
+    justify-self: start;
+  }
+  .view-toolbar__filters,
+  .view-toolbar__utilities {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .view-toolbar__filters > .project-keyword-input,
+  .view-toolbar__filters > .arco-select-view,
+  .view-toolbar__filters > .arco-input-wrapper,
+  .view-toolbar__filters > .arco-btn,
+  .view-toolbar__filters :deep(.arco-select-view),
+  .view-toolbar__filters :deep(.arco-input-wrapper) {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .view-toolbar__utilities .saved-views,
+  .view-toolbar__utilities .custom-views,
+  .view-toolbar__utilities .table-tools,
+  .view-toolbar__utilities .ledger-view-actions {
+    width: 100%;
+  }
+  .view-toolbar--ledger .view-toolbar__utilities {
+    padding: 8px 12px;
+  }
+  .view-toolbar--ledger .saved-views {
+    justify-content: space-between;
+  }
+  .ledger-view-actions {
+    justify-content: space-between;
+    margin-left: 0;
   }
   .pager,
   .link-box,

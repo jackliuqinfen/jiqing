@@ -37,6 +37,7 @@ import {
   IconEye,
   IconEyeInvisible,
   IconFile,
+  IconFilter,
   IconFolder,
   IconImage,
   IconInfoCircle,
@@ -51,8 +52,10 @@ import {
   IconPushpin,
   IconRefresh,
   IconRight,
+  IconSave,
   IconSearch,
   IconSettings,
+  IconSort,
   IconTag,
   IconUndo,
   IconUpload,
@@ -84,6 +87,7 @@ const iconMap: Record<string, Component> = {
   flag: IconTag,
   'file-copy': IconCopy,
   'file-paste': IconFile,
+  filter: IconFilter,
   folder: IconFolder,
   image: IconImage,
   inbox: IconFile,
@@ -99,8 +103,10 @@ const iconMap: Record<string, Component> = {
   pin: IconPushpin,
   refresh: IconRefresh,
   rollback: IconUndo,
+  save: IconSave,
   search: IconSearch,
   setting: IconSettings,
+  sort: IconSort,
   'system-setting': IconSettings,
   task: IconCheckSquare,
   upload: IconUpload,
@@ -475,4 +481,3 @@ export function installArcoAppComponents(app: App) {
     app.component(name, component)
   })
 }
-

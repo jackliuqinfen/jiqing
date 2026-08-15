@@ -49,6 +49,10 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'project-management/mvp',
+        redirect: { path: '/project-management', query: { view: 'work' } },
+      },
+      {
         path: 'materials',
         name: 'ProjectMaterials',
         component: () => import('@/views/admin/AdminFileLibrary.vue'),

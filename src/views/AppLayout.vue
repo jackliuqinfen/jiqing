@@ -79,20 +79,23 @@
           <span class="sidebar-module-caret" aria-hidden="true" />
         </div>
         <div class="sidebar-module-items">
-          <router-link
-            v-for="item in currentSideNav"
-            :key="item.key"
-            :to="sideNavTarget(item)"
-            class="module-link"
-            :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
-            :aria-current="isSideNavActive(item) ? 'page' : undefined"
-            :title="item.description || item.label"
-            @click="handleSideNavClick(item, $event)"
-          >
-            <span class="module-link__icon"><AIcon :name="item.icon" /></span>
-            <span>{{ item.label }}</span>
-            <small v-if="item.badge">{{ item.badge }}</small>
-          </router-link>
+          <section v-for="group in currentSideNavGroups" :key="group.section" class="sidebar-view-group">
+            <p v-if="group.section" class="nav-section-title">{{ group.section }}</p>
+            <router-link
+              v-for="item in group.items"
+              :key="item.key"
+              :to="sideNavTarget(item)"
+              class="module-link"
+              :class="{ 'module-link--active': isSideNavActive(item), 'module-link--disabled': item.disabled }"
+              :aria-current="isSideNavActive(item) ? 'page' : undefined"
+              :title="item.description || item.label"
+              @click="handleSideNavClick(item, $event)"
+            >
+              <span class="module-link__icon"><AIcon :name="item.icon" /></span>
+              <span>{{ item.label }}</span>
+              <small v-if="item.badge">{{ item.badge }}</small>
+            </router-link>
+          </section>
         </div>
       </nav>
 
@@ -190,6 +193,7 @@ type NavItem = {
   status?: string
   description?: string
   disabled?: boolean
+  section?: string
 }
 const SIDEBAR_MODE_KEY = 'jiqing-sidebar-mode'
 const SIDEBAR_WIDTH_KEY = 'jiqing-sidebar-width'
@@ -238,6 +242,14 @@ const currentSideNav = computed(() => {
   const key = activeModule.value?.path || '/'
   return sideNavMap[key] || sideNavMap['/']
 })
+const currentSideNavGroups = computed(() => {
+  const groups = new Map<string, NavItem[]>()
+  for (const item of currentSideNav.value) {
+    const section = item.section || ''
+    groups.set(section, [...(groups.get(section) || []), item])
+  }
+  return Array.from(groups.entries()).map(([section, items]) => ({ section, items }))
+})
 const activeSideNavKey = computed(() => {
   const withQuery = currentSideNav.value.find((item) => !item.disabled && item.query && matchesSideNavQuery(item))
   if (withQuery) return withQuery.key
@@ -259,10 +271,14 @@ const sideNavMap: Record<string, NavItem[]> = {
     { key: 'home-shortcut', path: '/', label: '快捷入口', icon: 'view-module', badge: '规划中', disabled: true },
   ],
   '/project-management': [
-    { key: 'project-ledger', path: '/project-management', query: { view: 'ledger' }, label: '项目台账', icon: 'task', description: '统一查看项目主档案' },
-    { key: 'project-create', path: '/project-management', label: '手工创建项目', icon: 'add', action: 'project:create', description: '上传合同并手工复核后创建正式项目' },
-    { key: 'project-docs', path: '/project-management', query: { onlyMissingDocuments: '1', sort: 'updatedAt' }, label: '资料缺口', icon: 'folder', description: '筛选仍需补齐资料的项目' },
-    { key: 'project-audit', path: '/project-management', query: { view: 'audit' }, label: '审计联动', icon: 'view-module', description: '查看已进入审计流程的项目' },
+    { key: 'project-work', path: '/project-management', query: { view: 'work' }, label: '我的工作', icon: 'list', section: '工作视图', description: '集中处理到期、资料和异常事项' },
+    { key: 'project-ledger', path: '/project-management', query: { view: 'ledger' }, label: '项目台账', icon: 'task', section: '工作视图', description: '统一查看项目主档案' },
+    { key: 'project-lifecycle', path: '/project-management', query: { view: 'lifecycle' }, label: '生命周期看板', icon: 'view-module', section: '工作视图', description: '按项目生命周期阶段查看和推进' },
+    { key: 'project-docs', path: '/project-management', query: { view: 'documents' }, label: '资料缺口', icon: 'folder', section: '专项视角', description: '聚焦仍需补齐资料的项目' },
+    { key: 'project-audit', path: '/project-management', query: { view: 'audit' }, label: '审计进度', icon: 'file-paste', section: '专项视角', description: '查看审计阶段、责任人和资料状态' },
+    { key: 'project-settlement', path: '/project-management', query: { view: 'settlement' }, label: '结算跟进', icon: 'list', section: '专项视角', description: '查看结算状态、金额和下一条件' },
+    { key: 'project-exceptions', path: '/project-management', query: { view: 'exceptions' }, label: '异常项目', icon: 'info-circle', section: '专项视角', description: '聚焦逾期、缺资料和未结清事项' },
+    { key: 'project-save-view', path: '/project-management', label: '保存当前视图', icon: 'add', section: '我的视图', action: 'project:save-view', description: '保存当前筛选、排序和字段设置' },
   ],
   '/materials': [
     { key: 'materials-library', path: '/materials', query: { view: 'library' }, label: '资料库', icon: 'folder', description: '按项目、类型和阶段检索文件' },
@@ -1019,6 +1035,11 @@ async function logout() {
 
 .sidebar-module-items {
   display: grid;
+  gap: 14px;
+}
+
+.sidebar-view-group {
+  display: grid;
   gap: 4px;
 }
 
@@ -1265,6 +1286,16 @@ async function logout() {
 .system-shell--icon .module-link {
   justify-content: center;
   padding-inline: 0;
+}
+
+.system-shell--icon .nav-section-title,
+.system-shell--icon .module-link > span:not(.module-link__icon),
+.system-shell--icon .module-link small {
+  display: none;
+}
+
+.system-shell--icon .sidebar-module-items {
+  gap: 8px;
 }
 
 .system-shell--icon .sidebar-foot {
