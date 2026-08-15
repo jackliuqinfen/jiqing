@@ -1135,22 +1135,7 @@
 
         <aside
           class="project-create-shell__preview"
-          :class="{ 'project-create-shell__preview--with-drafts': manualDrafts.length && !manualPdfPreviewCollapsed }"
         >
-          <div v-if="manualDrafts.length && !manualPdfPreviewCollapsed" class="manual-draft-strip">
-            <span>我的未完成草稿</span>
-            <button
-              v-for="draft in manualDrafts"
-              :key="draft.id"
-              type="button"
-              :class="{ active: activeDraft?.id === draft.id }"
-              :disabled="loadingDrafts || savingDraft || projectDialog.saving"
-              @click="resumeManualDraft(draft)"
-            >
-              <strong>{{ manualDraftTitle(draft) }}</strong>
-              <small>{{ formatDate(draft.updatedAt) }}</small>
-            </button>
-          </div>
           <ContractPdfPreview
             :document="manualContractDocument"
             :max-file-size-mb="uploadLimitMb"
@@ -1925,8 +1910,6 @@ function beginManualIntakeRoute(versionId: string) {
 const {
   drafts: manualDrafts,
   activeDraft,
-  loadingDrafts,
-  savingDraft,
   loadDrafts,
   resumeDraft,
   scheduleSave,
@@ -2568,10 +2551,6 @@ async function loadManualDocumentMetadata(
     MessagePlugin.error(friendlyErrorMessage(error, '合同原文信息加载失败，请稍后重试。'))
     return false
   }
-}
-
-function manualDraftTitle(draft: ProjectIntakeDraft) {
-  return String(draft.values['project.name'] || '').trim() || '未命名项目草稿'
 }
 
 async function resumeManualDraft(
@@ -6457,7 +6436,7 @@ watch(detailDialogVisible, (visible) => {
 
 .project-create-shell {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-4);
   height: min(70vh, 740px);
   min-height: 0;
@@ -6483,55 +6462,8 @@ watch(detailDialogVisible, (visible) => {
 .project-create-shell__preview {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  gap: var(--space-2);
   overflow: hidden;
 }
-
-.project-create-shell__preview--with-drafts {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.manual-draft-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.manual-draft-strip > span {
-  flex: 0 0 auto;
-  color: var(--text-secondary);
-  font-size: var(--text-xs);
-}
-
-.manual-draft-strip button {
-  display: grid;
-  flex: 0 0 180px;
-  gap: 2px;
-  min-width: 0;
-  padding: 7px 9px;
-  text-align: left;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.manual-draft-strip button.active {
-  border-color: var(--color-primary);
-  background: var(--color-brand-50);
-}
-
-.manual-draft-strip strong,
-.manual-draft-strip small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.manual-draft-strip strong { font-size: var(--text-xs); }
-.manual-draft-strip small { color: var(--text-tertiary); }
 
 .wizard-stepper {
   display: grid;

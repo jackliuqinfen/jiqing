@@ -218,7 +218,7 @@ test('preview keeps the page controls reachable and supports Enter page navigati
   assert.match(projectSource, /\.project-create-shell__form,[\s\S]*\.project-create-shell__preview\s*\{[\s\S]*min-height:\s*0;/)
 })
 
-test('preview defaults to fit-page, exposes fit modes above the canvas, and consumes the full preview row', () => {
+test('manual wizard gives the PDF half the width and hides the draft strip', () => {
   const previewSource = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
   const projectSource = readWorkspaceFile('src/views/ProjectManagementView.vue')
 
@@ -231,14 +231,12 @@ test('preview defaults to fit-page, exposes fit modes above the canvas, and cons
   )
   assert.match(
     projectSource,
-    /project-create-shell__preview--with-drafts[\s\S]*manualDrafts\.length/,
+    /\.project-create-shell\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(0, 1fr\);/,
   )
+  assert.doesNotMatch(projectSource, /manual-draft-strip/)
+  assert.doesNotMatch(projectSource, /project-create-shell__preview--with-drafts/)
   assert.match(
     projectSource,
     /\.project-create-shell__preview\s*\{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\)/,
-  )
-  assert.match(
-    projectSource,
-    /\.project-create-shell__preview--with-drafts\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/,
   )
 })
