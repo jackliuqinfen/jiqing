@@ -601,29 +601,27 @@ async function renderCurrentPage(explicitPage?: number) {
     renderedScale.value = currentScale
     const viewport = pageProxy.getViewport({ scale: currentScale })
     const outputScale = Math.max(1, devicePixelRatio.value)
-    const stagingCanvas = window.document.createElement('canvas')
-    stagingCanvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
-    stagingCanvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
-    const stagingContext = stagingCanvas.getContext('2d', { alpha: false })
-    if (!stagingContext) throw new Error('浏览器无法创建 PDF 画布。')
+    visibleCanvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
+    visibleCanvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
+    visibleCanvas.style.width = `${Math.floor(viewport.width)}px`
+    visibleCanvas.style.height = `${Math.floor(viewport.height)}px`
+    const visibleContext = visibleCanvas.getContext('2d', { alpha: true })
+    if (!visibleContext) throw new Error('浏览器无法显示 PDF 画布。')
+    visibleContext.save()
+    visibleContext.fillStyle = '#fff'
+    visibleContext.fillRect(0, 0, visibleCanvas.width, visibleCanvas.height)
+    visibleContext.restore()
 
     const task = pageProxy.render({
-      canvas: stagingCanvas,
-      canvasContext: stagingContext,
+      canvas: visibleCanvas,
+      canvasContext: visibleContext,
       viewport,
+      background: '#fff',
       transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
     })
     renderTask = task
     await task.promise
     if (!renderTokens.isCurrent(token) || loaded !== pdfDocument.value) return
-
-    visibleCanvas.width = stagingCanvas.width
-    visibleCanvas.height = stagingCanvas.height
-    visibleCanvas.style.width = `${Math.floor(viewport.width)}px`
-    visibleCanvas.style.height = `${Math.floor(viewport.height)}px`
-    const visibleContext = visibleCanvas.getContext('2d', { alpha: false })
-    if (!visibleContext) throw new Error('浏览器无法显示 PDF 画布。')
-    visibleContext.drawImage(stagingCanvas, 0, 0)
     canvasScrollerRef.value?.scrollTo({ top: 0, left: 0 })
     scheduleNeighborPrefetch(currentPage, loaded)
   } catch (error) {

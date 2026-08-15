@@ -179,6 +179,16 @@ test('preview replacement, download, idle prefetch, cleanup and drawer behavior 
   assert.match(source, /<ADrawer/)
 })
 
+test('preview renders directly into the visible canvas with alpha compositing', () => {
+  const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+
+  assert.match(source, /canvas:\s*visibleCanvas/)
+  assert.match(source, /canvasContext:\s*visibleContext/)
+  assert.match(source, /getContext\('2d',\s*\{ alpha: true \}\)/)
+  assert.match(source, /background:\s*'#fff'/)
+  assert.doesNotMatch(source, /stagingCanvas/)
+})
+
 test('preview observes its real container and names every symbol-only zoom action', () => {
   const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
 
