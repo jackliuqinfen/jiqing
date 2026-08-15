@@ -58,6 +58,11 @@
               <ATextarea v-model="form.paymentTerms" :auto-size="{ minRows: 3, maxRows: 6 }" placeholder="请录入合同中的真实付款条款" />
             </AFormItem>
           </div>
+          <div v-if="paymentTermsSuggestion.nodes.length" class="terms-suggestion" role="status">
+            <div class="terms-suggestion__head"><strong>已从付款条款识别 {{ paymentTermsSuggestion.nodes.length }} 个付款节点</strong><span>点击“下一步”后自动带入，可在第 5 步逐项核对和修改。</span></div>
+            <div class="terms-suggestion__list"><span v-for="item in paymentTermsSuggestion.nodes" :key="`${item.triggerCondition}-${item.paymentRatio}`">{{ item.nodeName }} · {{ percent(item.paymentRatio) }}</span></div>
+            <p v-if="paymentTermsSuggestion.warnings.length" class="terms-suggestion__warning">{{ paymentTermsSuggestion.warnings[0] }}</p>
+          </div>
           <div class="money-result"><span>付款基数</span><strong>{{ moneyTriplet(paymentBaseAmount) }}</strong><small>合同金额 - 暂列金额 - 暂估价 - 甲供金额 - 其他扣除项</small></div>
           <p class="source-note">合同及审计附件复用资料中心中的项目文件，不在结算台账重复上传。</p>
         </section>
@@ -104,13 +109,13 @@
         <section v-else-if="stepKey === 'history'" class="wizard-pane">
           <header class="pane-head">
             <div><span>第 4 步</span><h3>录入历史财务数据</h3></div>
-            <p>系统不会猜测历史财务数据。老项目请据实录入，新项目可全部选择“否”。</p>
+            <p>请按项目实际情况逐项选择“是”或“否”。选择“是”后，再填写对应的历史累计金额。</p>
           </header>
           <div class="history-grid">
-            <HistoryQuestion label="是否已有开票" hint="发票累计金额" :active="form.hasInvoice" amount-label="已开票金额（元）" :amount="form.invoicedAmount" @toggle="form.hasInvoice = $event" @amount="form.invoicedAmount = $event" />
-            <HistoryQuestion label="是否已有银行到账" hint="仅填写公司银行账户已实际收到的累计金额" :active="form.hasReceived" amount-label="历史银行到账金额（元）" :amount="form.receivedAmount" @toggle="form.hasReceived = $event" @amount="form.receivedAmount = $event" />
-            <HistoryQuestion label="是否已收到承兑汇票" hint="填写仍需兑付或处置的银行/商业承兑汇票累计金额" :active="form.hasPayment" amount-label="历史已收承兑汇票金额（元）" :amount="form.historicalPaidAmount" @toggle="form.hasPayment = $event" @amount="form.historicalPaidAmount = $event" />
-            <HistoryQuestion label="是否已有质保金扣留" hint="已实际扣留的质保金" :active="form.hasRetention" amount-label="已扣质保金（元）" :amount="form.retentionAmount" @toggle="form.hasRetention = $event" @amount="form.retentionAmount = $event" />
+            <HistoryQuestion label="是否已经开具发票？" hint="选择“是”后，填写截至目前已开具发票的累计金额。" :active="form.hasInvoice" amount-label="已开票累计金额（元）" :amount="form.invoicedAmount" @toggle="form.hasInvoice = $event" @amount="form.invoicedAmount = $event" />
+            <HistoryQuestion label="公司银行账户是否已经收到款项？" hint="只填写公司银行账户已实际收到的累计金额，不含应收未收款。" :active="form.hasReceived" amount-label="历史银行到账累计金额（元）" :amount="form.receivedAmount" @toggle="form.hasReceived = $event" @amount="form.receivedAmount = $event" />
+            <HistoryQuestion label="是否已经收到承兑汇票？" hint="选择“是”后，填写已收到且仍需兑付或处置的银行/商业承兑汇票累计金额。" :active="form.hasPayment" amount-label="历史承兑汇票累计金额（元）" :amount="form.historicalPaidAmount" @toggle="form.hasPayment = $event" @amount="form.historicalPaidAmount = $event" />
+            <HistoryQuestion label="合同付款中是否已经扣留质保金？" hint="选择“是”后，填写截至目前实际扣留的质保金金额。" :active="form.hasRetention" amount-label="已扣留质保金（元）" :amount="form.retentionAmount" @toggle="form.hasRetention = $event" @amount="form.retentionAmount = $event" />
           </div>
           <AFormItem v-if="needsExceptionNote" field="exceptionNote" label="特殊情况说明" required><ATextarea v-model="form.exceptionNote" :auto-size="{ minRows: 2, maxRows: 4 }" placeholder="甲方累计已付大于已开票时，请说明真实原因" /></AFormItem>
         </section>
@@ -118,8 +123,12 @@
         <section v-else-if="stepKey === 'nodes'" class="wizard-pane">
           <header class="pane-head">
             <div><span>第 5 步</span><h3>生成付款节点</h3></div>
-            <p>模板只提供计算规则，所有节点都可复核；自定义模板可逐项增删。</p>
+            <p>系统已优先根据合同付款条款生成建议；请对照原文核对节点、比例和付款基数，模板仅作为无法识别时的备用方案。</p>
           </header>
+          <div v-if="paymentNodesSource === 'terms'" class="terms-applied" role="status">
+            <div><strong>已按合同条款生成付款节点草稿</strong><span>识别结果不会直接作为最终结算依据，确认生成前仍可修改。</span></div>
+            <button type="button" @click="applyPaymentTermsSuggestion">重新按条款识别</button>
+          </div>
           <div class="template-grid">
             <button v-for="item in paymentTemplates" :key="item.id" type="button" :class="{ active: form.paymentTemplateId === item.id }" @click="applyTemplate(item.id)"><strong>{{ item.label }}</strong><span>{{ item.description }}</span></button>
           </div>
@@ -165,6 +174,7 @@ import { computed, defineComponent, h, reactive, ref, watch } from 'vue'
 import { createSettlementProject, type SettlementPaymentNode, type SettlementProjectLedgerItem, type SettlementProjectPayload } from '@/api/settlementFinance'
 import type { ProjectRecord } from '@/types'
 import { amountToChineseUpper, formatWan } from '@/utils/format'
+import { parsePaymentTerms } from '@/utils/paymentTermsParser'
 
 const props = defineProps<{ visible: boolean; projects: ProjectRecord[]; settlements: SettlementProjectLedgerItem[] }>()
 const emit = defineEmits<{ (event: 'update:visible', value: boolean): void; (event: 'saved'): void }>()
@@ -180,6 +190,7 @@ type WizardForm = Omit<SettlementProjectPayload, 'projectId'> & {
   hasRetention: boolean
   paymentNodes: SettlementPaymentNode[]
 }
+type PaymentNodesSource = 'terms' | 'template' | 'manual' | 'existing' | ''
 
 const steps: { key: StepKey; label: string }[] = [
   { key: 'project', label: '选择项目' }, { key: 'contract', label: '合同信息' }, { key: 'stage', label: '结算状态' },
@@ -235,9 +246,11 @@ const maxReachedStep = ref(0)
 const saving = ref(false)
 const message = ref('')
 const messageType = ref<'info' | 'error' | 'success'>('info')
+const paymentNodesSource = ref<PaymentNodesSource>('')
 const stepKey = computed(() => steps[stepIndex.value]?.key || 'project')
 const selectedProject = computed(() => props.projects.find((item) => item.id === form.projectId) || null)
 const selectedRecord = computed(() => props.settlements.find((item) => item.projectId === form.projectId) || null)
+const paymentTermsSuggestion = computed(() => parsePaymentTerms(String(form.paymentTerms || '')))
 const projectOptions = computed(() => props.projects.map((item) => ({ label: `${item.projectName}${item.projectCode ? ` · ${item.projectCode}` : ''}`, value: item.id })))
 const projectFacts = computed(() => {
   const item = selectedProject.value
@@ -291,7 +304,7 @@ watch(() => form.projectId, (projectId) => { if (projectId) hydrateProject() })
 watch(() => form.acceptanceStatus, (status) => { if (status !== 'accepted') clearAuditProgress() })
 watch(() => form.auditStatus, () => clearAuditFieldsAboveRank(auditRank.value))
 
-function reset() { Object.assign(form, emptyForm()); form.paymentNodes = []; stepIndex.value = 0; maxReachedStep.value = 0; message.value = '' }
+function reset() { Object.assign(form, emptyForm()); form.paymentNodes = []; paymentNodesSource.value = ''; stepIndex.value = 0; maxReachedStep.value = 0; message.value = '' }
 function selectAcceptanceStatus(status: string) { form.acceptanceStatus = status; message.value = '' }
 function clearAuditProgress() {
   form.acceptanceDate = ''
@@ -318,9 +331,11 @@ function hydrateProject() {
   const draft = selectedRecord.value?.isDraft ? selectedRecord.value : null
   if (draft) {
     Object.assign(form, draft, { projectId: project?.id || draft.projectId || '', paymentNodes: (draft.paymentNodes || []).map((item) => ({ ...item })) })
+    paymentNodesSource.value = form.paymentNodes.length ? 'existing' : ''
     return
   }
   if (!project) return
+  paymentNodesSource.value = ''
   form.contractAmount = project.contractAmount || undefined
   form.contractDate = project.contractDate || ''
   form.paymentTerms = project.paymentTerms || ''
@@ -369,9 +384,24 @@ function validateCurrentStep() {
   message.value = ''
   return true
 }
-function next() { if (!validateCurrentStep()) return; stepIndex.value += 1; maxReachedStep.value = Math.max(maxReachedStep.value, stepIndex.value) }
-function applyTemplate(templateId: string) { const template = paymentTemplates.find((item) => item.id === templateId); if (!template) return; form.paymentTemplateId = templateId; form.paymentNodes = template.nodes().map((item, index) => ({ ...item, nodeOrder: index + 1 })) }
-function addNode() { form.paymentNodes.push(node('', 'ACCEPTANCE_COMPLETED', 'CONTRACT_PAYMENT_BASE', 0)); form.paymentNodes.forEach((item, index) => { item.nodeOrder = index + 1 }) }
+function next() {
+  if (!validateCurrentStep()) return
+  if (stepKey.value === 'contract' && (paymentNodesSource.value === '' || paymentNodesSource.value === 'terms')) applyPaymentTermsSuggestion()
+  stepIndex.value += 1
+  maxReachedStep.value = Math.max(maxReachedStep.value, stepIndex.value)
+}
+function applyPaymentTermsSuggestion() {
+  const suggestion = paymentTermsSuggestion.value
+  if (!suggestion.nodes.length) return
+  form.paymentTemplateId = 'TERMS_PARSED'
+  form.paymentNodes = suggestion.nodes.map((item, index) => ({
+    ...node(item.nodeName, item.triggerCondition, item.baseType, item.paymentRatio, item.isCumulative, ['合同', '付款申请单', '发票']),
+    nodeOrder: index + 1,
+  }))
+  paymentNodesSource.value = 'terms'
+}
+function applyTemplate(templateId: string) { const template = paymentTemplates.find((item) => item.id === templateId); if (!template) return; form.paymentTemplateId = templateId; form.paymentNodes = template.nodes().map((item, index) => ({ ...item, nodeOrder: index + 1 })); paymentNodesSource.value = 'template' }
+function addNode() { form.paymentNodes.push(node('', 'ACCEPTANCE_COMPLETED', 'CONTRACT_PAYMENT_BASE', 0)); form.paymentNodes.forEach((item, index) => { item.nodeOrder = index + 1 }); paymentNodesSource.value = 'manual' }
 function removeNode(index: number) { form.paymentNodes.splice(index, 1); form.paymentNodes.forEach((item, itemIndex) => { item.nodeOrder = itemIndex + 1 }) }
 function updateRatio(item: SettlementPaymentNode, value: number | undefined) { item.paymentRatio = Number(value || 0) / 100 }
 function triggerSatisfied(trigger: string) { if (trigger === 'ACCEPTANCE_COMPLETED') return form.acceptanceStatus === 'accepted'; if (trigger === 'WARRANTY_EXPIRED') return Boolean(form.warrantyEndDate && form.warrantyEndDate <= new Date().toISOString().slice(0, 10)); const required: Record<string, number> = { FIRST_AUDIT_COMPLETED: 3, SECOND_AUDIT_COMPLETED: 5, FINAL_AUDIT_COMPLETED: 7 }; return auditRank.value >= (required[trigger] ?? 99) }
@@ -391,12 +421,25 @@ function percent(value: number) { return `${(Number(value || 0) * 100).toFixed(2
 
 const HistoryQuestion = defineComponent({
   name: 'HistoryQuestion', props: { label: { type: String, required: true }, hint: { type: String, required: true }, active: { type: Boolean, required: true }, amountLabel: { type: String, required: true }, amount: { type: Number, default: 0 } }, emits: ['toggle', 'amount'],
-  setup(props, { emit: childEmit }) { return () => h('article', { class: 'history-question' }, [h('div', [h('strong', props.label), h('span', props.hint)]), h('div', { class: 'binary-control' }, [h('button', { type: 'button', class: { active: !props.active }, onClick: () => childEmit('toggle', false) }, '否'), h('button', { type: 'button', class: { active: props.active }, onClick: () => childEmit('toggle', true) }, '是')]), props.active ? h('label', [h('span', props.amountLabel), h('input', { type: 'number', min: '0', step: '0.01', value: props.amount, onInput: (event: Event) => childEmit('amount', Number((event.target as HTMLInputElement).value || 0)) })]) : null]) }
+  setup(props, { emit: childEmit }) {
+    return () => h('article', { class: 'history-question' }, [
+      h('div', { class: 'history-question__copy' }, [h('strong', props.label), h('span', props.hint)]),
+      h('div', { class: 'binary-control', role: 'group', 'aria-label': props.label }, [
+        h('button', { type: 'button', class: { active: !props.active }, 'aria-pressed': !props.active, onClick: () => childEmit('toggle', false) }, '否'),
+        h('button', { type: 'button', class: { active: props.active }, 'aria-pressed': props.active, onClick: () => childEmit('toggle', true) }, '是'),
+      ]),
+      props.active ? h('label', { class: 'history-question__amount' }, [h('span', props.amountLabel), h('input', { type: 'number', min: '0', step: '0.01', value: props.amount, 'aria-label': props.amountLabel, onInput: (event: Event) => childEmit('amount', Number((event.target as HTMLInputElement).value || 0)) })]) : null,
+    ])
+  }
 })
 </script>
 
 <style scoped>
 .settlement-wizard{display:grid;grid-template-rows:auto minmax(0,1fr) auto;max-height:min(78vh,820px);margin:-8px -16px -16px;color:#10264a}.wizard-steps{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:16px 18px;border-bottom:1px solid rgba(116,145,195,.18);background:rgba(246,249,255,.76)}.wizard-steps button{min-width:0;height:54px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;color:#6b7d99}.wizard-steps button span{width:24px;height:24px;display:grid;place-items:center;border-radius:50%;background:#e9eff9;font-size:12px}.wizard-steps button strong{font-size:13px;white-space:nowrap}.wizard-steps button.active{color:#0f4ce8;background:#fff;border-color:rgba(22,93,255,.24);box-shadow:0 8px 22px rgba(41,73,129,.08)}.wizard-steps button.active span,.wizard-steps button.done span{color:#fff;background:#165dff}.wizard-body{overflow:auto;padding:22px 24px}.wizard-pane{display:grid;gap:18px}.pane-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.pane-head div{display:flex;align-items:center;gap:10px}.pane-head div>span{color:#165dff;font-size:12px;font-weight:700}.pane-head h3{margin:0;font-size:20px}.pane-head p{max-width:540px;margin:0;color:#6e7f99;line-height:1.7}.fact-grid,.review-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.fact-grid article,.review-grid article{min-height:72px;padding:13px;border:1px solid rgba(115,144,194,.18);border-radius:6px;background:rgba(248,250,254,.72)}.fact-grid span,.review-grid span{display:block;margin-bottom:8px;color:#7687a0;font-size:12px}.fact-grid strong,.review-grid strong{line-height:1.5;overflow-wrap:anywhere}.wizard-alert{margin:0;padding:10px 12px;border-radius:6px;background:#edf5ff;color:#2356a8}.wizard-alert.danger{background:#fff2f2;color:#b42318}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.form-grid.compact{max-width:50%}.span-2{grid-column:1/-1}.money-result{display:grid;gap:6px;padding:16px;border-left:3px solid #165dff;border-radius:4px;background:#f5f8ff}.money-result span,.money-result small{color:#6e7f99}.money-result strong{font-size:16px;line-height:1.6;overflow-wrap:anywhere}.source-note{margin:0;color:#75849a;font-size:12px}.wizard-pane h4{margin:0;font-size:14px}.choice-grid{display:grid;gap:10px}.choice-grid--three{grid-template-columns:repeat(3,1fr)}.choice-grid--four{grid-template-columns:repeat(4,1fr)}.choice-grid button,.template-grid button{min-height:68px;padding:12px;text-align:left;border:1px solid rgba(112,142,194,.22);border-radius:6px;background:#fff;color:#1b3155}.choice-grid button strong,.choice-grid button span,.template-grid button strong,.template-grid button span{display:block}.choice-grid button span,.template-grid button span{margin-top:6px;color:#71829d;font-size:12px;line-height:1.5}.choice-grid button.active,.template-grid button.active{border-color:#165dff;background:#f3f7ff;box-shadow:0 0 0 2px rgba(22,93,255,.08)}.status-result{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-radius:6px;background:#edf8f5}.status-result span{color:#607c76}.status-result strong{color:#008a70}.history-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.history-question{display:grid;grid-template-columns:1fr auto;gap:12px;padding:14px;border:1px solid rgba(112,142,194,.2);border-radius:6px;background:#fff}.history-question>div:first-child strong,.history-question>div:first-child span{display:block}.history-question>div:first-child span{margin-top:5px;color:#75849b;font-size:12px}.history-question label{grid-column:1/-1;display:grid;gap:6px;color:#5e6f89;font-size:12px}.history-question input{height:34px;padding:0 10px;border:1px solid #d7e0ef;border-radius:4px}.binary-control{display:flex}.binary-control button{height:30px;padding:0 13px;border:1px solid #d8e1f0;background:#fff;color:#64738a}.binary-control button:first-child{border-radius:4px 0 0 4px}.binary-control button:last-child{border-radius:0 4px 4px 0}.binary-control button.active{color:#fff;background:#165dff;border-color:#165dff}.template-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.node-editor{display:grid;gap:10px}.node-editor article{padding:14px;border:1px solid rgba(112,142,194,.2);border-radius:6px;background:rgba(255,255,255,.8)}.node-editor article>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.node-editor article>header button{border:0;background:transparent;color:#d92d20}.calculation-strip{display:flex;flex-wrap:wrap;gap:18px;padding-top:10px;border-top:1px solid #e7edf6;color:#64758f;font-size:12px}.calculation-strip strong{margin-left:auto;color:#165dff}.add-node{justify-self:start;height:34px;padding:0 14px;border:1px solid #165dff;border-radius:4px;background:#fff;color:#165dff}.document-row{display:grid;gap:10px;padding:14px;border-radius:6px;background:#f7f9fc}.review-table{overflow:hidden;border:1px solid #dfe6f2;border-radius:6px}.review-table>div{display:grid;grid-template-columns:2fr .7fr 1.2fr 1fr;gap:12px;padding:11px 14px;border-bottom:1px solid #e7edf6}.review-table>div:first-child{background:#f5f8fc}.review-table>div:last-child{border-bottom:0}.wizard-message{margin:0 24px 10px;padding:9px 12px;border-radius:4px;background:#edf5ff;color:#2456a5}.wizard-message.error{background:#fff1f1;color:#b42318}.wizard-message.success{background:#ecf8f4;color:#08795f}.wizard-footer{display:grid;grid-template-columns:auto auto 1fr auto auto;gap:10px;padding:14px 18px;border-top:1px solid rgba(116,145,195,.18);background:#fff}.wizard-footer button{height:36px;padding:0 16px;border:1px solid #d5deed;border-radius:4px;background:#fff;color:#29405f}.wizard-footer button.primary{color:#fff;background:#165dff;border-color:#165dff}.wizard-footer button:disabled{opacity:.45;cursor:not-allowed}
 .stage-gate{display:grid;gap:5px;padding:14px 16px;border:1px solid rgba(245,166,35,.24);border-radius:6px;background:#fff9ed;color:#6f4b08}.stage-gate span{color:#8a6a2f;font-size:12px;line-height:1.6}
+.terms-suggestion{display:grid;gap:10px;padding:13px 15px;border:1px solid rgba(22,93,255,.2);border-radius:6px;background:#f5f8ff}.terms-suggestion__head{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.terms-suggestion__head strong{color:#174aa9}.terms-suggestion__head span,.terms-suggestion__warning{color:#657998;font-size:12px}.terms-suggestion__list{display:flex;flex-wrap:wrap;gap:8px}.terms-suggestion__list span{padding:5px 9px;border-radius:4px;background:#fff;color:#29486f;font-size:12px}.terms-suggestion__warning{margin:0;color:#8a5a08}.terms-applied{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid rgba(0,138,112,.2);border-radius:6px;background:#effaf7}.terms-applied div{display:grid;gap:4px}.terms-applied strong{color:#08795f}.terms-applied span{color:#5e7c76;font-size:12px}.terms-applied button{height:32px;padding:0 12px;border:1px solid #0b9b7d;border-radius:4px;background:#fff;color:#08795f;white-space:nowrap}
+.history-grid{grid-template-columns:1fr}.history-grid :deep(.history-question){grid-template-columns:minmax(0,1fr) auto;gap:12px 20px;align-items:center;padding:14px 16px}.history-grid :deep(.history-question__copy strong),.history-grid :deep(.history-question__copy span){display:block}.history-grid :deep(.history-question__copy span){margin-top:5px;color:#75849b;font-size:12px;line-height:1.5}.history-grid :deep(.history-question__amount){grid-column:1/-1;display:grid;grid-template-columns:220px minmax(180px,360px);align-items:center;gap:12px;color:#5e6f89;font-size:12px}.history-grid :deep(.history-question__amount input){width:100%;height:34px;padding:0 10px;border:1px solid #d7e0ef;border-radius:4px;outline:none}.history-grid :deep(.history-question__amount input:focus){border-color:#165dff;box-shadow:0 0 0 2px rgba(22,93,255,.12)}.history-grid :deep(.binary-control){display:flex;justify-self:end}.history-grid :deep(.binary-control button){min-width:54px;height:34px;padding:0 16px;border:1px solid #cbd7e8;background:#fff;color:#526681;font-weight:600;cursor:pointer}.history-grid :deep(.binary-control button:first-child){border-radius:5px 0 0 5px}.history-grid :deep(.binary-control button:last-child){margin-left:-1px;border-radius:0 5px 5px 0}.history-grid :deep(.binary-control button.active){position:relative;z-index:1;color:#fff;background:#165dff;border-color:#165dff;box-shadow:0 2px 6px rgba(22,93,255,.2)}
 @media(max-width:900px){.wizard-steps{grid-template-columns:repeat(3,1fr)}.fact-grid,.review-grid,.history-grid,.form-grid,.choice-grid--three,.choice-grid--four,.template-grid{grid-template-columns:1fr}.form-grid.compact{max-width:none}.span-2{grid-column:auto}.pane-head{display:grid}.wizard-footer{grid-template-columns:repeat(2,auto);justify-content:end}.wizard-footer span{display:none}}
+@media(max-width:900px){.history-grid :deep(.history-question){grid-template-columns:1fr}.history-grid :deep(.binary-control){justify-self:start}.history-grid :deep(.history-question__amount){grid-template-columns:1fr}}
+@media(max-width:900px){.terms-suggestion__head,.terms-applied{display:grid}.terms-applied button{justify-self:start}}
 </style>
