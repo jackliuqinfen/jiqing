@@ -301,4 +301,9 @@ class _LimitedReader:
 def _is_cos_not_found(exc):
     status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
     code = str(getattr(exc, "error_code", "") or getattr(exc, "code", ""))
-    return str(status) == "404" or code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}
+    return str(status) == "404" or code in {
+        "NoSuchKey",
+        "NoSuchObject",
+        "NoSuchBucket",
+        "NoSuchResource",
+    }
