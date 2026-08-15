@@ -22,6 +22,9 @@ import type {
 } from '@/types/documentReview'
 
 const API_BASE = import.meta.env?.VITE_AUDIT_API_BASE || '/api'
+// Uploads are streamed and may legitimately take longer than the normal JSON
+// request path. Keep the UI bounded without rejecting a reasonably slow PDF.
+export const DOCUMENT_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000
 
 type ApiSuccess<T> = { success: true; data: T; error?: never }
 type ApiFailure = DocumentReviewErrorPayload & { success: false; data?: never }
@@ -55,6 +58,13 @@ function networkError(): DocumentReviewApiError {
   return new DocumentReviewApiError(0, {
     code: 'network_error',
     error: '网络连接失败，请检查连接后重试。',
+  })
+}
+
+function uploadTimeoutError(): DocumentReviewApiError {
+  return new DocumentReviewApiError(0, {
+    code: 'upload_timeout',
+    error: '合同 PDF 上传超时，请检查网络后重试；如页面显示已上传，请先刷新确认。',
   })
 }
 
@@ -113,6 +123,7 @@ export function uploadDocument(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/documents/uploads`)
+    xhr.timeout = DOCUMENT_UPLOAD_TIMEOUT_MS
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable || event.total <= 0) return
@@ -121,7 +132,7 @@ export function uploadDocument(
     xhr.onerror = () => reject(networkError())
     xhr.onabort = () =>
       reject(new DocumentReviewApiError(0, { code: 'request_aborted', error: '上传已取消。' }))
-    xhr.ontimeout = () => reject(networkError())
+    xhr.ontimeout = () => reject(uploadTimeoutError())
     xhr.onload = () => {
       let payload: ApiResult<DocumentUploadResponse> = {
         success: false,

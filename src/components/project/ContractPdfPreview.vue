@@ -490,7 +490,7 @@ async function loadDocument() {
       }
     }
     if (generation !== documentGeneration || isCancellation(error)) return
-    publishError(friendlyErrorMessage(error, '合同原文加载失败，请检查登录状态或稍后重试。'))
+    publishError(friendlyErrorMessage(error, '合同 PDF 已上传，但原文预览加载失败，请点击“重试”或下载查看。'))
   } finally {
     if (generation === documentGeneration) localLoading.value = false
   }

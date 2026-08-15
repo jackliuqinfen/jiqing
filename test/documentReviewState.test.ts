@@ -25,6 +25,7 @@ registerHooks({
 })
 
 const {
+  DOCUMENT_UPLOAD_TIMEOUT_MS,
   DocumentReviewApiError,
   confirmDocumentReview,
   fetchDocumentPageBlob,
@@ -219,6 +220,7 @@ test('uploadDocument uses authenticated XHR, exact multipart fields, and computa
 
   assert.equal(xhr.method, 'POST')
   assert.equal(xhr.url, '/api/documents/uploads')
+  assert.equal(xhr.timeout, DOCUMENT_UPLOAD_TIMEOUT_MS)
   assert.equal(xhr.headers.Authorization, 'Bearer test-token')
   assert.equal(xhr.body.get('documentType'), 'construction_contract')
   assert.equal(xhr.body.get('lifecycleStage'), 'contract_handoff')
@@ -235,6 +237,47 @@ test('uploadDocument uses authenticated XHR, exact multipart fields, and computa
 
   assert.deepEqual(await request, uploadResult)
   assert.deepEqual(progress, [25, 100])
+})
+
+test('uploadDocument reports a bounded timeout instead of staying busy forever', async () => {
+  installAuthToken()
+
+  class FakeXMLHttpRequest {
+    static latest
+    upload = {}
+    timeout = 0
+
+    constructor() {
+      FakeXMLHttpRequest.latest = this
+    }
+
+    open() {}
+
+    setRequestHeader() {}
+
+    send() {}
+  }
+
+  Object.defineProperty(globalThis, 'XMLHttpRequest', {
+    configurable: true,
+    value: FakeXMLHttpRequest,
+  })
+
+  const request = uploadDocument({
+    file: new File(['contract'], 'contract.pdf', { type: 'application/pdf' }),
+    documentType: 'construction_contract',
+    lifecycleStage: 'contract_handoff',
+  })
+  const xhr = FakeXMLHttpRequest.latest
+
+  assert.equal(xhr.timeout, DOCUMENT_UPLOAD_TIMEOUT_MS)
+  xhr.ontimeout()
+
+  await assert.rejects(request, (error: unknown) =>
+    error instanceof DocumentReviewApiError &&
+    error.code === 'upload_timeout' &&
+    error.message.includes('上传超时'),
+  )
 })
 
 test('JSON and blob API functions use exact authenticated routes and request mappings', async () => {
