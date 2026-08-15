@@ -225,10 +225,6 @@ test('manual wizard gives the PDF half the width and hides the draft strip', () 
   assert.match(previewSource, /ref<PreviewScaleMode>\('page'\)/)
   assert.equal(previewSource.match(/适应整页/g)?.length, 2)
   assert.equal(previewSource.match(/适应宽度/g)?.length, 2)
-  assert.ok(
-    previewSource.indexOf('contract-pdf-preview__toolbar')
-      < previewSource.indexOf('contract-pdf-preview__surface'),
-  )
   assert.match(
     projectSource,
     /\.project-create-shell\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)\s+minmax\(0, 1fr\);/,
@@ -239,4 +235,21 @@ test('manual wizard gives the PDF half the width and hides the draft strip', () 
     projectSource,
     /\.project-create-shell__preview\s*\{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\)/,
   )
+})
+
+test('preview floats navigation tools inside the bottom of the PDF surface', () => {
+  const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
+  const toolbarMatches = [...source.matchAll(/class="contract-pdf-preview__toolbar"/g)]
+  const surfaceMatches = [...source.matchAll(/class="contract-pdf-preview__surface(?:\s[^\"]*)?"/g)]
+
+  assert.equal(toolbarMatches.length, 2)
+  assert.equal(surfaceMatches.length, 2)
+  assert.ok(toolbarMatches[0].index! > surfaceMatches[0].index!)
+  assert.ok(toolbarMatches[1].index! > surfaceMatches[1].index!)
+  assert.match(
+    source,
+    /\.contract-pdf-preview__toolbar\s*\{[\s\S]*position:\s*absolute;[\s\S]*bottom:/,
+  )
+  assert.match(source, /\.contract-pdf-preview__toolbar\s*\{[\s\S]*z-index:/)
+  assert.match(source, /backdrop-filter:\s*blur\(/)
 })

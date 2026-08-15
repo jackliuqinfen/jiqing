@@ -32,32 +32,6 @@
         </div>
       </header>
 
-      <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
-        <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
-        <label>
-          <span>第</span>
-          <input
-            :value="page"
-            type="number"
-            min="1"
-            :max="Math.max(totalPages, 1)"
-            aria-label="合同 PDF 页码"
-            :disabled="paneBusy"
-            @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
-            @change="setPage(Number(($event.target as HTMLInputElement).value))"
-          />
-          <span>/ {{ totalPages || '—' }}</span>
-        </label>
-        <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
-        <span class="contract-pdf-preview__toolbar-divider" />
-        <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
-        <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
-        <span class="contract-pdf-preview__toolbar-spacer" />
-        <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
-        <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
-        <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
-      </div>
-
       <div ref="previewContainerRef" class="contract-pdf-preview__surface">
         <div v-if="!document" class="contract-pdf-preview__empty">
           <strong>请先上传施工合同 PDF</strong>
@@ -69,6 +43,32 @@
         </div>
         <div v-else ref="canvasScrollerRef" class="contract-pdf-preview__canvas-scroll">
           <canvas ref="canvasRef" aria-label="合同 PDF 当前页" />
+        </div>
+
+        <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
+          <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
+          <label>
+            <span>第</span>
+            <input
+              :value="page"
+              type="number"
+              min="1"
+              :max="Math.max(totalPages, 1)"
+              aria-label="合同 PDF 页码"
+              :disabled="paneBusy"
+              @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
+              @change="setPage(Number(($event.target as HTMLInputElement).value))"
+            />
+            <span>/ {{ totalPages || '—' }}</span>
+          </label>
+          <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
+          <span class="contract-pdf-preview__toolbar-divider" />
+          <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
+          <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
+          <span class="contract-pdf-preview__toolbar-spacer" />
+          <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
+          <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
+          <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
         </div>
 
         <div v-if="paneBusy" class="contract-pdf-preview__overlay" aria-live="polite">
@@ -112,31 +112,6 @@
           </div>
         </header>
 
-        <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
-          <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
-          <label>
-            <input
-              :value="page"
-              type="number"
-              min="1"
-              :max="Math.max(totalPages, 1)"
-              aria-label="合同 PDF 页码"
-              :disabled="paneBusy"
-              @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
-              @change="setPage(Number(($event.target as HTMLInputElement).value))"
-            />
-            <span>/ {{ totalPages || '—' }}</span>
-          </label>
-          <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
-          <span class="contract-pdf-preview__toolbar-divider" />
-          <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
-          <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
-          <span class="contract-pdf-preview__toolbar-spacer" />
-          <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
-          <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
-          <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
-        </div>
-
         <div ref="previewContainerRef" class="contract-pdf-preview__surface contract-pdf-preview__surface--drawer">
           <div v-if="!document" class="contract-pdf-preview__empty">
             <strong>请先上传施工合同 PDF</strong>
@@ -148,6 +123,31 @@
           </div>
           <div v-else ref="canvasScrollerRef" class="contract-pdf-preview__canvas-scroll">
             <canvas ref="canvasRef" aria-label="合同 PDF 当前页" />
+          </div>
+
+          <div v-if="document" class="contract-pdf-preview__toolbar" aria-label="合同 PDF 预览工具">
+            <button aria-label="上一页" type="button" :disabled="page <= 1 || paneBusy" @click="setPage(page - 1)">‹</button>
+            <label>
+              <input
+                :value="page"
+                type="number"
+                min="1"
+                :max="Math.max(totalPages, 1)"
+                aria-label="合同 PDF 页码"
+                :disabled="paneBusy"
+                @keydown.enter.prevent="setPage(Number(($event.target as HTMLInputElement).value))"
+                @change="setPage(Number(($event.target as HTMLInputElement).value))"
+              />
+              <span>/ {{ totalPages || '—' }}</span>
+            </label>
+            <button aria-label="下一页" type="button" :disabled="page >= totalPages || paneBusy" @click="setPage(page + 1)">›</button>
+            <span class="contract-pdf-preview__toolbar-divider" />
+            <button type="button" :class="{ active: scaleMode === 'page' }" :disabled="paneBusy" @click="setScaleMode('page')">适应整页</button>
+            <button type="button" :class="{ active: scaleMode === 'width' }" :disabled="paneBusy" @click="setScaleMode('width')">适应宽度</button>
+            <span class="contract-pdf-preview__toolbar-spacer" />
+            <button aria-label="缩小合同 PDF" type="button" :disabled="renderedScale <= 0.5 || paneBusy" @click="adjustScale(-0.1)">−</button>
+            <span class="contract-pdf-preview__scale">{{ Math.round(renderedScale * 100) }}%</span>
+            <button aria-label="放大合同 PDF" type="button" :disabled="renderedScale >= 2.5 || paneBusy" @click="adjustScale(0.1)">＋</button>
           </div>
 
           <div v-if="paneBusy" class="contract-pdf-preview__overlay" aria-live="polite">
@@ -830,7 +830,7 @@ function formatFileSize(bytes: number) {
   height: 100%;
   align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  padding: 20px 20px 88px;
   overflow: auto;
   text-align: center;
 }
@@ -879,7 +879,7 @@ function formatFileSize(bytes: number) {
 .contract-pdf-preview__error {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 5;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -894,7 +894,7 @@ function formatFileSize(bytes: number) {
 }
 
 .contract-pdf-preview__error {
-  z-index: 3;
+  z-index: 6;
   color: rgb(var(--danger-6));
   background: rgba(255, 247, 247, 0.94);
 }
@@ -909,14 +909,23 @@ function formatFileSize(bytes: number) {
 }
 
 .contract-pdf-preview__toolbar {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 4;
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border-2);
-  background: var(--color-bg-1);
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(22, 93, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 24px rgba(24, 35, 52, 0.18);
+  backdrop-filter: blur(10px);
 }
 
 .contract-pdf-preview__toolbar button {
