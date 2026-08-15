@@ -44,6 +44,7 @@ from server.lifecycle_repository import (
     transition_project,
 )
 from server.document_api import DocumentApi
+from server.file_storage import build_file_storage
 from server.desktop_sync_policy import (
     effective_desktop_sync_policy,
     normalize_desktop_sync_policy,
@@ -346,6 +347,10 @@ def read_json(handler):
 
 def upload_root():
     return Path(os.environ.get("UPLOAD_ROOT", ROOT / "uploads")).resolve()
+
+
+def file_storage():
+    return build_file_storage(upload_root())
 
 
 def recognition_configured():
@@ -2251,6 +2256,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
         self.close_connection = True
 
+    def respond_storage_file(self, storage, relative_path, content_type, filename, inline=True):
+        disposition = "inline" if inline else "attachment"
+        encoded_name = quote(filename or Path(relative_path).name)
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(storage.size(relative_path)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        with storage.open_stream(relative_path) as source:
+            while True:
+                chunk = source.read(256 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+        self.close_connection = True
+
     def not_found(self):
         self.respond(404, {"success": False, "error": "未找到相关记录，请确认数据是否已同步。"})
 
@@ -2421,9 +2444,7 @@ class Handler(BaseHTTPRequestHandler):
         mime_type = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
         stored_name = f"{uuid.uuid4().hex}{file_ext}"
         relative_path = f"audit-projects/{project_id}/{stored_name}"
-        target = safe_attachment_path(relative_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        file_storage().save_bytes(relative_path, content, content_type=mime_type)
         attachment_id = new_id()
         ts = now_iso()
         conn.execute(
@@ -2470,13 +2491,14 @@ class Handler(BaseHTTPRequestHandler):
         if not (mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES):
             self.respond(415, {"success": False, "error": "该文件类型暂不支持在线预览，请下载查看"})
             return
-        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
-        if not path.exists():
+        relative_path = row_get(row, "relative_path") or row_get(row, "file_url")
+        storage = file_storage()
+        if not storage.exists(relative_path):
             self.not_found()
             return
         if file_ext in TEXT_PREVIEW_SUFFIXES and not mime_type.startswith("text/"):
             mime_type = "text/plain; charset=utf-8"
-        self.respond_file(path, mime_type, original_name, inline=True)
+        self.respond_storage_file(storage, relative_path, mime_type, original_name, inline=True)
 
     def download_attachment(self, conn, attachment_id):
         user = self.require_user(conn)
@@ -2500,12 +2522,13 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         original_name = row_get(row, "original_name") or row_get(row, "file_name")
-        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
-        if not path.exists():
+        relative_path = row_get(row, "relative_path") or row_get(row, "file_url")
+        storage = file_storage()
+        if not storage.exists(relative_path):
             self.not_found()
             return
         mime_type = row_get(row, "mime_type") or row_get(row, "file_type") or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
-        self.respond_file(path, mime_type, original_name, inline=False)
+        self.respond_storage_file(storage, relative_path, mime_type, original_name, inline=False)
 
     def delete_attachment(self, conn, attachment_id):
         user = self.require_role(conn, {"admin", "editor"})
@@ -2515,9 +2538,7 @@ class Handler(BaseHTTPRequestHandler):
         if not row:
             self.not_found()
             return
-        path = safe_attachment_path(row_get(row, "relative_path") or row_get(row, "file_url"))
-        if path.exists():
-            path.unlink()
+        file_storage().delete(row_get(row, "relative_path") or row_get(row, "file_url"))
         conn.execute("UPDATE audit_project_attachments SET is_deleted = 1, deleted_at = ? WHERE id = ?", (now_iso(), attachment_id))
         self.write_operation_log(conn, "attachment.delete", user, "audit_project_attachment", attachment_id, "success", {"projectId": row["project_id"], "fileName": row_get(row, "original_name") or row_get(row, "file_name")})
         conn.commit()
@@ -3270,9 +3291,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         stored_name = f"{uuid.uuid4().hex}{file_ext}"
         relative_path = f"project-records/{project_id}/{stored_name}"
-        target = safe_attachment_path(relative_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        file_storage().save_bytes(relative_path, content, content_type=mime_type)
         file_id = new_id()
         ts = now_iso()
         conn.execute(
@@ -3348,13 +3367,13 @@ class Handler(BaseHTTPRequestHandler):
         if not (mime_type in INLINE_PREVIEW_TYPES or mime_type.startswith(INLINE_PREVIEW_PREFIXES) or file_ext in TEXT_PREVIEW_SUFFIXES):
             self.respond(415, {"success": False, "error": "该文件暂不支持在线预览，请下载后查看"})
             return
-        path = safe_attachment_path(row["relative_path"])
-        if not path.exists():
+        storage = file_storage()
+        if not storage.exists(row["relative_path"]):
             self.not_found()
             return
         if file_ext in TEXT_PREVIEW_SUFFIXES and not mime_type.startswith("text/"):
             mime_type = "text/plain; charset=utf-8"
-        self.respond_file(path, mime_type, original_name, inline=True)
+        self.respond_storage_file(storage, row["relative_path"], mime_type, original_name, inline=True)
 
     def download_project_file(self, conn, file_id):
         user = self.require_user(conn)
@@ -3370,13 +3389,13 @@ class Handler(BaseHTTPRequestHandler):
                 "error": "没有权限下载该项目资料",
             })
             return
-        path = safe_attachment_path(row["relative_path"])
-        if not path.exists():
+        storage = file_storage()
+        if not storage.exists(row["relative_path"]):
             self.not_found()
             return
         original_name = repair_mojibake_filename(row["original_name"])
         mime_type = row["mime_type"] or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
-        self.respond_file(path, mime_type, original_name, inline=False)
+        self.respond_storage_file(storage, row["relative_path"], mime_type, original_name, inline=False)
 
     def rename_project_file(self, conn, file_id, data):
         user = self.require_role(conn, {"admin", "editor"})
@@ -4966,6 +4985,7 @@ class Handler(BaseHTTPRequestHandler):
                 cursor=(params.get("cursor", [""])[0] or ""),
                 limit=(params.get("limit", [200])[0] or 200),
                 path_resolver=safe_attachment_path,
+                storage=file_storage(),
             )
         except InvalidSyncCursor:
             self.respond(400, {
@@ -5010,12 +5030,8 @@ class Handler(BaseHTTPRequestHandler):
                 "error": "资料版本已变化，请刷新同步清单",
             })
             return
-        try:
-            path = safe_attachment_path(source["relativePath"])
-        except (OSError, TypeError, ValueError):
-            self.not_found()
-            return
-        if not path.is_file():
+        storage = file_storage()
+        if not storage.exists(source["relativePath"]):
             self.not_found()
             return
         mime_type = (
@@ -5023,8 +5039,9 @@ class Handler(BaseHTTPRequestHandler):
             or mimetypes.guess_type(source["originalName"])[0]
             or "application/octet-stream"
         )
-        self.respond_file(
-            path,
+        self.respond_storage_file(
+            storage,
+            source["relativePath"],
             mime_type,
             source["originalName"],
             inline=False,
@@ -5220,6 +5237,7 @@ class Handler(BaseHTTPRequestHandler):
             filename_decoder=multipart_filename,
             project_code_generator=generate_project_code,
             recognition_adapter_key=build_recognition_adapter().adapter_key,
+            file_storage=file_storage(),
         )
 
     def do_GET(self):
@@ -5972,6 +5990,7 @@ def main():
         connection_factory=connect,
         adapter_resolver=lambda _adapter_key: build_recognition_adapter(),
         storage_root=upload_root(),
+        storage=file_storage(),
     )
     RECOGNITION_WORKER.start()
     print(f"Audit Kanban API listening on http://{args.host}:{args.port}", flush=True)

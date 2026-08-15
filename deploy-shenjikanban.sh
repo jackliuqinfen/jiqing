@@ -89,10 +89,10 @@ if [[ ! -x "$OCR_VENV_ROOT/bin/python" || "$OCR_REQUIREMENTS_HASH" != "$INSTALLE
     python3 -m venv "$OCR_VENV_ROOT"
   fi
   "$OCR_VENV_ROOT/bin/python" -m pip install --disable-pip-version-check -r "$OCR_REQUIREMENTS"
-  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2; print('OCR_IMPORT_OK')"
+  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2, qcloud_cos; print('OCR_IMPORT_OK')"
   printf '%s' "$OCR_REQUIREMENTS_HASH" > "$OCR_HASH_FILE"
 else
-  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2; print('OCR_IMPORT_OK')"
+  "$OCR_VENV_ROOT/bin/python" -c "import PIL, pypdfium2, qcloud_cos; print('OCR_IMPORT_OK')"
 fi
 OCR_SITE_PACKAGES="$("$OCR_VENV_ROOT/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
 

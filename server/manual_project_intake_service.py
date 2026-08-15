@@ -72,6 +72,7 @@ def confirm_manual_project_intake(
     actor,
     project_code_generator,
     operation_logger,
+    storage=None,
     now=None,
 ):
     """Create a formal project, contract material, and completed draft atomically."""
@@ -236,6 +237,7 @@ def confirm_manual_project_intake(
         )
         project_id = result["projectId"]
 
+        _promote_contract_storage(conn, project_id, version, storage)
         _link_original_contract(conn, project_id, version, actor, now)
         completion, missing = _document_rollup(conn, project_id, "contract_signed")
         _update_manual_project_values(
@@ -354,6 +356,50 @@ def _link_original_contract(conn, project_id, version, actor, now):
             now,
         ),
     )
+
+
+def _promote_contract_storage(conn, project_id, version, storage):
+    """Move an unbound contract into the confirmed project's contract folder."""
+    if storage is None:
+        return
+    document_id = str(version["document_id"] or "").strip()
+    if not document_id:
+        return
+    versions = conn.execute(
+        "SELECT id, version_no, relative_path FROM document_versions WHERE document_id = ?",
+        (document_id,),
+    ).fetchall()
+    for item in versions:
+        old_path = str(item["relative_path"] or "")
+        if not old_path:
+            continue
+        new_path = (
+            f"contract-records/{project_id}/{document_id}/v{int(item['version_no'])}/"
+            f"{Path(old_path).parent.name}/{Path(old_path).name}"
+        )
+        storage.move(old_path, new_path)
+        conn.execute(
+            "UPDATE document_versions SET relative_path = ? WHERE id = ?",
+            (new_path, item["id"]),
+        )
+
+        pages = conn.execute(
+            "SELECT id, relative_path FROM document_pages WHERE document_version_id = ?",
+            (item["id"],),
+        ).fetchall()
+        for page in pages:
+            page_path = str(page["relative_path"] or "")
+            if not page_path:
+                continue
+            page_name = Path(page_path).name
+            page_new_path = (
+                f"contract-records/{project_id}/{document_id}/v{int(item['version_no'])}/pages/{page_name}"
+            )
+            storage.move(page_path, page_new_path)
+            conn.execute(
+                "UPDATE document_pages SET relative_path = ? WHERE id = ?",
+                (page_new_path, page["id"]),
+            )
 
 
 def _document_rollup(conn, project_id, project_stage):

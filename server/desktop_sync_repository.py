@@ -123,7 +123,8 @@ def list_sync_manifest(
     project_refs,
     cursor,
     limit,
-    path_resolver,
+    path_resolver=None,
+    storage=None,
 ):
     cursor_state = decode_cursor(cursor)
     requested_refs = {
@@ -177,7 +178,7 @@ def list_sync_manifest(
     selected = rows[: page_limit + 1]
     has_more = len(selected) > page_limit
     selected = selected[:page_limit]
-    items = [_manifest_item(conn, item, path_resolver) for item in selected]
+    items = [_manifest_item(conn, item, path_resolver, storage) for item in selected]
     if has_more:
         next_cursor = encode_cursor({
             "v": CURSOR_VERSION,
@@ -354,15 +355,20 @@ def _policy_allows_source(policy, item):
     return not maximum_size or item["fileSize"] <= maximum_size
 
 
-def _manifest_item(conn, item, path_resolver):
+def _manifest_item(conn, item, path_resolver=None, storage=None):
     availability = "missing"
     sha256 = ""
     download_path = None
     try:
-        path = Path(path_resolver(item["relativePath"]))
-        if path.is_file():
+        if storage is not None:
+            available = storage.exists(item["relativePath"])
+            path = None
+        else:
+            path = Path(path_resolver(item["relativePath"]))
+            available = path.is_file()
+        if available:
             availability = "available"
-            sha256 = _cached_sha256(conn, item, path)
+            sha256 = _cached_sha256(conn, item, path=path, storage=storage)
             download_path = (
                 f"/api/desktop/sync/files/{item['sourceType']}/"
                 f"{quote(item['sourceId'], safe='')}/download"
@@ -381,7 +387,7 @@ def _manifest_item(conn, item, path_resolver):
     }
 
 
-def _cached_sha256(conn, item, path):
+def _cached_sha256(conn, item, *, path=None, storage=None):
     cached = conn.execute(
         """
         SELECT sha256
@@ -398,7 +404,8 @@ def _cached_sha256(conn, item, path):
         return cached["sha256"]
 
     digest = hashlib.sha256()
-    with path.open("rb") as file_handle:
+    source_context = storage.open_stream(item["relativePath"]) if storage is not None else path.open("rb")
+    with source_context as file_handle:
         while True:
             chunk = file_handle.read(HASH_CHUNK_SIZE)
             if not chunk:

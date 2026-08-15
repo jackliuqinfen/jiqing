@@ -121,6 +121,7 @@ class DocumentApi:
         project_code_generator,
         recognition_adapter_key,
         read_repository=None,
+        file_storage=None,
     ):
         self.conn = conn
         self.handler = handler
@@ -140,7 +141,11 @@ class DocumentApi:
         self.project_code_generator = project_code_generator
         self.recognition_adapter_key = str(recognition_adapter_key or "manual").strip() or "manual"
         self.read_repository = read_repository or _DocumentReadRepository(conn)
-        self.storage = DocumentStorage(storage_root, resolve_version_path=lambda _version_id: None)
+        self.storage = DocumentStorage(
+            storage_root,
+            resolve_version_path=lambda _version_id: None,
+            file_storage=file_storage,
+        )
 
     @classmethod
     def is_route(cls, method, path):
@@ -384,7 +389,8 @@ class DocumentApi:
                 if existing_document["lifecycle_stage"] != lifecycle_stage:
                     raise DocumentApiError(422, "document_stage_immutable", "新版本不能改变生命周期阶段。")
 
-            mime_type = _detect_mime_type(self.storage._resolve(stored.relative_path))
+            with self.storage.materialize(stored.relative_path) as stored_path:
+                mime_type = _detect_mime_type(stored_path)
             if not mime_type:
                 raise DocumentApiError(
                     422,
@@ -430,10 +436,9 @@ class DocumentApi:
         if not row:
             raise DocumentApiError(404, "document_page_not_found", "未找到文档页。")
         self._require_resource_access(row)
-        path = self.storage._resolve(row["relative_path"])
-        if not path.is_file():
+        if not self.storage.exists(row["relative_path"]):
             raise DocumentApiError(404, "document_page_file_not_found", "文档页文件不存在。")
-        self._respond_file_range(path, "image/png")
+        self._respond_file_range(row["relative_path"], "image/png")
 
     def _get_version(self, version_id):
         source = self._version_source(version_id)
@@ -448,10 +453,9 @@ class DocumentApi:
                 "document_original_not_pdf",
                 "合同原文在线预览仅支持 PDF 文件。",
             )
-        path = self.storage._resolve(source["relative_path"])
-        if not path.is_file():
+        if not self.storage.exists(source["relative_path"]):
             raise DocumentApiError(404, "document_original_file_not_found", "合同原文件不存在。")
-        self._respond_file_range(path, "application/pdf")
+        self._respond_file_range(source["relative_path"], "application/pdf")
 
     def _version_source(self, version_id):
         source = self.read_repository.version(version_id)
@@ -502,12 +506,12 @@ class DocumentApi:
                 self.conn.commit()
                 return
             self.storage.root.mkdir(parents=True, exist_ok=True)
-            source_path = self.storage._resolve(source["relative_path"])
             with tempfile.TemporaryDirectory(
                 prefix=".document-render-",
                 dir=self.storage.root,
             ) as output_dir:
-                rendered = render_document_pages(source_path, output_dir, dpi=300)
+                with self.storage.materialize(source["relative_path"]) as source_path:
+                    rendered = render_document_pages(source_path, output_dir, dpi=300)
                 if not rendered:
                     raise DocumentApiError(
                         422,
@@ -822,6 +826,7 @@ class DocumentApi:
                 actor=self.actor,
                 project_code_generator=self.project_code_generator,
                 operation_logger=self._log_operation,
+                storage=self.storage.file_storage,
             )
         except ReviewBlockedError as exc:
             duplicate = next(
@@ -886,8 +891,8 @@ class DocumentApi:
             return self.allowed_project_ids
         return {target_project_id} if target_project_id else set()
 
-    def _respond_file_range(self, path, content_type):
-        size = path.stat().st_size
+    def _respond_file_range(self, relative_path, content_type):
+        size = self.storage.size(relative_path)
         range_header = str(self.handler.headers.get("Range") or "").strip()
         start, end, status = 0, max(size - 1, 0), 200
         if range_header:
@@ -913,8 +918,7 @@ class DocumentApi:
             self.handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.handler.send_header("Connection", "close")
         self.handler.end_headers()
-        with path.open("rb") as source:
-            source.seek(start)
+        with self.storage.open_stream(relative_path, start=start, end=end) as source:
             remaining = length
             while remaining:
                 chunk = source.read(min(256 * 1024, remaining))

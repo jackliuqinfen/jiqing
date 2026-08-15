@@ -7,6 +7,7 @@ import os
 import re
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,9 +24,10 @@ class StoredDocument:
 
 
 class DocumentStorage:
-    def __init__(self, root, *, resolve_version_path):
+    def __init__(self, root, *, resolve_version_path, file_storage=None):
         self.root = Path(root).resolve()
         self.resolve_version_path = resolve_version_path
+        self.file_storage = file_storage
 
     def save_original(
         self, *, document_id, version_no, original_name, source
@@ -39,6 +41,9 @@ class DocumentStorage:
             / "original"
             / safe_name
         )
+        if self.file_storage is not None:
+            stored = self.file_storage.save_stream(relative_path, source)
+            return StoredDocument(stored.relative_path, stored.sha256, stored.size)
         return self._atomic_stream_write(relative_path, source)
 
     def save_page(
@@ -52,6 +57,9 @@ class DocumentStorage:
             / "pages"
             / f"page-{int(page_number):04d}.png"
         )
+        if self.file_storage is not None:
+            stored = self.file_storage.save_bytes(relative_path, content, content_type="image/png")
+            return StoredDocument(stored.relative_path, stored.sha256, stored.size)
         return self._atomic_stream_write(relative_path, _BytesReader(content))
 
     def open_original(self, document_version_id):
@@ -62,6 +70,9 @@ class DocumentStorage:
 
     def discard(self, relative_path):
         """Remove an uncommitted upload after validation failure or idempotent replay."""
+        if self.file_storage is not None:
+            self.file_storage.delete(relative_path)
+            return
         path = self._resolve(relative_path)
         path.unlink(missing_ok=True)
         parent = path.parent
@@ -71,6 +82,55 @@ class DocumentStorage:
             except OSError:
                 break
             parent = parent.parent
+
+    def move(self, source_path, destination_path):
+        if self.file_storage is not None:
+            self.file_storage.move(source_path, destination_path)
+            return
+        source = self._resolve(source_path)
+        destination = self._resolve(destination_path)
+        if not source.exists() and destination.exists():
+            return
+        if not source.is_file():
+            raise FileNotFoundError(str(source_path))
+        if destination.exists():
+            raise FileExistsError(str(destination_path))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, destination)
+
+    def exists(self, relative_path):
+        if self.file_storage is not None:
+            return self.file_storage.exists(relative_path)
+        return self._resolve(relative_path).is_file()
+
+    def size(self, relative_path):
+        if self.file_storage is not None:
+            return self.file_storage.size(relative_path)
+        return self._resolve(relative_path).stat().st_size
+
+    @contextmanager
+    def open_stream(self, relative_path, *, start=0, end=None):
+        if self.file_storage is not None:
+            with self.file_storage.open_stream(relative_path, start=start, end=end) as source:
+                yield source
+            return
+        with self._resolve(relative_path).open("rb") as source:
+            source.seek(max(int(start), 0))
+            remaining = None if end is None else max(int(end) - int(start) + 1, 0)
+            yield _LimitedReader(source, remaining)
+
+    @contextmanager
+    def materialize(self, relative_path):
+        if self.file_storage is not None:
+            with self.file_storage.materialize(relative_path) as path:
+                yield path
+            return
+        yield self._resolve(relative_path)
+
+    def read_bytes(self, relative_path):
+        if self.file_storage is not None:
+            return self.file_storage.read_bytes(relative_path)
+        return self._resolve(relative_path).read_bytes()
 
     def _atomic_stream_write(self, relative_path, source):
         final_path = self._resolve(relative_path)
@@ -128,6 +188,22 @@ class _BytesReader:
         end = len(self.content) if size < 0 else min(self.offset + size, len(self.content))
         chunk = self.content[self.offset:end].tobytes()
         self.offset = end
+        return chunk
+
+
+class _LimitedReader:
+    def __init__(self, source, remaining):
+        self.source = source
+        self.remaining = remaining
+
+    def read(self, size=-1):
+        if self.remaining is not None:
+            if self.remaining <= 0:
+                return b""
+            size = self.remaining if size < 0 else min(size, self.remaining)
+        chunk = self.source.read(size)
+        if self.remaining is not None:
+            self.remaining -= len(chunk)
         return chunk
 
 

@@ -45,6 +45,7 @@ class RecognitionWorker:
         adapter_resolver,
         request_loader=None,
         storage_root=None,
+        storage=None,
         worker_id=None,
         poll_interval=1.0,
         lease_seconds=300,
@@ -54,7 +55,7 @@ class RecognitionWorker:
         self.connection_factory = connection_factory
         self.adapter_resolver = adapter_resolver
         self.request_loader = request_loader or _storage_request_loader(
-            storage_root, quality_threshold=quality_threshold
+            storage or storage_root, quality_threshold=quality_threshold
         )
         self.worker_id = str(worker_id or f"recognition-worker-{uuid.uuid4().hex}")
         self.poll_interval = float(poll_interval)
@@ -290,11 +291,12 @@ class RecognitionWorker:
             )
 
 
-def _storage_request_loader(storage_root, *, quality_threshold):
-    root = Path(storage_root).resolve() if storage_root else None
+def _storage_request_loader(storage, *, quality_threshold):
+    file_storage = storage if hasattr(storage, "read_bytes") else None
+    root = Path(storage).resolve() if storage and file_storage is None else None
 
     def load(conn, job):
-        if root is None:
+        if root is None and file_storage is None:
             raise ValueError("recognition storage root is not configured")
         rows = conn.execute(
             """
@@ -317,12 +319,16 @@ def _storage_request_loader(storage_root, *, quality_threshold):
             raise RecognitionPageQualityError("recognition page quality is too low")
         pages = []
         for row in rows:
-            path = _safe_storage_path(root, row["relative_path"])
+            if file_storage is not None:
+                image_bytes = file_storage.read_bytes(row["relative_path"])
+            else:
+                path = _safe_storage_path(root, row["relative_path"])
+                image_bytes = path.read_bytes()
             pages.append(
                 RecognitionPage(
                     page_id=row["id"],
                     page_number=int(row["page_number"]),
-                    image_bytes=path.read_bytes(),
+                    image_bytes=image_bytes,
                     width_px=int(row["width_px"]),
                     height_px=int(row["height_px"]),
                 )
