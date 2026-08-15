@@ -64,6 +64,9 @@
           <span>文件会按需加载，不会在后台生成整本页面图片。</span>
           <button type="button" @click="chooseFile">选择 PDF</button>
         </div>
+        <div v-else-if="nativePreviewUrl" class="contract-pdf-preview__native-frame">
+          <iframe :src="nativePreviewSrc" :title="document.name" />
+        </div>
         <div v-else ref="canvasScrollerRef" class="contract-pdf-preview__canvas-scroll">
           <canvas ref="canvasRef" aria-label="合同 PDF 当前页" />
         </div>
@@ -140,6 +143,9 @@
             <span>仅支持 PDF，上传失败不会替换当前合同。</span>
             <button type="button" @click="chooseFile">选择 PDF</button>
           </div>
+          <div v-else-if="nativePreviewUrl" class="contract-pdf-preview__native-frame">
+            <iframe :src="nativePreviewSrc" :title="document.name" />
+          </div>
           <div v-else ref="canvasScrollerRef" class="contract-pdf-preview__canvas-scroll">
             <canvas ref="canvasRef" aria-label="合同 PDF 当前页" />
           </div>
@@ -175,8 +181,6 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import {
   downloadOriginalPdf,
-  originalPdfRequest,
-  previewPdfRequest,
   uploadDocument,
 } from '@/api/documentReview'
 import {
@@ -236,6 +240,7 @@ const localError = ref('')
 const uploading = ref(false)
 const downloading = ref(false)
 const uploadProgress = ref(0)
+const nativePreviewUrl = ref('')
 const drawerVisible = ref(false)
 const scaleMode = ref<PreviewScaleMode>('page')
 const renderedScale = ref(1)
@@ -269,6 +274,12 @@ const viewportWidth = computed(() => previewMetrics.value.viewportWidth)
 const devicePixelRatio = computed(() => previewMetrics.value.devicePixelRatio)
 const drawerWidth = computed(() => previewMetrics.value.drawerWidth)
 const isNarrow = computed(() => viewportWidth.value < 960)
+const nativePreviewSrc = computed(() => {
+  if (!nativePreviewUrl.value) return ''
+  const safePage = clampPage(props.page, totalPages.value || 1)
+  const safeZoom = Math.round(clampScale(renderedScale.value) * 100)
+  return `${nativePreviewUrl.value}#page=${safePage}&zoom=${safeZoom}`
+})
 
 watch(
   () => props.document?.versionId || '',
@@ -337,6 +348,7 @@ onBeforeUnmount(() => {
   dprMediaQuery?.removeEventListener('change', handleDprChange)
   dprMediaQuery = null
   clearCanvas()
+  revokeNativePreviewUrl()
 })
 
 function updatePreviewMetrics(size?: Pick<DOMRectReadOnly, 'width' | 'height'>) {
@@ -480,6 +492,7 @@ async function loadDocument() {
   await disposePdfDocument()
   localError.value = ''
   totalPages.value = 0
+  revokeNativePreviewUrl()
   clearCanvas()
 
   if (!props.document) {
@@ -488,13 +501,21 @@ async function loadDocument() {
   }
 
   localLoading.value = true
-  let request = await previewPdfRequest(props.document.versionId)
-  if (generation !== documentGeneration) return
+  let documentData: ArrayBuffer
+  try {
+    const blob = await downloadOriginalPdf(props.document.versionId)
+    if (generation !== documentGeneration) return
+    const pdfBlob = new Blob([await blob.arrayBuffer()], { type: 'application/pdf' })
+    nativePreviewUrl.value = URL.createObjectURL(pdfBlob)
+    documentData = await pdfBlob.arrayBuffer()
+  } catch (error) {
+    if (generation !== documentGeneration || isCancellation(error)) return
+    localLoading.value = false
+    publishError(friendlyErrorMessage(error, '合同 PDF 原文获取失败，请点击“重试”或下载查看。'))
+    return
+  }
   const createLoadingTask = () => getDocument({
-    ...request,
-    rangeChunkSize: 512 * 1024,
-    disableAutoFetch: false,
-    disableStream: false,
+    data: documentData,
   })
   let task = createLoadingTask()
   loadingTask = task
@@ -503,16 +524,8 @@ async function loadDocument() {
     try {
       loaded = await task.promise
     } catch (error) {
-      if (!request.direct || generation !== documentGeneration || isCancellation(error)) throw error
-      try {
-        await task.destroy()
-      } catch {
-        // The failed direct task may already be settled.
-      }
-      request = originalPdfRequest(props.document.versionId)
-      task = createLoadingTask()
-      loadingTask = task
-      loaded = await task.promise
+      if (generation !== documentGeneration || isCancellation(error)) throw error
+      throw error
     }
     if (generation !== documentGeneration) {
       if (loadingTask === task) loadingTask = null
@@ -540,6 +553,12 @@ async function loadDocument() {
       }
     }
     if (generation !== documentGeneration || isCancellation(error)) return
+    if (nativePreviewUrl.value) {
+      // The browser's native PDF viewer can still display a valid document
+      // when PDF.js cannot decode a contract font or content stream.
+      totalPages.value = Math.max(totalPages.value, 1)
+      return
+    }
     publishError(friendlyErrorMessage(error, '合同 PDF 已上传，但原文预览加载失败，请点击“重试”或下载查看。'))
   } finally {
     if (generation === documentGeneration) localLoading.value = false
@@ -573,6 +592,7 @@ async function disposePdfDocument() {
 
 async function renderCurrentPage(explicitPage?: number) {
   if (disposalPromise) return
+  if (nativePreviewUrl.value) return
   const loaded = pdfDocument.value
   const visibleCanvas = canvasRef.value
   if (!loaded || !visibleCanvas) return
@@ -688,6 +708,12 @@ function clearCanvas() {
   canvas.style.width = ''
   canvas.style.height = ''
   canvasScrollerRef.value?.scrollTo({ top: 0, left: 0 })
+}
+
+function revokeNativePreviewUrl() {
+  const url = nativePreviewUrl.value
+  nativePreviewUrl.value = ''
+  if (url.startsWith('blob:')) URL.revokeObjectURL(url)
 }
 
 function publishError(message: string) {
@@ -816,6 +842,22 @@ function formatFileSize(bytes: number) {
   border-radius: 2px;
   background: #fff;
   box-shadow: 0 8px 24px rgba(24, 35, 52, 0.16);
+}
+
+.contract-pdf-preview__native-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+}
+
+.contract-pdf-preview__native-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
 }
 
 .contract-pdf-preview__empty {
