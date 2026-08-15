@@ -97,6 +97,10 @@ fi
 OCR_SITE_PACKAGES="$("$OCR_VENV_ROOT/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
 
 cp -a "$WORK_DIR/dist/." "$FRONTEND_ROOT/"
+# The release archive is unpacked with the service user's restrictive umask.
+# Nginx must be able to traverse the asset directories and read public files.
+find "$FRONTEND_ROOT" -type d -exec chmod 755 {} +
+find "$FRONTEND_ROOT" -type f -exec chmod 644 {} +
 
 # Sync runtime source and schema files without touching the production database,
 # uploads, or test fixtures. Lifecycle modules are imported by audit_api.py and
