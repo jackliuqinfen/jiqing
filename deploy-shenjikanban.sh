@@ -130,6 +130,13 @@ cat > /etc/nginx/conf.d/shenjikanban-upload-size.conf <<'EOF'
 client_max_body_size 500m;
 EOF
 
+# PDF.js is loaded as an ES module worker. Some OpenCloudOS images do not
+# register .mjs in nginx's default MIME map, which makes browsers reject the
+# worker and fall back to the slower/incompatible fake-worker path.
+if ! grep -Eq '^[[:space:]]*application/javascript[[:space:]]+.*\bmjs;' /etc/nginx/mime.types; then
+  sed -i -E 's/^([[:space:]]*application\/javascript[[:space:]]+)js;$/\1js mjs;/' /etc/nginx/mime.types
+fi
+
 systemctl daemon-reload
 systemctl restart "$SERVICE_NAME"
 systemctl is-active --quiet "$SERVICE_NAME"
