@@ -910,7 +910,10 @@
             :class="{ 'is-active': projectWizardStepIndex === index, 'is-done': projectWizardStepIndex > index }"
             @click="jumpProjectWizardStep(index)"
           >
-            <span>{{ index + 1 }}</span>
+            <span class="wizard-stepper__index" aria-hidden="true">
+              <AIcon v-if="projectWizardStepIndex > index" name="check" />
+              <template v-else>{{ index + 1 }}</template>
+            </span>
             <strong>{{ step.title }}</strong>
           </button>
         </nav>
@@ -984,11 +987,11 @@
                   @change="handleProjectDictionaryChange('ownerUnit')"
                 />
               </AFormItem>
-              <AFormItem field="contractorName" label="施工联系人/负责人">
+              <AFormItem field="contractorName" label="建设单位联系人">
                 <ASelect
                   v-model="projectForm.contractorName"
                   data-project-field="contractorName"
-                  placeholder="搜索或输入负责人姓名"
+                  placeholder="搜索或输入建设单位联系人"
                   :options="dictionarySelectOptions('contractor_name')"
                   allow-clear
                   allow-search
@@ -998,17 +1001,17 @@
               </AFormItem>
               <AFormItem
                 field="contractorContact"
-                label="联系电话"
+                label="建设单位联系电话"
                 :validate-status="projectFormErrors.contractorContact ? 'error' : undefined"
                 :help="projectFormErrors.contractorContact"
               >
-                <AInput v-model="projectForm.contractorContact" data-project-field="contractorContact" placeholder="请输入联系电话" allow-clear @input="clearProjectFieldError('contractorContact')" />
+                <AInput v-model="projectForm.contractorContact" data-project-field="contractorContact" placeholder="请输入建设单位联系电话" allow-clear @input="clearProjectFieldError('contractorContact')" />
               </AFormItem>
-              <AFormItem field="managerName" label="项目负责人">
+              <AFormItem field="managerName" label="项目经理">
                 <ASelect
                   v-model="projectForm.managerName"
                   data-project-field="managerName"
-                  placeholder="搜索或输入项目负责人"
+                  placeholder="搜索或输入项目经理"
                   :options="dictionarySelectOptions('manager_name')"
                   allow-clear
                   allow-search
@@ -1151,8 +1154,31 @@
         </AForm>
 
             <div class="wizard-footer-extra">
-              <AButton v-if="projectWizardStepIndex > 0" variant="outline" @click="prevProjectWizardStep">上一步</AButton>
-              <span>第 {{ projectWizardStepIndex + 1 }} / {{ projectWizardSteps.length }} 步</span>
+              <AButton
+                v-if="projectWizardStepIndex > 0"
+                class="wizard-footer-extra__back"
+                variant="outline"
+                shape="circle"
+                aria-label="上一步"
+                title="上一步"
+                @click="prevProjectWizardStep"
+              >
+                <template #icon><AIcon name="left" /></template>
+              </AButton>
+              <span v-else class="wizard-footer-extra__spacer" aria-hidden="true" />
+              <div class="wizard-progress" role="status" :aria-label="projectWizardProgressLabel" :title="projectWizardProgressLabel">
+                <span
+                  v-for="(step, index) in projectWizardSteps"
+                  :key="step.key"
+                  class="wizard-progress__dot"
+                  :class="{ 'is-active': projectWizardStepIndex === index, 'is-done': projectWizardStepIndex > index }"
+                  aria-hidden="true"
+                >
+                  <AIcon v-if="projectWizardStepIndex > index" name="check" />
+                  <template v-else>{{ index + 1 }}</template>
+                </span>
+              </div>
+              <span class="wizard-footer-extra__spacer" aria-hidden="true" />
             </div>
           </div>
         </section>
@@ -1977,9 +2003,9 @@ const projectFieldsLeft: Array<{ key: ProjectTextFormKey; label: string; placeho
 ]
 
 const projectFieldsRight: Array<{ key: ProjectTextFormKey; label: string; placeholder: string; required: boolean }> = [
-  { key: 'contractorName', label: '施工联系人/负责人', placeholder: '搜索或输入负责人姓名', required: false },
-  { key: 'contractorContact', label: '联系电话', placeholder: '请输入联系电话', required: false },
-  { key: 'managerName', label: '项目负责人', placeholder: '搜索或输入项目负责人', required: false },
+  { key: 'contractorName', label: '建设单位联系人', placeholder: '搜索或输入建设单位联系人', required: false },
+  { key: 'contractorContact', label: '建设单位联系电话', placeholder: '请输入建设单位联系电话', required: false },
+  { key: 'managerName', label: '项目经理', placeholder: '搜索或输入项目经理', required: false },
   { key: 'companyRole', label: '我方角色', placeholder: '搜索或输入我方角色', required: false },
 ]
 
@@ -2021,6 +2047,7 @@ const projectWizardSteps = computed(() => {
 })
 const projectWizardStepKey = computed<ProjectWizardStepKey>(() => projectWizardSteps.value[projectWizardStepIndex.value]?.key || 'base')
 const projectWizardConfirmText = computed(() => projectWizardStepIndex.value >= projectWizardSteps.value.length - 1 ? '生成项目' : '下一步')
+const projectWizardProgressLabel = computed(() => `第 ${projectWizardStepIndex.value + 1} / ${projectWizardSteps.value.length} 步`)
 const projectInitialDirectories = computed(() => {
   const base = [
     { key: 'bid_notice', label: '中标通知书', required: ['awarded', 'contract_signed', 'under_construction', 'completed_acceptance', 'pending_submission', 'first_audit', 'second_audit', 'conclusion', 'archived'].includes(projectForm.projectStatus), hint: '用于确认项目来源与中标事实' },
@@ -6540,7 +6567,10 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .project-create-shell__form {
+  --wizard-stepper-sticky-height: 64px;
+  position: relative;
   padding-right: 2px;
+  background: var(--bg-surface);
 }
 
 .project-create-shell__preview {
@@ -6550,6 +6580,9 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .wizard-stepper {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
   gap: 8px;
@@ -6557,6 +6590,7 @@ watch(detailDialogVisible, (visible) => {
   background: #F7F8FA;
   border: 1px solid var(--border-color);
   border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .wizard-stepper__item {
@@ -6574,7 +6608,7 @@ watch(detailDialogVisible, (visible) => {
   cursor: pointer;
 }
 
-.wizard-stepper__item span {
+.wizard-stepper__index {
   display: inline-grid;
   place-items: center;
   width: 24px;
@@ -6602,8 +6636,8 @@ watch(detailDialogVisible, (visible) => {
   box-shadow: 0 6px 16px rgba(22, 93, 255, 0.08);
 }
 
-.wizard-stepper__item.is-active span,
-.wizard-stepper__item.is-done span {
+.wizard-stepper__item.is-active .wizard-stepper__index,
+.wizard-stepper__item.is-done .wizard-stepper__index {
   color: #fff;
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -6615,10 +6649,15 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .wizard-panel__header {
+  position: sticky;
+  top: calc(var(--wizard-stepper-sticky-height) + var(--space-4));
+  z-index: 10;
   display: grid;
   gap: 6px;
   padding-bottom: var(--space-2);
+  background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
 }
 
 .wizard-panel__header h3 {
@@ -6799,12 +6838,47 @@ watch(detailDialogVisible, (visible) => {
 }
 
 .wizard-footer-extra {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   min-height: 32px;
   color: var(--text-secondary);
   font-size: var(--text-xs);
+}
+
+.wizard-footer-extra__back {
+  justify-self: start;
+}
+
+.wizard-footer-extra__spacer {
+  min-width: 32px;
+}
+
+.wizard-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.wizard-progress__dot {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+}
+
+.wizard-progress__dot.is-active,
+.wizard-progress__dot.is-done {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .file-upload-form {
@@ -7105,6 +7179,9 @@ watch(detailDialogVisible, (visible) => {
   .project-form-modal__title-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+  .project-create-shell__form {
+    --wizard-stepper-sticky-height: 194px;
   }
   .exception-grid { grid-template-columns: 1fr; }
   .ledger-card-grid { grid-template-columns: 1fr; }

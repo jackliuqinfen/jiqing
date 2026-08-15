@@ -254,6 +254,19 @@ test('preview floats navigation tools inside the bottom of the PDF surface', () 
   assert.match(source, /backdrop-filter:\s*blur\(/)
 })
 
+test('manual wizard keeps the step context visible while scrolling', () => {
+  const source = readWorkspaceFile('src/views/ProjectManagementView.vue')
+
+  assert.match(source, /\.project-create-shell__form\s*\{[\s\S]*position:\s*relative;[\s\S]*--wizard-stepper-sticky-height/)
+  assert.match(source, /\.wizard-stepper\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;[\s\S]*z-index:/)
+  assert.match(source, /\.wizard-panel__header\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*calc\(var\(--wizard-stepper-sticky-height/)
+  assert.match(source, /class="wizard-progress"[\s\S]*projectWizardProgressLabel/)
+  assert.match(source, /label="建设单位联系人"/)
+  assert.match(source, /label="建设单位联系电话"/)
+  assert.match(source, /label="项目经理"/)
+  assert.doesNotMatch(source, /<span>第 \{\{ projectWizardStepIndex \+ 1 \}\} \/ \{\{ projectWizardSteps\.length \}\} 步<\/span>/)
+})
+
 test('preview header stays compact so the PDF gets more vertical space', () => {
   const source = readWorkspaceFile('src/components/project/ContractPdfPreview.vue')
 
