@@ -19,23 +19,45 @@
       </button>
     </nav>
 
-    <section v-if="activeView === 'overview'" class="view-panel">
-      <div class="panel-title">
-        <div>
-          <h2>结算管理概览</h2>
-          <span>只展示结算财务接口返回的汇总数据，未接入字段显示为“未接入”。</span>
+    <section v-if="activeView === 'overview'" class="view-panel finance-overview-panel">
+      <div class="finance-overview__hero">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">SETTLEMENT OVERVIEW</p>
+            <h2>结算经营概览</h2>
+            <span>以真实结算财务接口返回的数据为准，快速判断当前应收、已收和可推进事项。</span>
+          </div>
+        </div>
+        <div class="finance-overview__focus">
+          <span>{{ overviewFocusMetric.label }}</span>
+          <strong>{{ overviewFocusMetric.value }}</strong>
+          <small>{{ overviewFocusMetric.hint }}</small>
         </div>
       </div>
-      <div class="metric-grid metric-grid--wide">
-        <article v-for="item in overviewMetrics" :key="item.label" class="metric-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-          <em>{{ item.hint }}</em>
-        </article>
+      <div v-for="group in overviewMetricGroups" :key="group.label" class="finance-overview__metric-group">
+        <div class="finance-overview__section-head">
+          <div>
+            <h3>{{ group.label }}</h3>
+            <span>{{ group.hint }}</span>
+          </div>
+        </div>
+        <div class="metric-grid metric-grid--wide">
+          <article v-for="item in group.items" :key="item.label" class="metric-card" :class="`metric-card--${item.tone}`">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <em>{{ item.hint }}</em>
+          </article>
+        </div>
       </div>
       <div class="board-grid">
         <article class="sub-panel">
-          <h3>今日重点待办</h3>
+          <div class="sub-panel__head">
+            <div>
+              <h3>今日重点待办</h3>
+              <span>从财务工作台接口同步</span>
+            </div>
+            <strong>{{ workbenchItems.length }}</strong>
+          </div>
           <EmptyBlock v-if="workbenchItems.length === 0" title="暂无真实待办" text="财务工作台接口未返回待办数据。" />
           <div v-else class="todo-list">
             <button v-for="item in workbenchItems" :key="item.id" type="button">
@@ -45,11 +67,22 @@
           </div>
         </article>
         <article class="sub-panel">
-          <h3>回款风险排行</h3>
+          <div class="sub-panel__head">
+            <div>
+              <h3>回款风险排行</h3>
+              <span>需要风险接口返回后展示</span>
+            </div>
+          </div>
           <EmptyBlock title="暂无真实风险数据" text="逾期、可收款和责任人排行需要结算财务接口返回后展示。" />
         </article>
         <article class="sub-panel">
-          <h3>结算进度分布</h3>
+          <div class="sub-panel__head">
+            <div>
+              <h3>结算进度分布</h3>
+              <span>按项目结算台账状态汇总</span>
+            </div>
+            <strong>{{ settlementProjects.length }}</strong>
+          </div>
           <EmptyBlock v-if="settlementProjects.length === 0" title="暂无结算台账数据" text="未读取到项目结算台账。" />
           <div v-else class="status-list">
             <span v-for="item in settlementStatusStats" :key="item.status">
@@ -67,17 +100,45 @@
           <span>待开发票、待登记收款、待上传回单、逾期未收款等任务从财务工作台接口读取。</span>
         </div>
       </div>
-      <DataTable :columns="['项目名称', '建设单位/付款单位', '当前付款节点', '应收/应付金额', '剩余金额', '状态/操作']">
-        <article v-for="item in workbenchItems" :key="item.id" class="table-row table-row--six">
-          <span>{{ item.projectName || '-' }}</span>
-          <span>{{ item.ownerUnit || '-' }}</span>
-          <span>{{ item.currentNode || '-' }}</span>
-          <MoneyCell :amount="item.amount" />
-          <MoneyCell :amount="item.remainingAmount" />
-          <span><em class="status-pill" :class="{ danger: item.isOverdue }">{{ item.action || item.invoiceStatus || '-' }}</em></span>
+      <div class="finance-view-summary">
+        <div>
+          <strong>{{ workbenchSummary.total }} 条待办</strong>
+          <span>按当前接口返回的财务动作排序</span>
+        </div>
+        <div class="finance-view-summary__chips">
+          <span>逾期 <b>{{ workbenchSummary.overdue }}</b></span>
+          <span>未收金额 <b>{{ formatNullableMoney(workbenchSummary.remainingAmount) }}</b></span>
+        </div>
+      </div>
+      <div class="finance-record-table finance-workbench-table" role="table" aria-label="财务工作台">
+        <div class="finance-record-table__head" role="row">
+          <span>待办项目</span>
+          <span>付款节点</span>
+          <span>应收 / 应付</span>
+          <span>剩余金额</span>
+          <span>状态与动作</span>
+        </div>
+        <article v-for="item in workbenchItems" :key="item.id" class="finance-record-table__row" role="row">
+          <span class="finance-record-table__project">
+            <strong>{{ item.projectName || '项目名称待补充' }}</strong>
+            <small>{{ item.ownerUnit || '建设 / 付款单位待补充' }}</small>
+          </span>
+          <span class="finance-record-table__stack">
+            <strong>{{ item.currentNode || '付款节点待补充' }}</strong>
+            <small v-if="item.dueDate">到期日：{{ item.dueDate }}</small>
+          </span>
+          <strong class="finance-record-table__amount">{{ formatNullableMoney(item.amount) }}</strong>
+          <strong class="finance-record-table__amount">{{ formatNullableMoney(item.remainingAmount) }}</strong>
+          <span class="finance-record-table__status">
+            <em class="status-pill" :class="{ danger: item.isOverdue }">{{ item.action || item.invoiceStatus || item.documentStatus || '待处理' }}</em>
+            <small v-if="item.isOverdue">需要优先跟进</small>
+          </span>
         </article>
-        <div v-if="workbenchItems.length === 0" class="empty-row">暂无真实财务待办</div>
-      </DataTable>
+        <div v-if="workbenchItems.length === 0" class="finance-record-table__empty">
+          <strong>暂无真实财务待办</strong>
+          <span>当前财务工作台接口没有返回待开发票、待登记收款或逾期任务。</span>
+        </div>
+      </div>
     </section>
 
     <section v-else-if="activeView === 'ledger'" class="view-panel">
@@ -169,20 +230,46 @@
           <span>发票号码、金额、税率、状态和回款联动均来自发票接口。</span>
         </div>
       </div>
-      <DataTable :columns="['发票编号', '项目/合同', '付款节点', '发票金额', '开票日期', '状态']">
-        <article v-for="item in invoices" :key="item.id" class="table-row table-row--six">
-          <span>{{ item.invoiceNo || '-' }}</span>
-          <span>
-            <strong>{{ item.projectName || '-' }}</strong>
-            <small>{{ item.contractName || '-' }}</small>
+      <div class="finance-view-summary">
+        <div>
+          <strong>{{ invoiceSummary.total }} 条发票记录</strong>
+          <span>发票号码、金额、税率和回款联动均来自发票接口</span>
+        </div>
+        <div class="finance-view-summary__chips">
+          <span>开票金额 <b>{{ formatNullableMoney(invoiceSummary.amount) }}</b></span>
+        </div>
+      </div>
+      <div class="finance-record-table" role="table" aria-label="发票管理">
+        <div class="finance-record-table__head finance-record-table__head--six" role="row">
+          <span>发票识别</span>
+          <span>项目与合同</span>
+          <span>付款节点</span>
+          <span>发票金额</span>
+          <span>开票日期</span>
+          <span>回款状态</span>
+        </div>
+        <article v-for="item in invoices" :key="item.id" class="finance-record-table__row finance-record-table__row--six" role="row">
+          <span class="finance-record-table__stack">
+            <strong>{{ item.invoiceNo || '发票编号待补充' }}</strong>
+            <small>{{ item.invoiceType || '发票记录' }}<template v-if="item.taxRate !== undefined"> · 税率 {{ item.taxRate }}%</template></small>
           </span>
-          <span>{{ item.paymentNodeName || '-' }}</span>
-          <MoneyCell :amount="item.invoiceAmount" />
-          <span>{{ item.invoiceDate || '-' }}</span>
-          <span><em class="status-pill">{{ item.invoiceStatus || item.collectionStatus || '-' }}</em></span>
+          <span class="finance-record-table__project">
+            <strong>{{ item.projectName || '项目名称待补充' }}</strong>
+            <small>{{ item.contractName || '合同名称待补充' }}</small>
+          </span>
+          <span>{{ item.paymentNodeName || '付款节点待补充' }}</span>
+          <strong class="finance-record-table__amount">{{ formatNullableMoney(item.invoiceAmount) }}</strong>
+          <span>{{ item.invoiceDate || '开票日期待补充' }}</span>
+          <span class="finance-record-table__status">
+            <em class="status-pill">{{ item.invoiceStatus || '状态待补充' }}</em>
+            <small v-if="item.collectionStatus">{{ item.collectionStatus }}</small>
+          </span>
         </article>
-        <div v-if="invoices.length === 0" class="empty-row">暂无真实发票记录</div>
-      </DataTable>
+        <div v-if="invoices.length === 0" class="finance-record-table__empty">
+          <strong>暂无真实发票记录</strong>
+          <span>发票接口返回记录后，这里会按项目、付款节点和回款状态集中展示。</span>
+        </div>
+      </div>
     </section>
 
     <section v-else-if="activeView === 'payment'" class="view-panel">
@@ -240,20 +327,45 @@
           <span>质保金金额、到期日和退还状态从质保金接口读取。</span>
         </div>
       </div>
-      <DataTable :columns="['项目/合同', '质保金比例', '质保金金额', '开始日期', '到期日期', '退还状态']">
-        <article v-for="item in retentions" :key="item.id" class="table-row table-row--six">
-          <span>
-            <strong>{{ item.projectName || '-' }}</strong>
-            <small>{{ item.contractName || '-' }}</small>
+      <div class="finance-view-summary">
+        <div>
+          <strong>{{ retentionSummary.total }} 条质保金记录</strong>
+          <span>质保金金额、期限和退还状态来自质保金接口</span>
+        </div>
+        <div class="finance-view-summary__chips">
+          <span>质保金金额 <b>{{ formatNullableMoney(retentionSummary.amount) }}</b></span>
+          <span>待退还 <b>{{ retentionSummary.due }}</b></span>
+        </div>
+      </div>
+      <div class="finance-record-table finance-retention-table" role="table" aria-label="质保金管理">
+        <div class="finance-record-table__head" role="row">
+          <span>项目与合同</span>
+          <span>质保金比例</span>
+          <span>质保金金额</span>
+          <span>质保期</span>
+          <span>退还状态</span>
+        </div>
+        <article v-for="item in retentions" :key="item.id" class="finance-record-table__row" role="row">
+          <span class="finance-record-table__project">
+            <strong>{{ item.projectName || '项目名称待补充' }}</strong>
+            <small>{{ item.contractName || '合同名称待补充' }}</small>
           </span>
-          <span>{{ formatRatio(item.retentionRatio) }}</span>
-          <MoneyCell :amount="item.retentionAmount" />
-          <span>{{ item.warrantyStartDate || '-' }}</span>
-          <span>{{ item.warrantyEndDate || '-' }}</span>
-          <span><em class="status-pill" :class="{ danger: item.isDue && item.refundStatus !== '已退还' }">{{ item.refundStatus || '-' }}</em></span>
+          <strong>{{ formatRatio(item.retentionRatio) }}</strong>
+          <strong class="finance-record-table__amount">{{ formatNullableMoney(item.retentionAmount) }}</strong>
+          <span class="finance-record-table__stack">
+            <strong>{{ item.warrantyStartDate || '开始日期待补充' }}</strong>
+            <small>至 {{ item.warrantyEndDate || '到期日期待补充' }}</small>
+          </span>
+          <span class="finance-record-table__status">
+            <em class="status-pill" :class="{ danger: item.isDue && item.refundStatus !== '已退还' }">{{ item.refundStatus || '退还状态待补充' }}</em>
+            <small v-if="item.refundDate">退还日：{{ item.refundDate }}</small>
+          </span>
         </article>
-        <div v-if="retentions.length === 0" class="empty-row">暂无真实质保金记录</div>
-      </DataTable>
+        <div v-if="retentions.length === 0" class="finance-record-table__empty">
+          <strong>暂无真实质保金记录</strong>
+          <span>质保金接口返回记录后，这里会展示质保比例、质保期和退还状态。</span>
+        </div>
+      </div>
     </section>
 
     <p v-if="loadMessage" class="system-note">{{ loadMessage }}</p>
@@ -732,15 +844,64 @@ const loadMessage = computed(() => {
   return `以下结算财务接口暂未接入或无权限访问：${unavailableEndpoints.value.join('、')}`
 })
 const overviewMetrics = computed(() => [
-  metric('合同总金额', overviewDashboard.value?.contractTotalAmount),
-  metric('审定总金额', overviewDashboard.value?.auditedTotalAmount),
-  metric('已开票金额', overviewDashboard.value?.invoiceTotalAmount),
-  metric('已收款金额', overviewDashboard.value?.receivedTotalAmount),
-  metric('待收款金额', overviewDashboard.value?.receivableAmount),
-  metric('逾期未收款', overviewDashboard.value?.overdueReceivableAmount),
-  metric('质保金余额', overviewDashboard.value?.retentionAmount),
-  metric('可申请收款金额', overviewDashboard.value?.collectibleAmount),
+  metric('合同总金额', overviewDashboard.value?.contractTotalAmount, 'blue'),
+  metric('审定总金额', overviewDashboard.value?.auditedTotalAmount, 'blue'),
+  metric('已开票金额', overviewDashboard.value?.invoiceTotalAmount, 'green'),
+  metric('已收款金额', overviewDashboard.value?.receivedTotalAmount, 'green'),
+  metric('待收款金额', overviewDashboard.value?.receivableAmount, 'orange'),
+  metric('逾期未收款', overviewDashboard.value?.overdueReceivableAmount, 'red'),
+  metric('质保金余额', overviewDashboard.value?.retentionAmount, 'purple'),
+  metric('可申请收款金额', overviewDashboard.value?.collectibleAmount, 'purple'),
 ])
+
+const overviewFocusMetric = computed(() => metric('当前待收款', overviewDashboard.value?.receivableAmount, 'orange'))
+const overviewMetricGroups = computed(() => [
+  {
+    label: '合同与审计',
+    hint: '从合同、送审和审定数据判断结算基数。',
+    items: overviewMetrics.value.slice(0, 2),
+  },
+  {
+    label: '开票与回款',
+    hint: '对照已开票、已收款和待收款状态。',
+    items: overviewMetrics.value.slice(2, 6),
+  },
+  {
+    label: '质保与可推进金额',
+    hint: '仅展示接口已返回的质保金和可申请收款数据。',
+    items: overviewMetrics.value.slice(6),
+  },
+])
+
+const workbenchSummary = computed(() => {
+  const hasRemainingAmount = workbenchItems.value.some((item) => item.remainingAmount !== undefined && item.remainingAmount !== null)
+  return {
+    total: workbenchItems.value.length,
+    overdue: workbenchItems.value.filter((item) => item.isOverdue).length,
+    remainingAmount: hasRemainingAmount
+      ? workbenchItems.value.reduce((total, item) => total + Number(item.remainingAmount || 0), 0)
+      : undefined,
+  }
+})
+
+const invoiceSummary = computed(() => {
+  const hasInvoiceAmount = invoices.value.some((item) => item.invoiceAmount !== undefined && item.invoiceAmount !== null)
+  return {
+    total: invoices.value.length,
+    amount: hasInvoiceAmount ? invoices.value.reduce((total, item) => total + Number(item.invoiceAmount || 0), 0) : undefined,
+  }
+})
+
+const retentionSummary = computed(() => {
+  const hasRetentionAmount = retentions.value.some((item) => item.retentionAmount !== undefined && item.retentionAmount !== null)
+  return {
+    total: retentions.value.length,
+    due: retentions.value.filter((item) => item.isDue && item.refundStatus !== '已退还').length,
+    amount: hasRetentionAmount
+      ? retentions.value.reduce((total, item) => total + Number(item.retentionAmount || 0), 0)
+      : undefined,
+  }
+})
 
 const settlementStatusStats = computed(() => {
   const map = new Map<string, number>()
@@ -846,9 +1007,9 @@ const MoneyCell = defineComponent({
   },
 })
 
-function metric(label: string, value?: number) {
-  if (value === undefined || value === null) return { label, value: '未接入', hint: '等待结算财务接口' }
-  return { label, value: formatWan(value), hint: amountToChineseUpper(value) }
+function metric(label: string, value?: number, tone = 'blue') {
+  if (value === undefined || value === null) return { label, value: '未接入', hint: '等待结算财务接口', tone }
+  return { label, value: formatWan(value), hint: amountToChineseUpper(value), tone }
 }
 
 function formatNullableMoney(value?: number) {
@@ -1291,6 +1452,268 @@ small,
   overflow-wrap: anywhere;
   font-size: 12px;
   font-style: normal;
+}
+
+.finance-overview-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.finance-overview__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 18px;
+  align-items: stretch;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 86% 20%, rgba(105, 161, 255, .22), transparent 36%),
+    linear-gradient(135deg, rgba(235, 244, 255, .96), rgba(255, 255, 255, .62));
+  border: 1px solid rgba(76, 132, 224, .2);
+  border-radius: var(--premium-radius);
+}
+
+.finance-overview__hero .panel-title {
+  align-self: center;
+  margin: 0;
+}
+
+.finance-overview__hero .panel-title h2 {
+  font-size: 24px;
+}
+
+.finance-overview__focus {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 16px 18px;
+  color: #fff;
+  background: linear-gradient(145deg, #2f7cff, #165dff 70%, #123ba7);
+  border-radius: calc(var(--premium-radius) - 2px);
+  box-shadow: 0 14px 28px rgba(22, 93, 255, .2);
+}
+
+.finance-overview__focus span,
+.finance-overview__focus small {
+  color: rgba(255, 255, 255, .78);
+}
+
+.finance-overview__focus strong {
+  overflow-wrap: anywhere;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.finance-overview__focus small {
+  font-size: 12px;
+}
+
+.finance-overview__metric-group {
+  display: grid;
+  gap: 10px;
+}
+
+.finance-overview__section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.finance-overview__section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.finance-overview__section-head h3 {
+  font-size: 15px;
+}
+
+.finance-overview__section-head span {
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.metric-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--metric-accent, var(--premium-blue));
+}
+
+.metric-card--blue { --metric-accent: #2f7cff; }
+.metric-card--green { --metric-accent: #00a870; }
+.metric-card--orange { --metric-accent: #f2994a; }
+.metric-card--red { --metric-accent: #e5484d; }
+.metric-card--purple { --metric-accent: #7c5cff; }
+
+.sub-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sub-panel__head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sub-panel__head span {
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.sub-panel__head > strong {
+  color: var(--premium-blue);
+  font-size: 20px;
+}
+
+.finance-view-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -2px 0 12px;
+  padding: 12px 14px;
+  background: rgba(241, 247, 255, .72);
+  border: 1px solid rgba(128, 158, 210, .18);
+  border-radius: var(--premium-radius-compact);
+}
+
+.finance-view-summary > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.finance-view-summary > div:first-child span {
+  color: var(--premium-muted);
+  font-size: 12px;
+}
+
+.finance-view-summary__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.finance-view-summary__chips span {
+  padding: 6px 9px;
+  color: var(--premium-muted);
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(128, 158, 210, .16);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.finance-view-summary__chips b {
+  margin-left: 4px;
+  color: var(--premium-ink);
+}
+
+.finance-record-table {
+  overflow-x: auto;
+  border: 1px solid rgba(128, 158, 210, .22);
+  border-radius: var(--premium-radius);
+}
+
+.finance-record-table__head,
+.finance-record-table__row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.45fr) minmax(170px, 1.05fr) minmax(130px, .85fr) minmax(130px, .85fr) minmax(150px, .95fr);
+  gap: 14px;
+  min-width: 900px;
+  align-items: center;
+}
+
+.finance-record-table__head {
+  padding: 12px 14px;
+  color: #385071;
+  background: rgba(232, 241, 255, .82);
+  border-bottom: 1px solid rgba(128, 158, 210, .18);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.finance-record-table__row {
+  min-height: 74px;
+  padding: 13px 14px;
+  background: rgba(255, 255, 255, .55);
+  border-top: 1px solid rgba(128, 158, 210, .16);
+}
+
+.finance-record-table__row:hover {
+  background: rgba(246, 250, 255, .94);
+}
+
+.finance-record-table__row--six,
+.finance-record-table__head--six {
+  grid-template-columns: minmax(180px, 1.1fr) minmax(210px, 1.35fr) minmax(150px, .95fr) minmax(130px, .85fr) minmax(130px, .8fr) minmax(150px, .95fr);
+  min-width: 1050px;
+}
+
+.finance-retention-table .finance-record-table__head,
+.finance-retention-table .finance-record-table__row {
+  grid-template-columns: minmax(220px, 1.4fr) minmax(120px, .7fr) minmax(150px, .9fr) minmax(190px, 1.1fr) minmax(160px, .95fr);
+  min-width: 850px;
+}
+
+.finance-record-table__project,
+.finance-record-table__stack,
+.finance-record-table__status {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.finance-record-table__project strong,
+.finance-record-table__project small,
+.finance-record-table__stack strong,
+.finance-record-table__stack small,
+.finance-record-table__status small {
+  overflow-wrap: anywhere;
+}
+
+.finance-record-table__project small,
+.finance-record-table__stack small,
+.finance-record-table__status small {
+  color: var(--premium-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.finance-record-table__amount {
+  overflow-wrap: anywhere;
+  color: var(--premium-ink);
+  font-size: 14px;
+}
+
+.finance-record-table__status .status-pill {
+  justify-self: start;
+}
+
+.finance-record-table__empty {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 150px;
+  padding: 24px;
+  color: var(--premium-muted);
+  text-align: center;
+  background: rgba(255, 255, 255, .48);
+  border-top: 1px solid rgba(128, 158, 210, .16);
+}
+
+.finance-record-table__empty strong {
+  color: var(--premium-ink);
 }
 
 .board-grid {
@@ -2011,6 +2434,19 @@ small,
   .table-row--six {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .finance-overview__hero {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-record-table__head,
+  .finance-record-table__row,
+  .finance-record-table__row--six,
+  .finance-record-table__head--six,
+  .finance-retention-table .finance-record-table__head,
+  .finance-retention-table .finance-record-table__row {
+    min-width: 760px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -2026,6 +2462,15 @@ small,
     justify-content: flex-start;
   }
 
+  .finance-view-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .finance-view-summary__chips {
+    justify-content: flex-start;
+  }
+
   .metric-grid--wide,
   .board-grid,
   .table-row--six,
@@ -2036,6 +2481,14 @@ small,
   .wizard-review-list,
   .wizard-choice-grid {
     grid-template-columns: 1fr;
+  }
+
+  .finance-overview__hero {
+    padding: 14px;
+  }
+
+  .finance-overview__focus strong {
+    font-size: 24px;
   }
 
   .form-span-2 {

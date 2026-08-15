@@ -1387,6 +1387,41 @@ async function logout() {
   padding: 0;
 }
 
+/* The hover state is an expanded presentation of the icon rail, not a second
+ * collapsed layout. Keep this override after the icon-only rules so the labels
+ * are restored when the pointer enters the rail. */
+@media (min-width: 761px) {
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-module-heading {
+    grid-template-columns: 24px minmax(0, 1fr) 18px;
+    justify-items: stretch;
+    padding: 0 8px;
+  }
+
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-module-heading strong,
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-module-caret,
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-collapse-toggle span,
+  .system-shell.system-shell--icon.system-shell--icon-hover .nav-section-title,
+  .system-shell.system-shell--icon.system-shell--icon-hover .module-link > span:not(.module-link__icon),
+  .system-shell.system-shell--icon.system-shell--icon-hover .module-link small {
+    display: initial;
+  }
+
+  .system-shell.system-shell--icon.system-shell--icon-hover .module-link {
+    justify-content: flex-start;
+    padding-inline: 10px;
+  }
+
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-foot {
+    justify-content: stretch;
+  }
+
+  .system-shell.system-shell--icon.system-shell--icon-hover .sidebar-collapse-toggle {
+    width: auto;
+    min-width: 0;
+    padding: 0 12px;
+  }
+}
+
 .sidebar-resizer {
   position: absolute;
   top: 0;
