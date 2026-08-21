@@ -5,13 +5,13 @@ description: Use when designing, reviewing, or implementing the Jiqing ERP login
 
 # Jiqing ERP Login Page
 
-Use this skill for \`src/views/LoginView.vue\`, login copy, authentication-entry UX, password interaction, account-opening guidance, or login-page visual review.
+Use this skill for `src/views/LoginView.vue`, login copy, authentication-entry UX, password interaction, account-opening guidance, or login-page visual review.
 
 ## Current design
 
 - The login page is intentionally separate from the logged-in workbench background.
 - The desktop composition is a two-column layout: brand/utility narrative on the left and a focused account card on the right.
-- The left side uses the construction logo, \`JIQING CONSTRUCTION\`, the title 工程管理系统, the line 项目协同、资料归档、审计流转, and three capability chips: 项目、资料、审计.
+- The left side uses the construction logo, `JIQING CONSTRUCTION`, the title 工程管理系统, the line 项目协同、资料归档、审计流转, and three capability chips: 项目、资料、审计.
 - The page uses a pale blue-gray asset plus a blue-white gradient and subtle diagonal line overlay. Keep the background quiet enough for the form to remain the strongest action surface.
 - The form card uses a translucent white surface, soft border, 18px desktop radius, large shadow, and restrained blue primary accents. Do not turn the login page into the denser workbench chrome.
 
@@ -49,10 +49,10 @@ Use this skill for \`src/views/LoginView.vue\`, login copy, authentication-entry
 
 ## Source files
 
-- \`src/views/LoginView.vue\`
-- \`src/assets/login-page-bg-grey.jpg\`
-- \`src/assets/aoqiang-construction-logo.svg\`
-- \`src/store/auth.ts\`
-- \`src/router/index.ts\`
-- \`Jiqing-ERP-Memory/02-产品决策/2026-07-16-工作台背景与管理员配置边界.md\`
-- \`Jiqing-ERP-Memory/02-产品决策/2026-07-29-个人设置与后台管理职责边界.md\`
+- `src/views/LoginView.vue`
+- `src/assets/login-page-bg-grey.jpg`
+- `src/assets/aoqiang-construction-logo.svg`
+- `src/store/auth.ts`
+- `src/router/index.ts`
+- `Jiqing-ERP-Memory/02-产品决策/2026-07-16-工作台背景与管理员配置边界.md`
+- `Jiqing-ERP-Memory/02-产品决策/2026-07-29-个人设置与后台管理职责边界.md`
